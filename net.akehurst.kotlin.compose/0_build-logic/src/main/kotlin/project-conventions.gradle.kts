@@ -25,20 +25,19 @@ plugins {
     alias(libs.plugins.kotlin)
     alias(libs.plugins.dokka)
     alias(libs.plugins.buildconfig)
-    `maven-publish`
     signing
+    alias(libs.plugins.vanniktech.maven.publish)
 }
 val kotlin_languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
 val kotlin_apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
 val jvmTargetVersion = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
 
 repositories {
-    //TODO: remove mavenLocal repo
-    mavenLocal {
-        content {
-            includeGroupByRegex("net\\.akehurst.+")
-        }
-    }
+//    mavenLocal {
+//        content {
+//            includeGroupByRegex("net\\.akehurst.+")
+//        }
+//    }
     mavenCentral()
     google()
     gradlePluginPortal()
@@ -143,11 +142,6 @@ tasks.named<Test>("jvmTest") {
     }
 }
 
-val sonatype_pwd = null/*creds.forKey("SONATYPE_PASSWORD")*/
-    ?: getProjectProperty("SONATYPE_PASSWORD")
-    ?: error("Must set project property with Sonatype Password (-P SONATYPE_PASSWORD=<...> or set in ~/.gradle/gradle.properties)")
-project.ext.set("signing.password", sonatype_pwd)
-
 signing {
     setRequired( {  gradle.taskGraph.hasTask("uploadArchives") })
     useGpgCmd()
@@ -163,51 +157,32 @@ tasks.forEach {
     }
 }
 
-publishing {
-    repositories {
-        maven {
-            name = "Other"
-            setUrl(getProjectProperty("PUB_URL") ?: "<use -P PUB_URL=<...> to set>")
-            credentials {
-                username = getProjectProperty("PUB_USERNAME")
-                    ?: error("Must set project property with Username (-P PUB_USERNAME=<...> or set in ~/.gradle/gradle.properties)")
-                password = getProjectProperty("PUB_PASSWORD")
-                    //?: creds.forKey(getProjectProperty("PUB_USERNAME"))
+mavenPublishing {
+    signAllPublications()
+    publishToMavenCentral(automaticRelease = false)
+
+    coordinates(group as String, project.name, version as String)
+    pom {
+        name.set("akehurst-kotlinx")
+        description.set("Useful Kotlin stuff that is missing from the stdlib, e.g. reflection, logging, native-filesystem-dialogs, etc")
+        url.set("https://github.com/dhakehurst/net.akehurst.kotlinx")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
-
-        maven {
-            name = "sonatype"
-            setUrl("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
-            credentials {
-                username = getProjectProperty("SONATYPE_USERNAME")
-                    ?: error("Must set project property with Sonatype Username (-P SONATYPE_USERNAME=<...> or set in ~/.gradle/gradle.properties)")
-                password = sonatype_pwd
+        developers {
+            developer {
+                name.set("Dr. David H. Akehurst")
+                email.set("dr.david.h@akehurst.net")
+                url.set("https://github.com/dhakehurst")
             }
         }
-    }
-    publications.withType<MavenPublication> {
-        artifact(javadocJar.get())
-        pom {
-            name.set("AGL Parser, Processor, etc")
-            description.set("Dynamic, scan-on-demand, parsing; when a regular expression is just not enough")
-            url.set("https://medium.com/@dr.david.h.akehurst/a-kotlin-multi-platform-parser-usable-from-a-jvm-or-javascript-59e870832a79")
-
-            licenses {
-                license {
-                    name.set("The Apache License, Version 2.0")
-                    url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                }
-            }
-            developers {
-                developer {
-                    name.set("Dr. David H. Akehurst")
-                    email.set("dr.david.h@akehurst.net")
-                }
-            }
-            scm {
-                url.set("https://github.com/dhakehurst/net.akehurst.language")
-            }
+        scm {
+            url.set("https://github.com/dhakehurst/net.akehurst.kotlinx")
         }
     }
 }
