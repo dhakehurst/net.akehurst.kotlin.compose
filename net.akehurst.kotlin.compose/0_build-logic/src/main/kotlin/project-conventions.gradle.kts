@@ -33,11 +33,14 @@ val kotlin_apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2
 val jvmTargetVersion = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
 
 repositories {
-//    mavenLocal {
-//        content {
-//            includeGroupByRegex("net\\.akehurst.+")
-//        }
-//    }
+    mavenLocal {
+        content {
+            includeGroupByRegex("net\\.akehurst.+")
+        }
+        mavenContent {
+            snapshotsOnly()
+        }
+    }
     mavenCentral()
     google()
     gradlePluginPortal()
@@ -163,9 +166,9 @@ mavenPublishing {
 
     coordinates(group as String, project.name, version as String)
     pom {
-        name.set("akehurst-kotlinx")
-        description.set("Useful Kotlin stuff that is missing from the stdlib, e.g. reflection, logging, native-filesystem-dialogs, etc")
-        url.set("https://github.com/dhakehurst/net.akehurst.kotlinx")
+        name.set("akehurst-kotlin-compose")
+        description.set("Useful Kotlin compose components")
+        url.set("https://github.com/dhakehurst/net.akehurst.kotlin.compose")
 
         licenses {
             license {
@@ -182,7 +185,7 @@ mavenPublishing {
             }
         }
         scm {
-            url.set("https://github.com/dhakehurst/net.akehurst.kotlinx")
+            url.set("https://github.com/dhakehurst/net.akehurst.kotlin.compose")
         }
     }
 }

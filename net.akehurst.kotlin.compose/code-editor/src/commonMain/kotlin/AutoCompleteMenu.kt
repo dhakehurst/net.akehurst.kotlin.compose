@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.akehurst.kotlin.compose.editor.api.*
 
@@ -234,7 +235,6 @@ class AutocompleteStateCompose(
     val getMenuOffset: () -> IntOffset,
     val insertText: (offset: Int, text: String) -> Unit
 ) : AutocompleteState {
-    var scope: CoroutineScope? = null
 
     var requestAutocompleteSuggestions: AutocompleteFunction = { _, _ -> }
 
@@ -263,8 +263,7 @@ class AutocompleteStateCompose(
     }
 
     fun scrollToSelected() {
-        //println(selectedIndex)
-        scope?.launch {
+        CoroutineScope(Dispatchers.Default).launch {
             val dist = dropdownItemHeight.take(selectedIndex).sum()
             scrollState.scrollTo(dist - 100)
         }
@@ -356,7 +355,7 @@ class AutocompleteStateCompose(
                 }
             }
         }
-        scope?.launch {
+        CoroutineScope(Dispatchers.Default).launch {
             requestAutocompleteSuggestions.invoke(AutocompleteRequestData(getCursorPosition(), getText(), isOpen, selectedIndex, proposalPathDelta, depthDelta), result)
         }
     }

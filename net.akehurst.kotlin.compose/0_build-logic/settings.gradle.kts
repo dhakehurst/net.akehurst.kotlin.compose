@@ -20,6 +20,9 @@ pluginManagement {
             content {
                 includeGroupByRegex("net\\.akehurst.+")
             }
+            mavenContent {
+                snapshotsOnly()
+            }
         }
         mavenCentral()
         google()
@@ -27,5 +30,5 @@ pluginManagement {
     }
 }
 plugins {
-    id("dev.panuszewski.typesafe-conventions") version "0.7.4"
+    id("dev.panuszewski.typesafe-conventions") version "0.10.0"
 }

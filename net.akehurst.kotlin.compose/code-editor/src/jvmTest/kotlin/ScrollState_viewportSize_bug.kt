@@ -25,8 +25,8 @@ import androidx.compose.material.TextField
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import org.junit.Test;
 import androidx.compose.ui.window.singleWindowApplication
+import kotlin.test.Test
 
 class ScrollState_viewportSize_bug {
 
