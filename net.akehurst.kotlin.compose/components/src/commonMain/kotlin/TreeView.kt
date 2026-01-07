@@ -71,6 +71,27 @@ fun TreeView(
 
     val expandedItems = remember { mutableStateListOf<TreeViewNode>() }
     val nodes = stateHolder.items.collectAsState()
+
+    // Collect children state for all expanded nodes to trigger recomposition
+    val allNodesWithChildren = remember(nodes.value, expandedItems.size) {
+        mutableListOf<TreeViewNode>().apply {
+            fun collect(list: List<TreeViewNode>) {
+                list.forEach { node ->
+                    if (node.hasChildren) add(node)
+                    if (expandedItems.contains(node)) {
+                        collect(node.children.value)
+                    }
+                }
+            }
+            collect(nodes.value)
+        }
+    }
+
+    // Observe all expanded nodes' children to trigger recomposition when they load
+    allNodesWithChildren.forEach { node ->
+        node.children.collectAsState()
+    }
+
     LazyColumn(
         state = stateHolder.lazyListState,
         modifier = modifier,
@@ -127,7 +148,9 @@ fun LazyListScope.node(
     expanded: @Composable (Modifier) -> Unit,
     collapsed: @Composable (Modifier) -> Unit
 ) {
-    item {
+    item(key = node.id) {
+        val nodeExpanded = isExpanded(node)
+
         Row(
             modifier = Modifier
                 .clickable { onSelectItem.invoke(node) }
@@ -135,7 +158,7 @@ fun LazyListScope.node(
             Spacer(Modifier.width((20 * level).dp))
             when {
                 node.hasChildren -> when {
-                    isExpanded(node) -> expanded.invoke(Modifier.clickable { toggleExpanded(node) })
+                    nodeExpanded -> expanded.invoke(Modifier.clickable { toggleExpanded(node) })
                     else -> collapsed.invoke(Modifier.clickable { toggleExpanded(node) })
                 }
 
@@ -143,9 +166,12 @@ fun LazyListScope.node(
             }
             node.content.invoke()
         }
-        LaunchedEffect(isExpanded(node)) {
-            val fetched = node.fetchChildren.invoke()
-            node.children.update { fetched }
+
+        LaunchedEffect(nodeExpanded) {
+            if (nodeExpanded && node.hasChildren) {
+                val fetched = node.fetchChildren.invoke()
+                node.children.update { fetched }
+            }
         }
     }
     if (isExpanded(node)) {

@@ -71,6 +71,9 @@ data class GraphLayoutEdge(
         this.content = content
     }
 
+    var colour: Color = Color.Black
+    var width: Float = 5f
+
     var content: List<@Composable () -> Unit> = emptyList(); private set
 }
 
@@ -255,6 +258,7 @@ fun GraphLayoutView(
                 },
         ) {
             var graphLayoutData by remember { mutableStateOf(SugiyamaLayoutData<GraphLayoutNode>()) }
+            var actualNodePositions by remember { mutableStateOf<Map<GraphLayoutNode, Pair<Int, Int>>>(emptyMap()) }
 
             //layout the nodes
             Layout(
@@ -277,7 +281,7 @@ fun GraphLayoutView(
                     val src = nodesById[it.sourceId]
                     val tgt = nodesById[it.targetId]
                     src?.let{ tgt?.let {
-                        Pair(src, tgt)
+                        SugiyamaEdge(it.id,src, tgt)
                     } }
                 }
                 graphLayoutData = sgl.layoutGraph(nodes, edges) // cache for use laying out edges
@@ -306,7 +310,7 @@ fun GraphLayoutView(
                     }
             ) {
                 graphLayoutData.edgeRoutes.forEach { (edge, route) ->
-                    println("** Edge: $edge ${route}")
+                    val oe = graphState.edgesById[edge.id]
                     drawPath(
                         path = Path().apply {
                             route.forEachIndexed { idx, pt ->
@@ -317,8 +321,8 @@ fun GraphLayoutView(
                                 }
                             }
                         },
-                        color = Color.Black,
-                        style = Stroke(10f)
+                        color = oe?.colour ?: Color.Black,
+                        style = Stroke(oe?.width ?: 5f)
                     )
                 }
             }

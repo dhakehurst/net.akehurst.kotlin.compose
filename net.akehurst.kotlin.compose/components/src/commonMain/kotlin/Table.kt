@@ -17,22 +17,17 @@ package net.akehurst.kotlin.compose.components.table
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 
 //TODO: fix this
 @Stable
-class TableState {
+class TableState(
+    isLazy:Boolean = false,
+) {
+    var isLazy by mutableStateOf(isLazy)
     val columnWidthPx = mutableStateMapOf<Int, Int>()
 }
 
@@ -45,7 +40,7 @@ fun TableView(
     footerModifier: Modifier = Modifier,
     headerContent: @Composable TableHeaderScope.() -> Unit = {},
     footerContent: @Composable TableFooterScope.() -> Unit = {},
-    bodyContent: TableBodyScope.() -> Unit = {}
+    bodyContent: @Composable TableBodyScope.() -> Unit = {}
 ) {
     Column(
         modifier = tableModifier
@@ -69,28 +64,10 @@ fun TableView(
             })
         }
         // body
-        LazyColumn(
-            modifier = bodyModifier
-        ) {
-            bodyContent.invoke(object : TableBodyScope, LazyListScope by this {
-                override fun tableRow(rowModifier:  @Composable ()->Modifier, content: @Composable (TableRowScope.() -> Unit)) {
-                    item {
-                        Row(modifier = rowModifier()) {
-                            val tableRowScope = object : TableRowScope, RowScope by this {
-                                @Composable
-                                override fun tableCell(column: Int, boxModifier: Modifier, content: @Composable BoxScope.() -> Unit) {
-                                    val widthPx = state.columnWidthPx[column] ?: 50
-                                    val widthDp = with(LocalDensity.current) { widthPx.toDp() }
-                                    Box(modifier = boxModifier.width(widthDp)) {
-                                        content.invoke(this)
-                                    }
-                                }
-                            }
-                            content.invoke(tableRowScope)
-                        }
-                    }
-                }
-            })
+        if (state.isLazy) {
+            lazyBody(state, bodyModifier, bodyContent)
+        } else {
+            staticBody(state, bodyModifier, bodyContent)
         }
         // footer
         Row(
@@ -113,7 +90,87 @@ fun TableView(
     }
 }
 
-interface TableScope : ColumnScope {}
+
+@Composable
+fun lazyBody(state: TableState, bodyModifier: Modifier, bodyContent: @Composable TableBodyScope.() -> Unit = {}) {
+    // Create a fresh list for this composition (not remembered, so it's recreated on each composition)
+    val rowConfigs = mutableListOf<Pair<@Composable () -> Modifier, @Composable TableRowScope.() -> Unit>>()
+
+    // Execute bodyContent to collect row definitions
+    bodyContent(
+        object : TableBodyScope {
+            @Composable
+            override fun tableRow(rowModifier: @Composable () -> Modifier, content: @Composable TableRowScope.() -> Unit) {
+                rowConfigs.add(Pair(rowModifier, content))
+            }
+        }
+    )
+
+    // Render the collected rows in LazyColumn
+    LazyColumn(
+        modifier = bodyModifier
+    ) {
+        items(rowConfigs.size) { index ->
+            val (rowModifier, content) = rowConfigs[index]
+            Row(modifier = rowModifier()) {
+                val tableRowScope = object : TableRowScope, RowScope by this {
+                    @Composable
+                    override fun tableCell(column: Int, boxModifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+                        val widthPx = state.columnWidthPx[column] ?: 50
+                        val widthDp = with(LocalDensity.current) { widthPx.toDp() }
+                        Box(modifier = boxModifier.width(widthDp)) {
+                            content.invoke(this)
+                        }
+                    }
+                }
+                content.invoke(tableRowScope)
+            }
+        }
+    }
+}
+
+
+
+
+
+@Composable
+fun staticBody(state: TableState, bodyModifier: Modifier, bodyContent: @Composable TableBodyScope.() -> Unit = {}) {
+    // Create a fresh list for this composition (not remembered, so it's recreated on each composition)
+    val rowConfigs = mutableListOf<Pair<@Composable () -> Modifier, @Composable TableRowScope.() -> Unit>>()
+
+    // Execute bodyContent to collect row definitions
+    bodyContent(
+        object : TableBodyScope {
+            @Composable
+            override fun tableRow(rowModifier: @Composable () -> Modifier, content: @Composable TableRowScope.() -> Unit) {
+                rowConfigs.add(Pair(rowModifier, content))
+            }
+        }
+    )
+
+    // Render the collected rows in Column
+    Column(
+        modifier = bodyModifier
+    ) {
+        rowConfigs.forEachIndexed { _, (rowModifier, content) ->
+            Row(modifier = rowModifier()) {
+                val tableRowScope = object : TableRowScope, RowScope by this {
+                    @Composable
+                    override fun tableCell(column: Int, boxModifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+                        val widthPx = state.columnWidthPx[column] ?: 50
+                        val widthDp = with(LocalDensity.current) { widthPx.toDp() }
+                        Box(modifier = boxModifier.width(widthDp)) {
+                            content.invoke(this)
+                        }
+                    }
+                }
+                content.invoke(tableRowScope)
+            }
+        }
+    }
+}
+
+
 interface TableHeaderScope : RowScope {
     @Composable
     fun tableHeader(rowModifier: Modifier = Modifier, content: @Composable TableHeaderRowScope.() -> Unit = {})
@@ -134,9 +191,11 @@ interface TableFooterRowScope : RowScope {
     fun tableFooterCell(boxModifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit)
 }
 
-interface TableBodyScope : LazyListScope {
-    fun tableRow(rowModifier:  @Composable ()->Modifier = {Modifier}, content: @Composable TableRowScope.() -> Unit = {})
+interface TableBodyScope {
+    @Composable
+    fun tableRow(rowModifier: @Composable () -> Modifier = { Modifier }, content: @Composable TableRowScope.() -> Unit = {})
 }
+
 
 interface TableRowScope : RowScope {
     @Composable
