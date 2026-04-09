@@ -33,6 +33,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.*
@@ -158,7 +159,7 @@ sealed class DropTarget {
     abstract val targetNodeId: String?
 
     /**
-     * @param position Window Position for the preview to be displayed
+     * Returns the preview rectangle in window coordinates for this drop target.
      */
     abstract fun previewRect(): RectInWindow
 }
@@ -200,6 +201,24 @@ fun MultiPaneLayout(
                     .onGloballyPositioned { coordinates ->
                         rootLayoutCoordinates = coordinates // Capture coordinates of the root Box
                     }
+                    // Global safety net: detect when all pointers are released while drag is active.
+                    // This handles cases where detectDragGestures' onDragEnd/onDragCancel don't fire
+                    // (e.g., composable teardown during drag due to layout recomposition).
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                if (dragState.value != null) {
+                                    val allReleased = event.changes.all { !it.pressed }
+                                    if (allReleased) {
+                                        // All pointers released — force clear the drag overlay
+                                        dragState.value = null
+                                        potentialDropTarget = null
+                                    }
+                                }
+                            }
+                        }
+                    }
             ) {
                 // Render the actual layout
                 LayoutNodeRenderer(
@@ -221,35 +240,42 @@ fun MultiPaneLayout(
                             paneBounds = paneBounds // Pass the pane size
                         )
                     },
-                    onPaneDrag = { currentScreenPosition ->
-                        //val winOffset = OffsetInScreen(rootLayoutCoordinates?.positionOnScreen() ?: Offset.Zero)
+                    onPaneDrag = onPaneDrag@{ currentScreenPosition ->
+                        val ds = dragState.value ?: return@onPaneDrag
                         val localDragPos = rootLayoutCoordinates?.screenToLocal(currentScreenPosition.value) ?: Offset.Zero
                         val winDragPos = rootLayoutCoordinates?.localToWindow(localDragPos) ?: Offset.Zero
-                        val ds = dragState.value?.copy(currentTouchScreenPosition = currentScreenPosition)
-                        dragState.value = ds
+                        val updatedDs = ds.copy(currentTouchScreenPosition = currentScreenPosition)
+                        dragState.value = updatedDs
                         // Calculate potential drop target based on current drag position and pane bounds
+                        val draggedPaneId = updatedDs.draggedPaneId ?: return@onPaneDrag
                         val dt = state.calculateDropTarget(
                             rootLayout = state.rootLayout,
-                            draggedPaneId = ds!!.draggedPaneId!!,
+                            draggedPaneId = draggedPaneId,
                             currentDragPositionInWindow = OffsetInWindow(winDragPos)
                         )
                         potentialDropTarget = dt
                     },
                     onPaneDragEnd = {
-                        // Implement the actual layout modification based on potentialDropTarget
-                        val ds = dragState.value!!
-                        if (potentialDropTarget != null && ds.draggedPaneId != null) {
-                            state.applyDrop(
-                                root = state.rootLayout,
-                                draggedPaneId = ds.draggedPaneId,
-                                draggedPaneContent = ds.paneContent!!,
-                                draggedPaneTitle = ds.paneTitle,
-                                dropTarget = potentialDropTarget!!
-                            )
-
+                        // Capture state before clearing — clearing first ensures the overlay
+                        // is removed before applyDrop triggers a layout recomposition.
+                        val ds = dragState.value
+                        val dt = potentialDropTarget
+                        dragState.value = null
+                        potentialDropTarget = null
+                        if (ds != null && dt != null && ds.draggedPaneId != null) {
+                            try {
+                                state.applyDrop(
+                                    root = state.rootLayout,
+                                    draggedPaneId = ds.draggedPaneId,
+                                    draggedPaneContent = ds.paneContent!!,
+                                    draggedPaneTitle = ds.paneTitle,
+                                    dropTarget = dt
+                                )
+                            } catch (e: Exception) {
+                                println("ERROR in applyDrop: ${e.message}")
+                                e.printStackTrace()
+                            }
                         }
-                        dragState.value = null // Corrected: Reset the value
-                        potentialDropTarget = null // Clear preview
                     }
                 )
 
@@ -261,19 +287,19 @@ fun MultiPaneLayout(
                     // Animate the position of the dragged pane visual
                     // The target value is the absolute screen position of the pane's top-left
                     val animatedOffsetInScreen by animateOffsetAsState(
-                        targetValue = renderPositionScreen, // Corrected: Access value
+                        targetValue = renderPositionScreen,
                         animationSpec = tween(durationMillis = 50), // Smooth movement
                         label = "draggedPaneOffsetAnimation"
                     )
                     // Convert window coordinates to local coordinates relative to the root Box
                     val localOffset = rootLayoutCoordinates?.screenToLocal(animatedOffsetInScreen) ?: Offset.Zero
-                    Surface(
+                    // Use Box instead of Surface to avoid intercepting pointer events
+                    Box(
                         modifier = Modifier
                             .offset { IntOffset(localOffset.x.roundToInt(), localOffset.y.roundToInt()) }
                             .zIndex(100f) // Ensure it's on top
                             .alpha(0.7f) // Semi-transparent
                             .graphicsLayer {
-                                // Optional: Add a subtle scale or shadow for visual feedback
                                 shadowElevation = 8.dp.toPx()
                                 scaleX = 1.05f
                                 scaleY = 1.05f
@@ -289,7 +315,7 @@ fun MultiPaneLayout(
                                 .border(1.dp, MaterialTheme.colorScheme.primary)
                         ) {
                             Text(
-                                text = dragState.value!!.paneTitle, // Corrected: Access value
+                                text = ds.paneTitle,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(8.dp)
@@ -312,9 +338,7 @@ fun MultiPaneLayout(
                     val localRect = rectInWindow.value.translate(offset * -1f)
                     Box(
                         modifier = Modifier
-//                        .offset { IntOffset(localTargetRect.x.roundToInt(), localTargetRect.y.roundToInt()) } // Use localTargetRect
-//                        .size(with(LocalDensity.current) { target.rect.width.toDp() }, with(LocalDensity.current) { target.rect.height.toDp() })
-                            .offset { IntOffset(localRect.left.roundToInt(), localRect.top.roundToInt()) } // Use localTargetRect
+                            .offset { IntOffset(localRect.left.roundToInt(), localRect.top.roundToInt()) }
                             .size(with(LocalDensity.current) { localRect.width.toDp() }, with(LocalDensity.current) { localRect.height.toDp() })
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                             .border(2.dp, MaterialTheme.colorScheme.primary)
@@ -487,7 +511,7 @@ class MultiPaneLayoutState(
 
     fun removePane(paneId: String) {
         val (layoutWithoutDragged, _) = removePaneFromLayout(rootLayout, paneId)
-        setRootLayout(layoutWithoutDragged ?: rootLayout)
+        setRootLayout(layoutWithoutDragged ?: LayoutNode.Empty)
     }
 
     fun selectTab(tabbedNodeId: String, index: Int) {
@@ -528,20 +552,34 @@ class MultiPaneLayoutState(
         if (draggedPaneId == tgtId) {
             return
         } else {
-            //println("applyDrop: draggedPaneId=$draggedPaneId, dropTarget=$dropTarget")
             // 1. Create the new pane object that will be inserted
             val newPane = Pane(id = draggedPaneId, title = draggedPaneTitle, content = draggedPaneContent)
 
             // 2. Remove the dragged pane from its original location
-            // This also handles collapsing empty splits or promoting single children.
             val (layoutWithoutDragged, _) = removePaneFromLayout(root, draggedPaneId)
-            // If the dragged pane was the root and removed, layoutWithoutDragged might be null.
-            // In that case, the newPane becomes the root if there's a valid drop target.
-            val newLayout = layoutWithoutDragged ?: LayoutNode.Split(orientation = SplitOrientation.Horizontal, children = emptyList(), weights = emptyList())
+            val newLayout = layoutWithoutDragged ?: LayoutNode.Empty
 
-            // 3. Insert the dragged pane into the new location based on dropTarget
-            val layout = newLayout.insertPaneIntoLayout(newPane, dropTarget)
-            setRootLayout(layout)
+            // 3. Check that ALL referenced node IDs still exist after removal.
+            //    Both the targetNodeId and otherId could be invalidated if removing the
+            //    pane collapsed its container out of the tree.
+            val targetNodeId = dropTarget.targetNodeId
+            val otherId = when (dropTarget) {
+                is DropTarget.Tabbed -> dropTarget.otherId
+                is DropTarget.Split -> dropTarget.otherId
+                is DropTarget.Reorder -> dropTarget.otherId
+            }
+            val targetExists = targetNodeId != null && newLayout.containsNodeId(targetNodeId)
+            val otherExists = otherId == null || newLayout.containsNodeId(otherId)
+
+            if (targetExists && otherExists) {
+                // 4. Insert the dragged pane into the new location
+                val layout = newLayout.insertPaneIntoLayout(newPane, dropTarget)
+                setRootLayout(layout)
+            } else {
+                // Target was invalidated — put the pane back into the layout
+                val layout = newLayout.including(newPane)
+                setRootLayout(layout)
+            }
         }
     }
 
@@ -604,7 +642,10 @@ class MultiPaneLayoutState(
                     null == removedPane -> Pair(parent, null) // Pane is not found in this branch
                     else -> when (newChildren.size) {
                         0 -> Pair(null, removedPane) // Tabbed is empty, remove it
-                        else -> Pair(parent.copy(children = newChildren), removedPane)
+                        else -> Pair(parent.copy(
+                            children = newChildren,
+                            selectedTabIndex = parent.selectedTabIndex.coerceIn(0, newChildren.size - 1)
+                        ), removedPane)
                     }
                 }
             }
@@ -619,8 +660,7 @@ class MultiPaneLayoutState(
      *
      * @param rootLayout The current root of the LayoutNode tree.
      * @param draggedPaneId The ID of the pane currently being dragged.
-     * @param currentDragPosition The absolute screen position of the cursor/touch.
-     * @param paneBoundsMap A map of Pane IDs to their absolute screen Rect bounds.
+     * @param currentDragPositionInWindow The current drag position in window coordinates.
      * @return A DropTarget object indicating the potential drop location, or null if no valid target.
      */
     internal fun calculateDropTarget(
@@ -751,117 +791,94 @@ private fun LayoutNodeRenderer(
     when (node) {
         is LayoutNode.Empty -> Unit //do nothing
         is LayoutNode.Split -> {
-            // State to hold the size of the current Split container (Row or Column)
-            var splitContainerSize by remember { mutableStateOf(IntSize.Zero) }
-
             // Ensure weights sum to 1 for correct proportional distribution
             val totalWeight = node.weights.sum()
             val normalizedWeights = node.weights.map { it / totalWeight }
+
+            // Local mutable copy of weights that updates synchronously within drag callbacks.
+            // This prevents fast-drag overshoot caused by multiple drag events reading the
+            // same stale node.weights before recomposition propagates updated weights.
+            val localWeights = remember { mutableStateListOf<Float>() }
+            // Sync local weights when node.weights changes (e.g., after recomposition)
+            LaunchedEffect(node.weights) {
+                localWeights.clear()
+                localWeights.addAll(node.weights)
+            }
+
+            // Track the parent container size for the drag ratio calculation.
+            var parentSize by remember { mutableStateOf(IntSize.Zero) }
+            val numSplitters = node.children.size - 1
+            val splitterThicknessPx = with(LocalDensity.current) { splitterThickness.roundToPx() }
+            val totalSplitterPx = numSplitters * splitterThicknessPx
 
             if (node.orientation == SplitOrientation.Horizontal) {
                 Row(
                     modifier = modifier
                         .fillMaxSize()
-                        .onGloballyPositioned { coordinates ->
-                            splitContainerSize = coordinates.size
-                        }
+                        .onSizeChanged { parentSize = it }
                 ) {
                     node.children.forEachIndexed { index, child ->
-                        //key(child) {
                             LayoutNodeRenderer(
                                 state = state,
                                 node = child,
                                 splitterThickness = splitterThickness,
                                 onSplitterDrag = onSplitterDrag,
-                                onPaneBoundsChanged = onPaneBoundsChanged, // Pass the callback down
+                                onPaneBoundsChanged = onPaneBoundsChanged,
                                 onPaneDragStart = onPaneDragStart,
                                 onPaneDrag = onPaneDrag,
                                 onPaneDragEnd = onPaneDragEnd,
-                                modifier = Modifier.weight(normalizedWeights[index])
+                                modifier = Modifier
+                                    .weight(normalizedWeights[index])
                             )
                             if (index < node.children.size - 1) {
                                 Splitter(
                                     orientation = SplitOrientation.Vertical,
                                     thickness = splitterThickness,
                                     onDrag = { dragAmount ->
-                                        val newWeights = node.weights.toMutableList()
-                                        // Use the captured splitContainerSize for totalSize
-                                        val totalSize = splitContainerSize.width.toFloat()
-                                        val deltaRatio = dragAmount / totalSize
-
-                                        // Adjust weights, ensuring they stay positive
-                                        val weightBefore = newWeights[index]
-                                        val weightAfter = newWeights[index + 1]
-
-                                        val newWeightBefore = (weightBefore + deltaRatio).coerceAtLeast(0.01f)
-                                        val newWeightAfter = (weightAfter - deltaRatio).coerceAtLeast(0.01f)
-
-                                        // Re-normalize if necessary to maintain sum
-                                        val adjustment = (weightBefore + weightAfter) - (newWeightBefore + newWeightAfter)
-                                        newWeights[index] = newWeightBefore + adjustment / 2
-                                        newWeights[index + 1] = newWeightAfter + adjustment / 2
-
-                                        // Ensure final weights are still positive after adjustment
-                                        newWeights[index] = newWeights[index].coerceAtLeast(0.01f)
-                                        newWeights[index + 1] = newWeights[index + 1].coerceAtLeast(0.01f)
-
-
-                                        onSplitterDrag(node.id, newWeights)
+                                        val weightedArea = (parentSize.width - totalSplitterPx).toFloat()
+                                        if (weightedArea <= 0f || localWeights.size <= index + 1) return@Splitter
+                                        val deltaWeight = dragAmount / weightedArea
+                                        localWeights[index] = (localWeights[index] + deltaWeight).coerceAtLeast(0.01f)
+                                        localWeights[index + 1] = (localWeights[index + 1] - deltaWeight).coerceAtLeast(0.01f)
+                                        onSplitterDrag(node.id, localWeights.toList())
                                     }
                                 )
                             }
-                       // }
                     }
                 }
             } else { // Vertical Split
                 Column(
                     modifier = modifier
                         .fillMaxSize()
-                        .onGloballyPositioned { coordinates ->
-                            splitContainerSize = coordinates.size
-                        }
+                        .onSizeChanged { parentSize = it }
                 ) {
                     node.children.forEachIndexed { index, child ->
-                       // key(child) {
                             LayoutNodeRenderer(
                                 state = state,
                                 node = child,
                                 splitterThickness = splitterThickness,
                                 onSplitterDrag = onSplitterDrag,
-                                onPaneBoundsChanged = onPaneBoundsChanged, // Pass the callback down
+                                onPaneBoundsChanged = onPaneBoundsChanged,
                                 onPaneDragStart = onPaneDragStart,
                                 onPaneDrag = onPaneDrag,
                                 onPaneDragEnd = onPaneDragEnd,
-                                modifier = Modifier.weight(normalizedWeights[index])
+                                modifier = Modifier
+                                    .weight(normalizedWeights[index])
                             )
                             if (index < node.children.size - 1) {
                                 Splitter(
                                     orientation = SplitOrientation.Horizontal,
                                     thickness = splitterThickness,
                                     onDrag = { dragAmount ->
-                                        val newWeights = node.weights.toMutableList()
-                                        // Use the captured splitContainerSize for totalSize
-                                        val totalSize = splitContainerSize.height.toFloat()
-                                        val deltaRatio = dragAmount / totalSize
-
-                                        val weightBefore = newWeights[index]
-                                        val weightAfter = newWeights[index + 1]
-
-                                        val newWeightBefore = (weightBefore + deltaRatio).coerceAtLeast(0.01f)
-                                        val newWeightAfter = (weightAfter - deltaRatio).coerceAtLeast(0.01f)
-
-                                        val adjustment = (weightBefore + weightAfter) - (newWeightBefore + newWeightAfter)
-                                        newWeights[index] = newWeightBefore + adjustment / 2
-                                        newWeights[index + 1] = newWeightAfter + adjustment / 2
-
-                                        newWeights[index] = newWeights[index].coerceAtLeast(0.01f)
-                                        newWeights[index + 1] = newWeights[index + 1].coerceAtLeast(0.01f)
-
-                                        onSplitterDrag(node.id, newWeights)
+                                        val weightedArea = (parentSize.height - totalSplitterPx).toFloat()
+                                        if (weightedArea <= 0f || localWeights.size <= index + 1) return@Splitter
+                                        val deltaWeight = dragAmount / weightedArea
+                                        localWeights[index] = (localWeights[index] + deltaWeight).coerceAtLeast(0.01f)
+                                        localWeights[index + 1] = (localWeights[index + 1] - deltaWeight).coerceAtLeast(0.01f)
+                                        onSplitterDrag(node.id, localWeights.toList())
                                     }
                                 )
                             }
-                       // }
                     }
                 }
             }

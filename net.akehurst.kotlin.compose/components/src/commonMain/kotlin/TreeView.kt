@@ -32,7 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 
 //TODO: use nak.kotlinx.Tree
@@ -54,6 +54,17 @@ class TreeViewStateHolder(
     var items = mutableStateFlowHolderOf(listOf(TreeViewNode("<no content>")))
     val lazyListState = LazyListState()
 
+    /**
+     * Incremented whenever any node's children are fetched,
+     * to force LazyColumn content block to re-evaluate.
+     */
+    var childrenRevision by mutableStateOf(0)
+        private set
+
+    fun notifyChildrenLoaded() {
+        childrenRevision++
+    }
+
     fun updateItems(newItems: List<TreeViewNode>) {
         items.update { newItems }
     }
@@ -71,26 +82,11 @@ fun TreeView(
 
     val expandedItems = remember { mutableStateListOf<TreeViewNode>() }
     val nodes = stateHolder.items.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
-    // Collect children state for all expanded nodes to trigger recomposition
-    val allNodesWithChildren = remember(nodes.value, expandedItems.size) {
-        mutableListOf<TreeViewNode>().apply {
-            fun collect(list: List<TreeViewNode>) {
-                list.forEach { node ->
-                    if (node.hasChildren) add(node)
-                    if (expandedItems.contains(node)) {
-                        collect(node.children.value)
-                    }
-                }
-            }
-            collect(nodes.value)
-        }
-    }
-
-    // Observe all expanded nodes' children to trigger recomposition when they load
-    allNodesWithChildren.forEach { node ->
-        node.children.collectAsState()
-    }
+    // Read childrenRevision so that when it changes, LazyColumn content block re-evaluates
+    @Suppress("UNUSED_VARIABLE")
+    val revision = stateHolder.childrenRevision
 
     LazyColumn(
         state = stateHolder.lazyListState,
@@ -98,15 +94,23 @@ fun TreeView(
     ) {
         nodes(
             level = 0,
+            parentPath = "",
             nodes = nodes.value,
             isExpanded = {
                 expandedItems.contains(it)
             },
-            toggleExpanded = {
-                if (expandedItems.contains(it)) {
-                    expandedItems.remove(it)
+            toggleExpanded = { node ->
+                if (expandedItems.contains(node)) {
+                    expandedItems.remove(node)
                 } else {
-                    expandedItems.add(it)
+                    expandedItems.add(node)
+                    if (node.hasChildren && node.children.value.isEmpty()) {
+                        coroutineScope.launch {
+                            val fetched = node.fetchChildren.invoke()
+                            node.children.update { fetched }
+                            stateHolder.notifyChildrenLoaded()
+                        }
+                    }
                 }
             },
             onSelectItem,
@@ -118,6 +122,7 @@ fun TreeView(
 
 fun LazyListScope.nodes(
     level: Int,
+    parentPath: String,
     nodes: List<TreeViewNode>,
     isExpanded: (TreeViewNode) -> Boolean,
     toggleExpanded: (TreeViewNode) -> Unit,
@@ -128,6 +133,7 @@ fun LazyListScope.nodes(
     nodes.forEach { node ->
         node(
             level,
+            parentPath,
             node,
             isExpanded = isExpanded,
             toggleExpanded = toggleExpanded,
@@ -138,9 +144,9 @@ fun LazyListScope.nodes(
     }
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
 fun LazyListScope.node(
     level: Int,
+    parentPath: String,
     node: TreeViewNode,
     isExpanded: (TreeViewNode) -> Boolean,
     toggleExpanded: (TreeViewNode) -> Unit,
@@ -148,7 +154,8 @@ fun LazyListScope.node(
     expanded: @Composable (Modifier) -> Unit,
     collapsed: @Composable (Modifier) -> Unit
 ) {
-    item(key = node.id) {
+    val nodePath = "$parentPath/${node.id}"
+    item(key = nodePath) {
         val nodeExpanded = isExpanded(node)
 
         Row(
@@ -166,18 +173,12 @@ fun LazyListScope.node(
             }
             node.content.invoke()
         }
-
-        LaunchedEffect(nodeExpanded) {
-            if (nodeExpanded && node.hasChildren) {
-                val fetched = node.fetchChildren.invoke()
-                node.children.update { fetched }
-            }
-        }
     }
     if (isExpanded(node)) {
         nodes(
             level = level + 1,
-            node.children.value,
+            parentPath = nodePath,
+            nodes = node.children.value,
             isExpanded = isExpanded,
             toggleExpanded = toggleExpanded,
             onSelectItem,

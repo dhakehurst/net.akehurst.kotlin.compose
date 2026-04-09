@@ -41,7 +41,7 @@ fun adjustSplitterWeights(totalSize:Float, f1:Float, f2:Float, dragAmount:Float)
     var newF1 = (f1 + deltaRatio).coerceAtLeast(0.01f)
     var newF2 = (f2 - deltaRatio).coerceAtLeast(0.01f)
     // Re-normalize if necessary to maintain sum
-    val adjustment = (newF1 + newF2) - (newF1 + newF2)
+    val adjustment = (f1 + f2) - (newF1 + newF2)
     newF1 = newF1 + adjustment / 2
     newF2 = newF2 + adjustment / 2
     // Ensure final weights are still positive after adjustment
@@ -68,7 +68,7 @@ fun Splitter(
 
     Spacer(
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.outlineVariant) // Neutral color for splitter
+            .background(MaterialTheme.colorScheme.outlineVariant)
             .run {
                 if (orientation == SplitOrientation.Vertical) {
                     width(thickness).fillMaxHeight()

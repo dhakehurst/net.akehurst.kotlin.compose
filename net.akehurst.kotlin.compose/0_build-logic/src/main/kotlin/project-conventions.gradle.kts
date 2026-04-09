@@ -189,3 +189,20 @@ mavenPublishing {
         }
     }
 }
+
+publishing {
+    repositories {
+        maven {
+            name = "Other"
+            url = uri(providers.gradleProperty("publishTo").orElse("other"))
+            credentials {
+                username = providers.environmentVariable("NEXUS_USER")
+                    .orElse(providers.gradleProperty("NEXUS_USER"))
+                    .orNull
+                password = providers.environmentVariable("NEXUS_PASS")
+                    .orElse(providers.gradleProperty("NEXUS_PASS"))
+                    .orNull
+            }
+        }
+    }
+}

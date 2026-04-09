@@ -1,17 +1,9 @@
 package net.akehurst.kotlin.compose.layout.multipane
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.singleWindowApplication
+import net.akehurst.kotlin.compose.components.SplitOrientation
 import kotlin.test.Test
 
 
@@ -97,10 +89,9 @@ class test_MultiPaneLayout {
                     Row {
                         Button(
                             onClick = {
-                                layoutState.findTabbedOrNull { true }?.let { tgt ->
-                                    val afterId = tgt.children.last().id
-                                    layoutState.addPane(tgt.id, afterId, Pane(title = "New Pane") { Text("New Pane content", style = MaterialTheme.typography.headlineLarge) })
-                                }
+
+                                    layoutState.addPane(Pane(title = "New Pane") { Text("New Pane content", style = MaterialTheme.typography.headlineLarge) })
+
                             }
                         ) {
                             Text("Add Pane")

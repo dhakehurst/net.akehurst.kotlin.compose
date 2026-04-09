@@ -8,10 +8,12 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                implementation(compose.ui)
-                implementation(compose.foundation)
-                implementation(compose.material3)
-                implementation(libs.material.icons.core)
+                api(compose.ui)
+                api(compose.foundation)
+                api(compose.material3)
+                api(libs.material.icons.core)
+                api(libs.material.icons.extended)
+                api(libs.nak.kotlinx.collections)
             }
         }
         commonTest {
@@ -21,7 +23,7 @@ kotlin {
         }
         jvmMain {
             dependencies {
-                implementation(compose.desktop.currentOs)
+                api(compose.desktop.currentOs)
             }
         }
     }

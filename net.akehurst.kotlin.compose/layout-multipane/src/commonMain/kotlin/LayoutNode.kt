@@ -192,8 +192,6 @@ sealed class LayoutNode {
                             newChildren.add(newTabbed)
                             newWeights.add(0.5f) // Assign a default weight for the new pane
                         }
-
-                        else -> error("Should not happen")
                     }
                 } else {
                     newChildren.add(child)
@@ -296,6 +294,18 @@ sealed class LayoutNode {
             is Empty -> {}
             is Tabbed -> children.forEach(action)
             is Split -> children.forEach { it.forEachPane(action) }
+        }
+    }
+
+    /**
+     * Checks whether a node (Split or Tabbed) or pane with the given [nodeId] exists in this tree.
+     */
+    fun containsNodeId(nodeId: String): Boolean {
+        if (this.id == nodeId) return true
+        return when (this) {
+            is Empty -> false
+            is Tabbed -> children.any { it.id == nodeId }
+            is Split -> children.any { it.containsNodeId(nodeId) }
         }
     }
 

@@ -1,6 +1,6 @@
 package net.akehurst.kotlin.compose.layout.multipane
 
-import androidx.compose.ui.geometry.Rect
+import net.akehurst.kotlin.compose.components.SplitOrientation
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,7 +10,7 @@ class test_LayoutNode {
 
     @BeforeTest
     fun before() {
-        LayoutNode.next = 0
+      //  LayoutNode.next = 0
     }
 
     @Test
