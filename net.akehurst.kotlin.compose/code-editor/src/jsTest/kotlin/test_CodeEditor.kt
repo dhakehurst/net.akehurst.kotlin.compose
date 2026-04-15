@@ -52,9 +52,8 @@ class test_CodeEditor {
                     info
                     error
                 """.trimIndent(),
-            requestAutocompleteSuggestions = { req, result -> requestAutocompleteSuggestions(req, result) }
-
         )
+        //requestAutocompleteSuggestions = { req, result -> requestAutocompleteSuggestions(req, result) }
         val info = Regex("info")
         val err = Regex("error")
         val wavyStyle = PlatformSpanStyle(textDecorationLineStyle = TextDecorationLineStyle.Wavy)
