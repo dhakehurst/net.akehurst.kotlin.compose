@@ -30,17 +30,40 @@ object ComposeEditorUtils {
         //animator = underlineAnimator
     )
 
-    // currently used for margin item positions and limits the position to in range of first/last lines
-    internal fun offsetFromTopOfViewport(lineNumber: Int, viewFirstLine: Int, viewLastLine: Int, lineScrollOffset:Float, textLayoutResult: TextLayoutResult): Float {
-        //val lineBot = textLayoutResult.getLineBottom(lineNumber)
-//println("lineNumber: $lineNumber, viewFirstLine:$viewFirstLine, viewLastLine: $viewLastLine, lineScrollOffset: $lineScrollOffset")
-        return when {
-            lineNumber < (viewFirstLine+1) -> 0f // if line is partially visible, just use top of viewport
-            lineNumber >= (viewLastLine-1) -> textLayoutResult.getLineTop(viewLastLine)- lineScrollOffset // likewise don't go below last line
-            else -> {
-                val lineIndex = lineNumber - viewFirstLine
-                textLayoutResult.getLineTop(lineIndex) - lineScrollOffset
+    /**
+     * Convert a text line number (based on '\n' positions in the source text) to a layout line index
+     * in the [TextLayoutResult]. These differ when text wrapping causes a single text line to span
+     * multiple layout lines.
+     */
+    internal fun textLineToLayoutLine(textLineNumber: Int, textLayoutResult: TextLayoutResult): Int {
+        if (textLineNumber <= 0) return 0
+        val text = textLayoutResult.layoutInput.text
+        if (text.isEmpty()) return 0
+        var newlineCount = 0
+        for (i in text.indices) {
+            if ('\n' == text[i]) {
+                newlineCount++
+                if (newlineCount == textLineNumber) {
+                    return if (i + 1 < text.length) {
+                        textLayoutResult.getLineForOffset(i + 1)
+                    } else {
+                        // trailing empty line after last newline
+                        (textLayoutResult.lineCount - 1).coerceAtLeast(0)
+                    }
+                }
             }
+        }
+        // textLineNumber exceeds actual text line count
+        return (textLayoutResult.lineCount - 1).coerceAtLeast(0)
+    }
+
+    // currently used for margin item positions and clamps the position to top/bottom of viewport
+    internal fun offsetFromTopOfViewport(layoutLine: Int, viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult): Float {
+        val firstLineTop = textLayoutResult.getLineTop(viewFirstLine)
+        return when {
+            layoutLine <= viewFirstLine -> 0f // if line is at or above first visible line, clamp to top of viewport
+            layoutLine >= viewLastLine -> textLayoutResult.getLineTop(viewLastLine) - firstLineTop - lineScrollOffset // clamp to last visible line
+            else -> textLayoutResult.getLineTop(layoutLine) - firstLineTop - lineScrollOffset
         }
     }
 

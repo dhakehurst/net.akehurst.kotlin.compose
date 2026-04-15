@@ -186,8 +186,9 @@ class CodeEditorStateHolder(
         return MarginItemsState(
             marginWidth = MARGIN_WIDTH,
             visibleItems = visibleItems.value.map { item ->
-                val offsetFromTopOfViewport = textLayoutResult?.let { tlr -> ComposeEditorUtils.offsetFromTopOfViewport(item.lineNumber, viewFirstLine, viewLastLine,lineScrollOffset,tlr) } ?: 0f
-                val detailOffset = textLayoutResult?.let { tlr -> offsetFromTopOfViewport + ComposeEditorUtils.lineHeight(tlr, item.lineNumber) / 2 } ?: 0f
+                val layoutLine = textLayoutResult?.let { tlr -> ComposeEditorUtils.textLineToLayoutLine(item.lineNumber, tlr) } ?: item.lineNumber
+                val offsetFromTopOfViewport = textLayoutResult?.let { tlr -> ComposeEditorUtils.offsetFromTopOfViewport(layoutLine, viewFirstLine, viewLastLine, lineScrollOffset, tlr) } ?: 0f
+                val detailOffset = textLayoutResult?.let { tlr -> offsetFromTopOfViewport + ComposeEditorUtils.lineHeight(tlr, layoutLine) / 2 } ?: 0f
                 MarginItemState(item, offsetFromTopOfViewport, detailOffset)
             }
         )
@@ -378,33 +379,35 @@ fun CodeEditorView(
         modifier = modifier
     ) {
         annotationMargin(marginItemsState, marginItemHoverModifier)
-        textEditor(
-            state = state,
-            textStyle = textStyle,
-            outputTransformation = {
-                ComposeEditorUtils.annotateTextFieldBuffer(
-                    this,
-                    state.viewFirstLine,
-                    state.viewLastLine,
-                    state.lineTokens,
-                    state.textMarkersVisible,
-                    { editorState.lastAnnotatedText = it}
-                )
-            },
-            onTextLayout = { r ->
-                r.invoke()?.let { editorState.onInputTextLayout(it) }
-            },
-            handlePreviewKeyEvent = { ev -> editorState.handlePreviewKeyEvent(ev) },
-            handleKeyEvent = { ev -> editorState.handleKeyEvent(ev) },
-            onTextChange = { editorState.onTextChange.invoke(it) },
-            onInputScroll = { editorState.onInputScroll(it) },
-            onFocusChanged = { editorState._isFocused = it; editorState._giveFocus = false }
-        )
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            textEditor(
+                state = state,
+                textStyle = textStyle,
+                outputTransformation = {
+                    ComposeEditorUtils.annotateTextFieldBuffer(
+                        this,
+                        state.viewFirstLine,
+                        state.viewLastLine,
+                        state.lineTokens,
+                        state.textMarkersVisible,
+                        { editorState.lastAnnotatedText = it}
+                    )
+                },
+                onTextLayout = { r ->
+                    r.invoke()?.let { editorState.onInputTextLayout(it) }
+                },
+                handlePreviewKeyEvent = { ev -> editorState.handlePreviewKeyEvent(ev) },
+                handleKeyEvent = { ev -> editorState.handleKeyEvent(ev) },
+                onTextChange = { editorState.onTextChange.invoke(it) },
+                onInputScroll = { editorState.onInputScroll(it) },
+                onFocusChanged = { editorState._isFocused = it; editorState._giveFocus = false }
+            )
 
-        AutocompletePopup2(
-            state = editorState._autocompleteState,
-            modifier = autocompleteModifier,
-        )
+            AutocompletePopup2(
+                state = editorState._autocompleteState,
+                modifier = autocompleteModifier,
+            )
+        }
     }
 }
 
