@@ -49,6 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import me.saket.extendedspans.ExtendedSpans
 import me.saket.extendedspans.SquigglyUnderlineSpanPainter
@@ -179,9 +180,30 @@ class CodeEditorStateHolder(
 
     private val _marginItemsStateHolder = MarginItemsStateHolder()
 
+    internal var _composableScope: CoroutineScope? = null
+
+    internal val _findReplaceState = FindReplaceStateCompose(
+        getText = { this._inputTextFieldState.value.text },
+        replaceInText = { start, end, replacement ->
+            this._inputTextFieldState.value.edit { this.replace(start, end, replacement) }
+        },
+        scrollToOffset = { offset ->
+            _composableScope?.launch {
+                val tlr = _lastTextLayoutResult
+                if (null != tlr) {
+                    val line = tlr.getLineForOffset(offset.coerceIn(0, tlr.layoutInput.text.length))
+                    val lineTop = tlr.getLineTop(line).roundToInt()
+                    _inputScrollState.animateScrollTo(lineTop)
+                }
+            }
+        },
+    )
+
     private val _textMarkersState by mutableStateOf(TextMarkerState())
     private val _textMarkersVisible by derivedStateOf {
-        _textMarkersState.markers.filter { _viewFirstLineStartTextPosition <= it.position && it.position <= _viewLastLineFinishTextPosition }
+        val userMarkers = _textMarkersState.markers.filter { _viewFirstLineStartTextPosition <= it.position && it.position <= _viewLastLineFinishTextPosition }
+        val findMarkers = _findReplaceState.getMatchMarkers().filter { _viewFirstLineStartTextPosition <= it.position && it.position <= _viewLastLineFinishTextPosition }
+        findMarkers + userMarkers
     }
 
     // val underlineAnimator = rememberSquigglyUnderlineAnimator()
@@ -222,12 +244,15 @@ class CodeEditorStateHolder(
         var handled = true
         when (ev.type) {
             KeyEventType.KeyDown -> when {
+                this._findReplaceState.isVisible && ev.isEscape -> _findReplaceState.close()
                 this._autocompleteState.isVisible -> this._autocompleteState.handlePreviewKeyEvent(ev)
                 ev.isShiftTab -> indentOrOutdentSelection(outdent = true)
                 ev.isTab -> indentOrOutdentSelection(outdent = false)
                 else -> when {
                     ev.isCtrlPressed || ev.isMetaPressed -> when {
                         ev.isCtrlSpace -> _autocompleteState.open()
+                        ev.isCtrlF -> _findReplaceState.open(showReplace = false)
+                        ev.isCtrlR -> _findReplaceState.open(showReplace = true)
                         else -> handled = false
                     }
 
@@ -237,7 +262,9 @@ class CodeEditorStateHolder(
 
             // KeyUp | KeyPressed
             else -> when {
-            ev.isCtrlSpace ->   handled = true
+                ev.isCtrlSpace -> handled = true
+                ev.isCtrlF || ev.isCtrlR -> handled = true
+                ev.isEscape && _findReplaceState.isVisible -> handled = true
                 ev.isTab || ev.isShiftTab -> handled = true
                 else -> handled = false
             }
@@ -306,6 +333,7 @@ class CodeEditorStateHolder(
             // KeyDown | KeyUp | KeyPressed
             else -> when {
                 ev.isCtrlSpace -> true
+                ev.isCtrlF || ev.isCtrlR -> true
 //                ev.isUndo -> {
 //                    inputTextFieldState.undoState.undo()
 //                    true
@@ -407,6 +435,7 @@ class CodeEditorStateHolder(
     override val marginItems: List<MarginItem> get() = _marginItemsStateHolder.value
 
     override val autocomplete: AutocompleteState get() = this._autocompleteState
+    override val findReplace: FindReplaceState get() = this._findReplaceState
     override var requestAutocompleteSuggestions: AutocompleteFunction
         get() = _autocompleteState.requestAutocompleteSuggestions
         set(value) {
@@ -448,7 +477,8 @@ fun CodeEditorView(
     marginItemHoverModifier: Modifier = Modifier,
 ) {
     val state: CodeEditorState = editorState.collectAsState()
-    val marginItemsState = editorState.collectVisibleMarginItemsAsState( //TODO: maybe pass the CodeEditorState !
+    editorState._composableScope = rememberCoroutineScope()
+    val marginItemsState = editorState.collectVisibleMarginItemsAsState(
         state.viewFirstLine,
         state.viewLastLine,
         state.lineScrollOffset,
@@ -487,6 +517,13 @@ fun CodeEditorView(
                 state = editorState._autocompleteState,
                 modifier = autocompleteModifier,
             )
+
+            if (editorState._findReplaceState.isVisible) {
+                FindReplaceBar(
+                    state = editorState._findReplaceState,
+                    modifier = Modifier.align(Alignment.TopEnd).zIndex(2f),
+                )
+            }
         }
     }
 }

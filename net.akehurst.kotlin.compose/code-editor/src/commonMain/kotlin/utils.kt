@@ -1,4 +1,3 @@
-
 @file:Suppress("UNUSED", "INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
 
 package net.akehurst.kotlin.compose.editor
@@ -114,16 +113,19 @@ object ComposeEditorUtils {
 
                 // annotate from markers
                 for (marker in markers) {
-                    // println("Marker at: ${marker.position} length ${marker.length} line $lineNum")
                     val offsetStart = (marker.position).coerceIn(0, rawText.length)
                     val offsetFinish = (marker.position + marker.length).coerceIn(0, rawText.length)
-                    //println("Style at: ${offsetStart} .. ${offsetFinish}")
-                    val ss = when (marker.decoration) {
-                        TextDecorationStyle.NONE -> null
-                        TextDecorationStyle.STRAIGHT -> STRAIGHT.decorate(marker.style, offsetStart, offsetFinish, builder = this)
-                        TextDecorationStyle.SQUIGGLY -> SQUIGGLY.decorate(marker.style, offsetStart, offsetFinish, builder = this)
+                    when (marker.decoration) {
+                        TextDecorationStyle.NONE -> addStyle(marker.style, offsetStart, offsetFinish)
+                        TextDecorationStyle.STRAIGHT -> {
+                            val ss = STRAIGHT.decorate(marker.style, offsetStart, offsetFinish, builder = this)
+                            ss?.let { addStyle(it, offsetStart, offsetFinish) }
+                        }
+                        TextDecorationStyle.SQUIGGLY -> {
+                            val ss = SQUIGGLY.decorate(marker.style, offsetStart, offsetFinish, builder = this)
+                            ss?.let { addStyle(it, offsetStart, offsetFinish) }
+                        }
                     }
-                    ss?.let { addStyle(it, offsetStart, offsetFinish) }
                 }
             }
         }

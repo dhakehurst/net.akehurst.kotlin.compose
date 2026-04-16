@@ -59,8 +59,30 @@ interface ComposeCodeEditor : ComposeCodeViewer {
     var onTextChange: (CharSequence) -> Unit
     val autocomplete: AutocompleteState
     var requestAutocompleteSuggestions: AutocompleteFunction
+    val findReplace: FindReplaceState
 
     fun focus()
+}
+
+interface FindReplaceState {
+    val isVisible: Boolean
+    val isReplaceVisible: Boolean
+    val query: String
+    val replacement: String
+    val matchCount: Int
+    val currentMatchIndex: Int
+    val isCaseSensitive: Boolean
+    val isRegex: Boolean
+    val isRegexError: Boolean
+
+    fun open(showReplace: Boolean = false)
+    fun close()
+    fun findNext()
+    fun findPrevious()
+    fun toggleCaseSensitive()
+    fun toggleRegex()
+    fun replaceCurrent()
+    fun replaceAll()
 }
 
 interface AutocompleteState {

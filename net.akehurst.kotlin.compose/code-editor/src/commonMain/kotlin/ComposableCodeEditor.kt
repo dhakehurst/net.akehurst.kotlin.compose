@@ -27,6 +27,7 @@ import net.akehurst.kotlin.compose.editor.api.AutocompleteFunction
 import net.akehurst.kotlin.compose.editor.api.AutocompleteState
 import net.akehurst.kotlin.compose.editor.api.ComposeCodeEditor
 import net.akehurst.kotlin.compose.editor.api.EditorSegmentStyle
+import net.akehurst.kotlin.compose.editor.api.FindReplaceState
 import net.akehurst.kotlin.compose.editor.api.MarginItem
 import net.akehurst.kotlin.compose.editor.api.TextDecorationStyle
 
@@ -37,9 +38,6 @@ class ComposableCodeEditor(
     val editorState = CodeEditorStateHolder(
         initialText = initialText
     )
-//        .also {
-//        onTextChange = { onTextChange.invoke(it) }
-//    }
 
     override var rawText: String
         get() = editorState.rawText
@@ -67,6 +65,8 @@ class ComposableCodeEditor(
 
     override val autocomplete: AutocompleteState get() = editorState.autocomplete
 
+    override val findReplace: FindReplaceState get() = editorState.findReplace
+
     override var requestAutocompleteSuggestions: AutocompleteFunction
         get() = editorState.requestAutocompleteSuggestions
         set(value) {
@@ -76,8 +76,6 @@ class ComposableCodeEditor(
     override val marginItems: List<MarginItem> get() = editorState.marginItems
 
     override fun focus() = editorState.focus()
-
-    //override fun refreshTokens() = editorState.refreshTokens()
 
     override fun clearMarginItems() = editorState.clearMarginItems()
 
