@@ -55,6 +55,7 @@ import me.saket.extendedspans.SquigglyUnderlineSpanPainter
 import me.saket.extendedspans.drawBehind
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 import net.akehurst.kotlin.compose.editor.api.*
+import androidx.compose.foundation.text.input.TextFieldBuffer.ChangeList
 import kotlin.comparisons.minOf
 import kotlin.math.roundToInt
 import kotlin.ranges.coerceIn
@@ -113,6 +114,28 @@ class CodeEditorStateHolder(
     initialText: String = "",
     val defaultTextStyle: SpanStyle = SpanStyle(color = Color.Black, background = Color.White),
 ) : ComposeCodeEditor {
+
+    companion object {
+        /**
+         * Find the start offset of the line containing [offset].
+         */
+        private fun CharSequence.lineStartOffset(offset: Int): Int {
+            var i = offset.coerceIn(0, length)
+            while (i > 0 && this[i - 1] != '\n') i--
+            return i
+        }
+
+        /**
+         * Find the end offset of the line containing [offset] (exclusive of newline).
+         */
+        private fun CharSequence.lineEndOffset(offset: Int): Int {
+            var i = offset.coerceIn(0, length)
+            while (i < length && this[i] != '\n') i++
+            return i
+        }
+
+    }
+    private val INDENT = "    " // 4 spaces TODO: make this configurable
 
     private val MARGIN_WIDTH = 20.dp
     private val _interactionSource = MutableInteractionSource()
@@ -200,6 +223,8 @@ class CodeEditorStateHolder(
         when (ev.type) {
             KeyEventType.KeyDown -> when {
                 this._autocompleteState.isVisible -> this._autocompleteState.handlePreviewKeyEvent(ev)
+                ev.isShiftTab -> indentOrOutdentSelection(outdent = true)
+                ev.isTab -> indentOrOutdentSelection(outdent = false)
                 else -> when {
                     ev.isCtrlPressed || ev.isMetaPressed -> when {
                         ev.isCtrlSpace -> _autocompleteState.open()
@@ -212,11 +237,66 @@ class CodeEditorStateHolder(
 
             // KeyUp | KeyPressed
             else -> when {
-                ev.isCtrlSpace -> handled = true
+            ev.isCtrlSpace ->   handled = true
+                ev.isTab || ev.isShiftTab -> handled = true
                 else -> handled = false
             }
         }
         return handled
+    }
+
+    private fun indentOrOutdentSelection(outdent: Boolean) {
+        val tfs = _inputTextFieldState.value
+        val text = tfs.text
+        val selStart = tfs.selection.min
+        val selEnd = tfs.selection.max
+        val hasSelection = selStart != selEnd
+
+        tfs.edit {
+            if (hasSelection) {
+                // If selEnd is at the very start of a line, exclude that line
+                val effectiveSelEnd = if (selEnd > 0 && text.lineStartOffset(selEnd) == selEnd) selEnd - 1 else selEnd
+                // Find all lines in the selection
+                val firstLine = text.lineStartOffset(selStart)
+                val lastLine = text.lineEndOffset(effectiveSelEnd)
+
+                // Process lines from end to start so offsets remain valid
+                var pos = lastLine
+                while (pos >= firstLine) {
+                    val lineStart = text.lineStartOffset(pos)
+                    if (outdent) {
+                        // Remove up to INDENT.length leading spaces
+                        var removeCount = 0
+                        while (removeCount < INDENT.length && lineStart + removeCount < length && charAt(lineStart + removeCount) == ' ') {
+                            removeCount++
+                        }
+                        if (removeCount > 0) {
+                            replace(lineStart, lineStart + removeCount, "")
+                        }
+                    } else {
+                        replace(lineStart, lineStart, INDENT)
+                    }
+                    // Move to previous line
+                    pos = if (lineStart > 0) lineStart - 1 else break
+                }
+            } else {
+                // No selection
+                val lineStart = text.lineStartOffset(selStart)
+                if (outdent) {
+                    // Remove up to INDENT.length leading spaces from current line
+                    var removeCount = 0
+                    while (removeCount < INDENT.length && lineStart + removeCount < length && charAt(lineStart + removeCount) == ' ') {
+                        removeCount++
+                    }
+                    if (removeCount > 0) {
+                        replace(lineStart, lineStart + removeCount, "")
+                    }
+                } else {
+                    // Insert indent at cursor position
+                    replace(selStart, selStart, INDENT)
+                }
+            }
+        }
     }
 
     @OptIn(ExperimentalFoundationApi::class)

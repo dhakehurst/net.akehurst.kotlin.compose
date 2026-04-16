@@ -27,3 +27,5 @@ val KeyEvent.isCtrlEnter get() = (key == Key.Enter || utf16CodePoint == '\n'.cod
 val KeyEvent.isCtrlSpace get() = (key == Key.Spacebar || utf16CodePoint == ' '.code) && isCtrlPressed
 val KeyEvent.isUndo get() = (key == Key.Z || utf16CodePoint == 'z'.code) && isCtrlPressed
 val KeyEvent.isRedo get() = (key == Key.Z || utf16CodePoint == 'z'.code) && isCtrlPressed && isShiftPressed
+val KeyEvent.isTab get() = key == Key.Tab && !isShiftPressed && !isCtrlPressed
+val KeyEvent.isShiftTab get() = key == Key.Tab && isShiftPressed && !isCtrlPressed
