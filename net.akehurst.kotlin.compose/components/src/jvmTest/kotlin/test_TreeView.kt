@@ -25,82 +25,87 @@ import kotlinx.coroutines.delay
 import net.akehurst.kotlin.compose.components.tree.TreeView
 import net.akehurst.kotlin.compose.components.tree.TreeViewNode
 import net.akehurst.kotlin.compose.components.tree.TreeViewStateHolder
+import java.awt.Component
+import kotlin.test.Test
 
-fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "TreeView Test") {
-        MaterialTheme {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                TreeViewTestContent()
+class test_TreeView {
+    @Test
+    fun main() = application {
+        Window(onCloseRequest = ::exitApplication, title = "TreeView Test") {
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    TreeViewTestContent()
+                }
             }
         }
     }
-}
 
-@Composable
-fun TreeViewTestContent() {
-    val stateHolder = remember { TreeViewStateHolder() }
+    @Composable
+    fun TreeViewTestContent() {
+        val stateHolder = remember { TreeViewStateHolder() }
 
-    LaunchedEffect(Unit) {
-        // Simulate loading root items
-        val root1 = TreeViewNode("Root 1").apply {
-            content = { Text("Root 1") }
-            hasChildren = true
-            fetchChildren = {
-                delay(500) // Simulate async load
-                listOf(
-                    TreeViewNode("Child 1.1").apply {
-                        content = { Text("Child 1.1") }
-                        hasChildren = true
-                        fetchChildren = {
-                            delay(500)
-                            listOf(
-                                TreeViewNode("Grandchild 1.1.1").apply {
-                                    content = { Text("Grandchild 1.1.1") }
-                                },
-                                TreeViewNode("Grandchild 1.1.2").apply {
-                                    content = { Text("Grandchild 1.1.2") }
-                                }
-                            )
+        LaunchedEffect(Unit) {
+            // Simulate loading root items
+            val root1 = TreeViewNode("Root 1").apply {
+                content = { Text("Root 1") }
+                hasChildren = true
+                fetchChildren = {
+                    delay(500) // Simulate async load
+                    listOf(
+                        TreeViewNode("Child 1.1").apply {
+                            content = { Text("Child 1.1") }
+                            hasChildren = true
+                            fetchChildren = {
+                                delay(500)
+                                listOf(
+                                    TreeViewNode("Grandchild 1.1.1").apply {
+                                        content = { Text("Grandchild 1.1.1") }
+                                    },
+                                    TreeViewNode("Grandchild 1.1.2").apply {
+                                        content = { Text("Grandchild 1.1.2") }
+                                    }
+                                )
+                            }
+                        },
+                        TreeViewNode("Child 1.2").apply {
+                            content = { Text("Child 1.2") }
                         }
-                    },
-                    TreeViewNode("Child 1.2").apply {
-                        content = { Text("Child 1.2") }
-                    }
-                )
+                    )
+                }
             }
+
+            val root2 = TreeViewNode("Root 2").apply {
+                content = { Text("Root 2") }
+                hasChildren = true
+                fetchChildren = {
+                    delay(500)
+                    listOf(
+                        TreeViewNode("Child 2.1").apply {
+                            content = { Text("Child 2.1") }
+                        }
+                    )
+                }
+            }
+
+            stateHolder.updateItems(listOf(root1, root2))
         }
 
-        val root2 = TreeViewNode("Root 2").apply {
-            content = { Text("Root 2") }
-            hasChildren = true
-            fetchChildren = {
-                delay(500)
-                listOf(
-                    TreeViewNode("Child 2.1").apply {
-                        content = { Text("Child 2.1") }
-                    }
-                )
-            }
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("TreeView Refresh Test", style = MaterialTheme.typography.headlineMedium)
+            Text("Expand nodes to test lazy loading of children", style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TreeView(
+                stateHolder = stateHolder,
+                onSelectItem = { node ->
+                    println("Selected: ${node.id}")
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
-
-        stateHolder.updateItems(listOf(root1, root2))
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("TreeView Refresh Test", style = MaterialTheme.typography.headlineMedium)
-        Text("Expand nodes to test lazy loading of children", style = MaterialTheme.typography.bodySmall)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TreeView(
-            stateHolder = stateHolder,
-            onSelectItem = { node ->
-                println("Selected: ${node.id}")
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
 }
-

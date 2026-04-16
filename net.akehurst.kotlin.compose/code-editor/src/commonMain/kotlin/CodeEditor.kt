@@ -26,7 +26,6 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.OutputTransformation
-import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,17 +45,14 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import me.saket.extendedspans.ExtendedSpans
-import me.saket.extendedspans.SquigglyUnderlineSpanPainter
 import me.saket.extendedspans.drawBehind
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 import net.akehurst.kotlin.compose.editor.api.*
-import androidx.compose.foundation.text.input.TextFieldBuffer.ChangeList
 import kotlin.comparisons.minOf
 import kotlin.math.roundToInt
 import kotlin.ranges.coerceIn
@@ -226,9 +222,9 @@ class CodeEditorStateHolder(
     }
 
     @Composable
-    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine:Int, lineScrollOffset:Float, textLayoutResult: TextLayoutResult?): MarginItemsState {
+    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine:Int, lineScrollOffset:Float, textLayoutResult: TextLayoutResult?): MarginItemListState {
         val visibleItems = _marginItemsStateHolder.stateFlow.collectAsState()
-        return MarginItemsState(
+        return MarginItemListState(
             marginWidth = MARGIN_WIDTH,
             visibleItems = visibleItems.value.map { item ->
                 val layoutLine = textLayoutResult?.let { tlr -> ComposeEditorUtils.textLineToLayoutLine(item.lineNumber, tlr) } ?: item.lineNumber
@@ -529,7 +525,7 @@ fun CodeEditorView(
 }
 
 @Composable
-fun annotationMargin(state: MarginItemsState, marginItemHoverModifier: Modifier = Modifier) {
+fun annotationMargin(state: MarginItemListState, marginItemHoverModifier: Modifier = Modifier) {
     Box(
         modifier = Modifier
             .width(state.marginWidth)

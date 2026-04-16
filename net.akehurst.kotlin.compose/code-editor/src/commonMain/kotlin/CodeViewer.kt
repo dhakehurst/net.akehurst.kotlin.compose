@@ -40,7 +40,7 @@ import me.saket.extendedspans.drawBehind
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 import net.akehurst.kotlin.compose.editor.ComposeEditorUtils
 import net.akehurst.kotlin.compose.editor.MarginItemState
-import net.akehurst.kotlin.compose.editor.MarginItemsState
+import net.akehurst.kotlin.compose.editor.MarginItemListState
 import net.akehurst.kotlin.compose.editor.MarginItemsStateHolder
 import net.akehurst.kotlin.compose.editor.TextMarkerDefault
 import net.akehurst.kotlin.compose.editor.TextMarkerState
@@ -109,9 +109,9 @@ class CodeViewerStateHolder(
     }
 
     @Composable
-    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemsState {
+    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemListState {
         val visibleItems = _marginItemsStateHolder.stateFlow.collectAsState()
-        return MarginItemsState(
+        return MarginItemListState(
             marginWidth = MARGIN_WIDTH,
             visibleItems = visibleItems.value.map { item ->
                 val layoutLine = textLayoutResult?.let { tlr -> ComposeEditorUtils.textLineToLayoutLine(item.lineNumber, tlr) } ?: item.lineNumber

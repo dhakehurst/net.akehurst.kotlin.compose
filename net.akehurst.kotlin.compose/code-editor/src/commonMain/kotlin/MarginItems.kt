@@ -33,7 +33,7 @@ data class MarginItemDefault(
     override val color: Color
 ) : MarginItem
 
-data class MarginItemsState(
+data class MarginItemListState(
     val marginWidth: Dp,
     val visibleItems: List<MarginItemState>
 )
