@@ -270,3 +270,4 @@ class test_SugiyamaLayout {
         assertTrue(actual.totalWidth >= 150.0, "Should respect node spacing")
     }
 }
+
