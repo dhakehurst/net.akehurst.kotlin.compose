@@ -258,8 +258,8 @@ data class GraphLayoutEdgeSymbol(
 )
 
 data class GraphLayoutEdgeText(
-    val text: String,
-    val position: EdgeContentPosition = EdgeContentPosition.MIDDLE
+    val position: EdgeContentPosition = EdgeContentPosition.MIDDLE,
+    val content: @Composable () -> Unit
 )
 
 data class GraphLayoutEdgeContent(

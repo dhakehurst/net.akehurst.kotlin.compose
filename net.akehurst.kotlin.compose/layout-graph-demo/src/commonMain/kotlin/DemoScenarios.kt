@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,13 +36,26 @@ object DemoScenarios {
     private val umlStroke = Color(0xFF3F7ACC)
     private const val compoundStateCornerRadiusDp = 12
 
+    private fun edgeLabel(text: String, position: EdgeContentPosition = EdgeContentPosition.MIDDLE) =
+        GraphLayoutEdgeText(position = position) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF222222),
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.92f))
+                    .border(1.dp, Color(0x55444444))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+
     private fun labelledEdge(text: String) = GraphLayoutEdgeContent(
-        texts = listOf(GraphLayoutEdgeText(text = text, position = EdgeContentPosition.MIDDLE))
+        texts = listOf(edgeLabel(text))
     )
 
     private fun transitionEdge(text: String) = GraphLayoutEdgeContent(
         endSymbol = arrowHead(umlStroke),
-        texts = listOf(GraphLayoutEdgeText(text = text, position = EdgeContentPosition.MIDDLE))
+        texts = listOf(edgeLabel(text))
     )
 
     private fun arrowHead(color: Color) = GraphLayoutEdgeSymbol(
@@ -72,10 +86,10 @@ object DemoScenarios {
         id = "flat_chain",
         title = "Flat chain",
         nodes = listOf(
-            DemoNode("A", x = 80f, y = 120f, width = 90f, height = 56f,),
-            DemoNode("B", x = 220f, y = 120f, width = 90f, height = 56f,),
-            DemoNode("C", x = 360f, y = 120f, width = 90f, height = 56f,),
-            DemoNode("D", x = 500f, y = 120f, width = 90f, height = 56f,)
+            DemoNode("A", x = 80f, y = 120f, width = 90f, height = 56f),
+            DemoNode("B", x = 220f, y = 120f, width = 90f, height = 56f),
+            DemoNode("C", x = 360f, y = 120f, width = 90f, height = 56f),
+            DemoNode("D", x = 500f, y = 120f, width = 90f, height = 56f)
         ),
         edges = listOf(
             DemoEdge("e_flat_1", "A", "B"),
@@ -88,10 +102,10 @@ object DemoScenarios {
         id = "single_container_two_nodes",
         title = "Single container two nodes",
         nodes = listOf(
-            DemoNode("Container1", x = 90f, y = 70f, width = 360f, height = 240f,),
-            DemoNode("InsideA", x = 140f, y = 130f, width = 100f, height = 56f, containerId = "Container1",),
-            DemoNode("InsideB", x = 300f, y = 130f, width = 100f, height = 56f, containerId = "Container1",),
-            DemoNode("Outside", x = 510f, y = 130f, width = 110f, height = 56f,)
+            DemoNode("Container1", x = 90f, y = 70f, width = 360f, height = 240f),
+            DemoNode("InsideA", x = 140f, y = 130f, width = 100f, height = 56f, containerId = "Container1"),
+            DemoNode("InsideB", x = 300f, y = 130f, width = 100f, height = 56f, containerId = "Container1"),
+            DemoNode("Outside", x = 510f, y = 130f, width = 110f, height = 56f)
         ),
         edges = listOf(
             DemoEdge("e_single_1", "InsideA", "InsideB"),
@@ -103,12 +117,12 @@ object DemoScenarios {
         id = "sibling_containers_cross_edges",
         title = "Sibling containers cross edges",
         nodes = listOf(
-            DemoNode("ContainerL", x = 60f, y = 70f, width = 280f, height = 240f,),
-            DemoNode("ContainerR", x = 380f, y = 70f, width = 280f, height = 240f,),
-            DemoNode("L1", x = 110f, y = 130f, width = 90f, height = 50f, containerId = "ContainerL",),
-            DemoNode("L2", x = 220f, y = 200f, width = 90f, height = 50f, containerId = "ContainerL",),
-            DemoNode("R1", x = 430f, y = 130f, width = 90f, height = 50f, containerId = "ContainerR",),
-            DemoNode("R2", x = 540f, y = 200f, width = 90f, height = 50f, containerId = "ContainerR",)
+            DemoNode("ContainerL", x = 60f, y = 70f, width = 280f, height = 240f),
+            DemoNode("ContainerR", x = 380f, y = 70f, width = 280f, height = 240f),
+            DemoNode("L1", x = 110f, y = 130f, width = 90f, height = 50f, containerId = "ContainerL"),
+            DemoNode("L2", x = 220f, y = 200f, width = 90f, height = 50f, containerId = "ContainerL"),
+            DemoNode("R1", x = 430f, y = 130f, width = 90f, height = 50f, containerId = "ContainerR"),
+            DemoNode("R2", x = 540f, y = 200f, width = 90f, height = 50f, containerId = "ContainerR")
         ),
         edges = listOf(
             DemoEdge("e_sibling_1", "L1", "R1"),
@@ -121,12 +135,12 @@ object DemoScenarios {
         id = "deep_nesting",
         title = "Deep nesting",
         nodes = listOf(
-            DemoNode("RootContainer", x = 60f, y = 40f, width = 620f, height = 340f,),
-            DemoNode("Level1", x = 120f, y = 90f, width = 500f, height = 250f, containerId = "RootContainer",),
-            DemoNode("Level2", x = 180f, y = 140f, width = 260f, height = 140f, containerId = "Level1",),
-            DemoNode("LeafA", x = 210f, y = 180f, width = 90f, height = 48f, containerId = "Level2",),
-            DemoNode("LeafB", x = 330f, y = 180f, width = 90f, height = 48f, containerId = "Level2",),
-            DemoNode("External", x = 520f, y = 180f, width = 90f, height = 48f, containerId = "Level1",)
+            DemoNode("RootContainer", x = 60f, y = 40f, width = 620f, height = 340f),
+            DemoNode("Level1", x = 120f, y = 90f, width = 500f, height = 250f, containerId = "RootContainer"),
+            DemoNode("Level2", x = 180f, y = 140f, width = 260f, height = 140f, containerId = "Level1"),
+            DemoNode("LeafA", x = 210f, y = 180f, width = 90f, height = 48f, containerId = "Level2"),
+            DemoNode("LeafB", x = 330f, y = 180f, width = 90f, height = 48f, containerId = "Level2"),
+            DemoNode("External", x = 520f, y = 180f, width = 90f, height = 48f, containerId = "Level1")
         ),
         edges = listOf(
             DemoEdge("e_deep_1", "LeafA", "LeafB"),
@@ -138,11 +152,11 @@ object DemoScenarios {
         id = "collapsed_container_external_links",
         title = "Collapsed container external links",
         nodes = listOf(
-            DemoNode("Upstream", x = 70f, y = 140f, width = 110f, height = 56f,),
-            DemoNode("CollapsedMid", x = 240f, y = 100f, width = 240f, height = 140f, defaultCollapsed = true,),
-            DemoNode("InnerX", x = 270f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid",),
-            DemoNode("InnerY", x = 370f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid",),
-            DemoNode("Downstream", x = 540f, y = 140f, width = 120f, height = 56f,)
+            DemoNode("Upstream", x = 70f, y = 140f, width = 110f, height = 56f),
+            DemoNode("CollapsedMid", x = 240f, y = 100f, width = 240f, height = 140f, defaultCollapsed = true),
+            DemoNode("InnerX", x = 270f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid"),
+            DemoNode("InnerY", x = 370f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid"),
+            DemoNode("Downstream", x = 540f, y = 140f, width = 120f, height = 56f)
         ),
         edges = listOf(
             DemoEdge("e_collapsed_1", "Upstream", "InnerX"),
@@ -155,12 +169,12 @@ object DemoScenarios {
         id = "mixed_collapsed_expanded_siblings",
         title = "Mixed collapsed/expanded siblings",
         nodes = listOf(
-            DemoNode("CollapsedSib", x = 80f, y = 90f, width = 200f, height = 140f, defaultCollapsed = true,),
-            DemoNode("C1", x = 110f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib",),
-            DemoNode("C2", x = 195f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib",),
-            DemoNode("ExpandedSib", x = 330f, y = 70f, width = 320f, height = 250f,),
-            DemoNode("Ex1", x = 380f, y = 140f, width = 90f, height = 48f, containerId = "ExpandedSib",),
-            DemoNode("Ex2", x = 500f, y = 220f, width = 90f, height = 48f, containerId = "ExpandedSib",)
+            DemoNode("CollapsedSib", x = 80f, y = 90f, width = 200f, height = 140f, defaultCollapsed = true),
+            DemoNode("C1", x = 110f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib"),
+            DemoNode("C2", x = 195f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib"),
+            DemoNode("ExpandedSib", x = 330f, y = 70f, width = 320f, height = 250f),
+            DemoNode("Ex1", x = 380f, y = 140f, width = 90f, height = 48f, containerId = "ExpandedSib"),
+            DemoNode("Ex2", x = 500f, y = 220f, width = 90f, height = 48f, containerId = "ExpandedSib")
         ),
         edges = listOf(
             DemoEdge("e_mixed_1", "C2", "Ex1"),
@@ -223,9 +237,9 @@ object DemoScenarios {
                 "Project",
                 content = GraphLayoutEdgeContent(
                     texts = listOf(
-                        GraphLayoutEdgeText("1", position = EdgeContentPosition.START),
-                        GraphLayoutEdgeText("worksOn", position = EdgeContentPosition.MIDDLE),
-                        GraphLayoutEdgeText("*", position = EdgeContentPosition.END)
+                        edgeLabel("1", position = EdgeContentPosition.START),
+                        edgeLabel("worksOn", position = EdgeContentPosition.MIDDLE),
+                        edgeLabel("*", position = EdgeContentPosition.END)
                     )
                 )
             ),
@@ -259,7 +273,7 @@ object DemoScenarios {
         id = "uml_use_case_diagram",
         title = "UML use case diagram",
         nodes = listOf(
-            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, content = { children -> Component("System", children) }),
+            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> Component("System", children) }),
             DemoNode("User", x = 40f, y = 150f, width = 100f, height = 56f, content = { Actor("User") }),
             DemoNode("Admin", x = 40f, y = 250f, width = 100f, height = 56f, content = { Actor("Admin") }),
             DemoNode("Login", x = 270f, y = 120f, width = 110f, height = 56f, containerId = "System", content = { UseCase("Login") }),
@@ -279,7 +293,7 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, content = { children -> Component("Controller", children) }),
+            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> Component("Controller", children) }),
             DemoNode("InputPort", x = 130f, y = 180f, width = 100f, height = 48f, containerId = "Controller", content = { Interface("InputPort") }),
             DemoNode("Core", x = 280f, y = 130f, width = 140f, height = 56f, containerId = "Controller", content = { Component("Core") }),
             DemoNode("OutputPort", x = 490f, y = 180f, width = 110f, height = 48f, containerId = "Controller", content = { Interface("OutputPort") }),
@@ -298,9 +312,27 @@ object DemoScenarios {
         id = "uml_deployment_diagram",
         title = "UML deployment diagram",
         nodes = listOf(
-            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, content = { children -> DeploymentNode("Cloud", children) }),
-            DemoNode("WebNode", x = 120f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { children -> DeploymentNode("WebNode", children) }),
-            DemoNode("DbNode", x = 360f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { children -> DeploymentNode("DbNode", children) }),
+            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> DeploymentNode("Cloud", children) }),
+            DemoNode(
+                "WebNode",
+                x = 120f,
+                y = 110f,
+                width = 180f,
+                height = 220f,
+                containerId = "Cloud",
+                childContentOffsetX = 0f,
+                childContentOffsetY = 28f,
+                content = { children -> DeploymentNode("WebNode", children) }),
+            DemoNode(
+                "DbNode",
+                x = 360f,
+                y = 110f,
+                width = 180f,
+                height = 220f,
+                containerId = "Cloud",
+                childContentOffsetX = 0f,
+                childContentOffsetY = 28f,
+                content = { children -> DeploymentNode("DbNode", children) }),
             DemoNode("WebApp", x = 150f, y = 170f, width = 120f, height = 56f, containerId = "WebNode", content = { Component("WebApp") }),
             DemoNode("Database", x = 390f, y = 170f, width = 120f, height = 56f, containerId = "DbNode", content = { Component("Database") }),
             DemoNode("Client", x = 80f, y = 430f, width = 110f, height = 56f, content = { Actor("Client") })
@@ -316,8 +348,8 @@ object DemoScenarios {
         id = "uml_class_package_crossing_relations",
         title = "UML class/package crossing relations",
         nodes = listOf(
-            DemoNode("PackageDomain", x = 60f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Domain", children) }),
-            DemoNode("PackageInfra", x = 390f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Infra", children) }),
+            DemoNode("PackageDomain", x = 60f, y = 60f, width = 290f, height = 280f, childContentOffsetX = 0f, childContentOffsetY = 18f, content = { children -> Package("Domain", children) }),
+            DemoNode("PackageInfra", x = 390f, y = 60f, width = 290f, height = 280f, childContentOffsetX = 0f, childContentOffsetY = 18f, content = { children -> Package("Infra", children) }),
             DemoNode("Order", x = 110f, y = 130f, width = 100f, height = 56f, containerId = "PackageDomain", content = { Class("Order") }),
             DemoNode("Customer", x = 220f, y = 230f, width = 110f, height = 56f, containerId = "PackageDomain", content = { Class("Customer") }),
             DemoNode("OrderRepo", x = 440f, y = 130f, width = 120f, height = 56f, containerId = "PackageInfra", content = { Class("OrderRepo") }),
@@ -352,23 +384,13 @@ object DemoScenarios {
      * Composable that looks like a UML Package. A Box with a tab at top left containing the name.
      */
     @Composable
-    fun Package(name: String, children: @Composable () -> Unit = {}) = Box(
+    fun Package(name: String, children: @Composable () -> Unit = {}) = Column(
         modifier = Modifier.fillMaxSize()
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 18.dp)
                 .background(umlFill)
                 .border(1.5.dp, umlStroke)
-        ) {
-            children()
-        }
-        Box(
-            modifier = Modifier
-                .background(umlFill)
-                .border(1.5.dp, umlStroke)
-                .padding(horizontal = 10.dp, vertical = 3.dp)
         ) {
             Text(
                 text = name,
@@ -376,13 +398,21 @@ object DemoScenarios {
                 color = umlStroke
             )
         }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(umlFill)
+                .border(1.5.dp, umlStroke)
+        ) {
+            children()
+        }
     }
 
     /**
      * Composable that looks like a UML Class. A Box with the name centered at the top.
      */
     @Composable
-    fun Class(name:String) =  Box(
+    fun Class(name: String) = Column(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill)
@@ -391,7 +421,15 @@ object DemoScenarios {
         Text(
             text = name,
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = umlStroke
+        )
+        Text(
+            text = "attributes...",
+            modifier = Modifier
+                .align(Alignment.Start)
                 .padding(top = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             color = umlStroke
@@ -402,7 +440,7 @@ object DemoScenarios {
      * Composable that looks like a UML State. A rounded corner Box with the name centered.
      */
     @Composable
-    fun SimpleState(name:String) =  Box(
+    fun SimpleState(name: String) = Box(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill, RoundedCornerShape(12.dp))
@@ -423,30 +461,21 @@ object DemoScenarios {
      * Contained regions go in the lower compartment, rendered via [children].
      */
     @Composable
-    fun CompoundState(name: String, children: @Composable () -> Unit = {}) = Box(
+    fun CompoundState(name: String, children: @Composable () -> Unit = {}) = Column(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
             .border(1.5.dp, umlStroke, RoundedCornerShape(6.dp))
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = umlStroke,
-                textAlign = TextAlign.Center
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(compoundStateCornerRadiusDp.dp)
-            ) {
-                children()
-            }
-        }
+        Text(
+            text = name,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = umlStroke,
+            textAlign = TextAlign.Center
+        )
         // Declared after Column in Box z-order → renders on top of children
         HorizontalDivider(
             modifier = Modifier
@@ -455,6 +484,13 @@ object DemoScenarios {
             thickness = 1.5.dp,
             color = umlStroke
         )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(compoundStateCornerRadiusDp.dp)
+        ) {
+            children()
+        }
     }
 
     @Composable
@@ -546,36 +582,40 @@ object DemoScenarios {
     }
 
     @Composable
-    fun Component(name: String, children: @Composable () -> Unit = {}) = Box(
+    fun Component(name: String, children: @Composable () -> Unit = {}) = Column(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill)
             .border(1.5.dp, umlStroke)
     ) {
-        children()
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 5.dp, end = 5.dp)
-                .size(10.dp)
-                .border(1.dp, umlStroke)
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 17.dp, end = 5.dp)
-                .size(10.dp)
-                .border(1.dp, umlStroke)
-        )
-        Text(
-            text = name,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 4.dp, start = 6.dp, end = 20.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = umlStroke,
-            textAlign = TextAlign.Center
-        )
+        Box {
+            Text(
+                text = name,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = 4.dp, start = 6.dp, end = 20.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = umlStroke,
+                textAlign = TextAlign.Center
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 5.dp, end = 5.dp)
+                    .size(10.dp)
+                    .border(1.dp, umlStroke)
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 17.dp, end = 5.dp)
+                    .size(10.dp)
+                    .border(1.dp, umlStroke)
+            )
+        }
+        Box {
+            children()
+        }
     }
 
     @Composable
@@ -606,21 +646,23 @@ object DemoScenarios {
      * Region in a statechart. Renders its name label on top of contained child nodes.
      */
     @Composable
-    fun Region(name: String, children: @Composable () -> Unit = {}) = Box(
+    fun Region(name: String, children: @Composable () -> Unit = {}) = Column(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill)
     ) {
-        children()
         // Label on top
         Text(
             text = name,
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.CenterHorizontally)
                 .padding(top = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             color = umlStroke
         )
+        Box {
+            children()
+        }
+
     }
 }
-

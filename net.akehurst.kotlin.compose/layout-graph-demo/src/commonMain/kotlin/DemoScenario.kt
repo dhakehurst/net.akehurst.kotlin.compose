@@ -23,6 +23,8 @@ data class DemoNode(
     /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
     val role: DemoNodeRole? = null,
+    val childContentOffsetX: Float? = null,
+    val childContentOffsetY: Float? = null,
     val content: (@Composable (@Composable () -> Unit) -> Unit)? = null
 )
 

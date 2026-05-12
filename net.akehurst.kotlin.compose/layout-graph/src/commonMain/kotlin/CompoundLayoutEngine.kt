@@ -89,6 +89,8 @@ private data class PlannedGraphLayout(
     val graphId: String,
     val profile: CompoundLayoutProfile,
     val routeBoundary: Boolean,
+    val childContentOffsetX: Double,
+    val childContentOffsetY: Double,
     val padding: Double,
     val headerHeight: Double,
     val nodeOrder: List<GraphLayoutCompoundNode>,
@@ -254,6 +256,8 @@ class CompoundLayoutEngine(
                     graphId = graph.id,
                     profile = effectiveProfile,
                     routeBoundary = graph.routeBoundary,
+                    childContentOffsetX = graph.childContentOffsetX,
+                    childContentOffsetY = graph.childContentOffsetY,
                     padding = graph.padding,
                     headerHeight = effectiveHeaderHeight,
                     nodeOrder = nodes,
@@ -317,6 +321,8 @@ class CompoundLayoutEngine(
             graphId = graph.id,
             profile = effectiveProfile,
             routeBoundary = graph.routeBoundary,
+            childContentOffsetX = graph.childContentOffsetX,
+            childContentOffsetY = graph.childContentOffsetY,
             padding = graph.padding,
             headerHeight = effectiveHeaderHeight,
             nodeOrder = nodes,
@@ -384,11 +390,11 @@ class CompoundLayoutEngine(
             val childPlan = plan.childPlansById.getValue(childId)
             val childContainer = nodeLayouts[childId] ?: return@forEach
             val childLocalOffset =
-                (childContainer.localX + childPlan.padding) to
-                    (childContainer.localY + childPlan.headerHeight + childPlan.padding)
+                (childContainer.localX + childPlan.childContentOffsetX) to
+                    (childContainer.localY + childPlan.childContentOffsetY)
             val childGlobalOffset =
-                (childContainer.globalX + childPlan.padding) to
-                    (childContainer.globalY + childPlan.headerHeight + childPlan.padding)
+                (childContainer.globalX + childPlan.childContentOffsetX) to
+                    (childContainer.globalY + childPlan.childContentOffsetY)
 
             materialize(
                 plan = childPlan,

@@ -72,11 +72,8 @@ data class GraphLayoutEdgeSymbol(
  * Text label rendered at a deterministic position along an edge.
  */
 data class GraphLayoutEdgeText(
-    val text: String,
     val position: EdgeContentPosition = EdgeContentPosition.MIDDLE,
-    val textColor: Color = Color(0xFF222222),
-    val backgroundColor: Color = Color.White.copy(alpha = 0.92f),
-    val borderColor: Color = Color(0x55444444)
+    val content: @Composable () -> Unit
 )
 
 /**
@@ -102,6 +99,8 @@ data class GraphLayoutCompoundGraph(
     val routeBoundary: Boolean = true,
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false,
+    val childContentOffsetX: Double = 0.0,
+    val childContentOffsetY: Double = 0.0,
     val padding: Double = 24.0,
     val headerHeight: Double? = null
 )

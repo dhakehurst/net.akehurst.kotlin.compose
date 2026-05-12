@@ -89,19 +89,7 @@ private fun MissingEdgeContent(edgeId: String) {
 
 @Composable
 private fun EdgeTextBubble(text: GraphLayoutEdgeText) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .background(text.backgroundColor)
-            .border(1.dp, text.borderColor)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-    ) {
-        Text(
-            text = text.text,
-            color = text.textColor,
-            style = MaterialTheme.typography.labelSmall
-        )
-    }
+    text.content()
 }
 
 private data class EdgeAnchor(
