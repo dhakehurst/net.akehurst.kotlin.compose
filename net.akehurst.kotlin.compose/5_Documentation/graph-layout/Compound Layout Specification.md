@@ -30,6 +30,8 @@ This document defines a better layout plan based on:
 - support different layout algorithms
 - nested graphs can optionally have a different layout algorithm to the parent, but otherwise use the initial algorithm as default
 - Layout multiple packages, regions, or statecharts cleanly.
+- For region-based containers, tile regions to fill available content area (top-to-bottom, left-to-right) with no unused gaps.
+- Render region separators as single shared divider lines (no double-stroked adjacent borders).
 - Keep hierarchies visually consistent and readable.
 - Improve crossing minimization and orthogonal routing.
 - Preserve clear separation between containment and ordinary adjacency edges.
@@ -255,6 +257,18 @@ A child graph should:
 - be positioned relative to its parent container
 - contribute to the parent container’s size
 
+### 6.6 Region-based layout contract
+
+When a container's immediate children are all region nodes, the local level should use tessellated placement semantics:
+
+- children are arranged as a deterministic row-major tiling (`left->right`, then `top->bottom`)
+- tiles fill the full available content area inside the container (after header allocation)
+- parent padding for the tiling axis is zero unless explicitly configured otherwise
+- region child bounds are normalized to tile bounds before parent-level placement to avoid residual gaps from author-provided hints
+- divider rendering is single-pass at shared boundaries; adjacent regions must not each paint their own border on the same seam
+
+This keeps region diagrams visually stable and prevents "double wall" artifacts.
+
 ### 6.5 Collapse/expand behavior
 
 Containers must support two states:
@@ -304,6 +318,10 @@ Endpoint boundary attachment contract:
 - multi-edges should be separated instead of stacked on top of each other
 - collapsed containers must expose boundary ports for all external connectivity represented by hidden descendants
 - endpoint anchor selection should prefer distinct boundary positions for parallel/near-parallel routes to improve readability
+
+Region routing refinement:
+- region containers inside a larger state container may disable boundary-routing participation (`routeBoundary = false`) so sibling-region transitions do not produce redundant boundary hops.
+- this avoids zig-zag/clipped routes caused by repeatedly intersecting intermediate region boxes when source/target are already resolved at the enclosing level.
 
 ### Edge handling rules
 - self-loops should be local and readable
@@ -432,6 +450,8 @@ When collapse state changes, the layout should preserve:
 ### Assertions
 - child bounds are inside parent bounds
 - no node is placed outside its container
+- tessellated region children fill the container content area without internal gaps (except configured header area)
+- region separators render as single lines on shared seams (no doubled adjacent borders)
 - cross-boundary edges attach to boundary ports
 - all edge endpoints lie on source/target boundaries (within epsilon), not node centers
 - direct-routing endpoints match center-ray-to-boundary intersections

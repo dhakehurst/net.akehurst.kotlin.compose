@@ -36,6 +36,7 @@ import androidx.compose.foundation.Canvas
 
 private val errorRed = Color(0xFFD32F2F)
 private val errorRedBg = Color(0x22D32F2F)
+private val tessellationBorderColor = Color(0xFF3F7ACC)
 
 /**
  * Shown when a node has no entry in [GraphLayoutCompoundGraphState.nodeContentById].
@@ -85,6 +86,62 @@ private fun MissingEdgeContent(edgeId: String) {
 // ── Compound layout view ────────────────────────────────────────────────────
 
 /**
+ * Renders one node recursively. If the node is a container, its node-content lambda receives
+ * a children composable that places direct child nodes (containers first, then leaves)
+ * at their layout-computed local positions. The container composable decides where in its
+ * visual tree to call children, giving it full z-order control over overlays (dividers, etc.).
+ */
+@Composable
+private fun NodeContent(
+    node: CompoundNodeLayout,
+    state: GraphLayoutCompoundGraphState,
+    layoutResult: CompoundLayoutResult,
+) {
+    val content = state.nodeContentById[node.nodeId]
+    if (node.isContainer) {
+        val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
+        val contentOriginX = containerGraphLayout?.globalOffsetX ?: node.globalX
+        val contentOriginY = containerGraphLayout?.globalOffsetY ?: node.globalY
+        val childNodes = layoutResult.nodeLayoutsById.values
+            .filter { it.ownerGraphId == node.nodeId }
+            .sortedWith(compareBy({ if (it.isContainer) 0 else 1 }, { it.nodeId }))
+        val children: @Composable () -> Unit = {
+            if (childNodes.isNotEmpty()) {
+                Layout(
+                    content = {
+                        childNodes.forEach { childNode ->
+                            NodeContent(childNode, state, layoutResult)
+                        }
+                    }
+                ) { measurables, constraints ->
+                    val placeables = childNodes.mapIndexed { i, childNode ->
+                        measurables[i].measure(
+                            Constraints(
+                                minWidth = 0,
+                                maxWidth = childNode.width.roundToInt().coerceAtLeast(1),
+                                minHeight = 0,
+                                maxHeight = childNode.height.roundToInt().coerceAtLeast(1)
+                            )
+                        )
+                    }
+                    layout(constraints.maxWidth, constraints.maxHeight) {
+                        childNodes.forEachIndexed { i, childNode ->
+                            placeables[i].placeRelative(
+                                (childNode.globalX - contentOriginX).roundToInt(),
+                                (childNode.globalY - contentOriginY).roundToInt()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (content != null) content(children) else MissingNodeContent(node.nodeId)
+    } else {
+        if (content != null) content {} else MissingNodeContent(node.nodeId)
+    }
+}
+
+/**
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].
  *
  * Node content is resolved from [GraphLayoutCompoundGraphState.nodeContentById] by stable node ID.
@@ -116,13 +173,41 @@ fun CompoundGraphLayoutView(
     }
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
-    val sortedNodes = remember(layoutResult) {
+    // Also paint shallower containers first so parent backgrounds do not cover child containers.
+    val rootNodes = remember(layoutResult) {
         layoutResult.nodeLayoutsById.values
-            .sortedWith(compareByDescending<CompoundNodeLayout> { it.isContainer }.thenBy { it.nodeId })
+            .filter { it.ownerGraphId == state.root.id }
+            .sortedWith(
+                compareBy<CompoundNodeLayout>(
+                    { if (it.isContainer) 0 else 1 },
+                    { it.nodeId }
+                )
+            )
     }
 
     val sortedEdgeIds = remember(layoutResult) {
         layoutResult.edgeRoutesByEdgeId.keys.sorted()
+    }
+    val tessellatedGraphIds = remember(state.id, layoutKey) {
+        fun collect(graph: GraphLayoutCompoundGraph): List<String> {
+            val include = if (graph.layoutAlgorithm == CompoundLayoutAlgorithm.TESSELLATED && !graph.isCollapsed) {
+                listOf(graph.id)
+            } else {
+                emptyList()
+            }
+            val children = graph.children.values
+                .filter { !it.isCollapsed }
+                .sortedBy { it.id }
+                .flatMap { collect(it) }
+            return include + children
+        }
+        collect(state.root)
+    }
+    val contentOrigins = remember(layoutResult) {
+        layoutResult.graphLayoutsById.values
+            .filter { it.containerNodeId != null }
+            .sortedBy { it.graphId }
+            .map { it.globalOffsetX to it.globalOffsetY }
     }
 
     val minX = remember(layoutResult) {
@@ -192,22 +277,17 @@ fun CompoundGraphLayoutView(
                     updateView(viewState.offset, newZoom)
                 }
         ) {
-            // ── Layer 1: Node composable content ────────────────────────────
-            // Each node is measured to its exact layout-computed bounds and placed at its
-            // global position. Missing content shows the error placeholder.
+            // ── Layer 1: Node content (recursive) ───────────────────────────
+            // Container composables receive their children as a composable argument,
+            // giving them full z-order control (e.g. overlays drawn after children).
             Layout(
                 content = {
-                    sortedNodes.forEach { node ->
-                        val content = state.nodeContentById[node.nodeId]
-                        if (null != content) {
-                            content()
-                        } else {
-                            MissingNodeContent(node.nodeId)
-                        }
+                    rootNodes.forEach { node ->
+                        NodeContent(node, state, layoutResult)
                     }
                 }
             ) { measurables, _ ->
-                val placeables = sortedNodes.mapIndexed { index, node ->
+                val placeables = rootNodes.mapIndexed { index, node ->
                     measurables[index].measure(
                         Constraints(
                             minWidth = 0,
@@ -218,7 +298,7 @@ fun CompoundGraphLayoutView(
                     )
                 }
                 layout(totalWidth.roundToInt(), totalHeight.roundToInt()) {
-                    sortedNodes.forEachIndexed { index, node ->
+                    rootNodes.forEachIndexed { index, node ->
                         placeables[index].placeRelative(
                             x = (node.globalX + globalToViewportOffsetX).roundToInt(),
                             y = (node.globalY + globalToViewportOffsetY).roundToInt()
@@ -237,6 +317,48 @@ fun CompoundGraphLayoutView(
                         }
                     }
             ) {
+                // Draw tessellation separators once per tessellated graph to avoid doubled region borders.
+                tessellatedGraphIds.forEach { graphId ->
+                    val nodesInGraph = layoutResult.nodeLayoutsById.values
+                        .filter { it.ownerGraphId == graphId }
+                    if (nodesInGraph.size >= 2) {
+                        val minGraphX = nodesInGraph.minOf { it.globalX }
+                        val maxGraphX = nodesInGraph.maxOf { it.globalX + it.width }
+                        val minGraphY = nodesInGraph.minOf { it.globalY }
+                        val maxGraphY = nodesInGraph.maxOf { it.globalY + it.height }
+
+                        val xDividers = nodesInGraph
+                            .map { it.globalX + it.width }
+                            .distinct()
+                            .sorted()
+                            .filter { it > minGraphX && it < maxGraphX }
+                        val yDividers = nodesInGraph
+                            .map { it.globalY + it.height }
+                            .distinct()
+                            .sorted()
+                            .filter { it > minGraphY && it < maxGraphY }
+
+                        xDividers.forEach { x ->
+                            val px = (x + globalToViewportOffsetX).toFloat()
+                            drawLine(
+                                color = tessellationBorderColor,
+                                start = Offset(px, (minGraphY + globalToViewportOffsetY).toFloat()),
+                                end = Offset(px, (maxGraphY + globalToViewportOffsetY).toFloat()),
+                                strokeWidth = 1.5f
+                            )
+                        }
+                        yDividers.forEach { y ->
+                            val py = (y + globalToViewportOffsetY).toFloat()
+                            drawLine(
+                                color = tessellationBorderColor,
+                                start = Offset((minGraphX + globalToViewportOffsetX).toFloat(), py),
+                                end = Offset((maxGraphX + globalToViewportOffsetX).toFloat(), py),
+                                strokeWidth = 1.5f
+                            )
+                        }
+                    }
+                }
+
                 sortedEdgeIds.forEach { edgeId ->
                     val route = layoutResult.edgeRoutesByEdgeId[edgeId] ?: return@forEach
                     if (route.size >= 2) {
@@ -250,6 +372,26 @@ fun CompoundGraphLayoutView(
                             },
                             color = Color(0xFF444444),
                             style = Stroke(width = 2f)
+                        )
+                    }
+                }
+
+                if (state.showContentOrigins.value) {
+                    contentOrigins.forEach { origin ->
+                        val ox = (origin.first + globalToViewportOffsetX).toFloat()
+                        val oy = (origin.second + globalToViewportOffsetY).toFloat()
+                        val r = 6f
+                        drawLine(
+                            color = Color(0xFFD32F2F),
+                            start = Offset(ox - r, oy),
+                            end = Offset(ox + r, oy),
+                            strokeWidth = 1.5f
+                        )
+                        drawLine(
+                            color = Color(0xFFD32F2F),
+                            start = Offset(ox, oy - r),
+                            end = Offset(ox, oy + r),
+                            strokeWidth = 1.5f
                         )
                     }
                 }

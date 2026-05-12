@@ -19,10 +19,15 @@ data class DemoNode(
     val width: Float,
     val height: Float,
     val containerId: String? = null,
-    /** If true, this container starts collapsed and has [CollapsePolicy.COLLAPSED_BY_DEFAULT]. */
+    /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
-    val content: (@Composable () -> Unit)? = null
+    val role: DemoNodeRole? = null,
+    val content: (@Composable (@Composable () -> Unit) -> Unit)? = null
 )
+
+enum class DemoNodeRole {
+    REGION
+}
 
 data class DemoEdge(
     val id: String,
@@ -33,7 +38,8 @@ data class DemoEdge(
 data class DebugOverlaySettings(
     val showBounds: Boolean = true,
     val showPorts: Boolean = false,
-    val showEdgeIds: Boolean = false
+    val showEdgeIds: Boolean = false,
+    val showContentOrigins: Boolean = false
 )
 
 

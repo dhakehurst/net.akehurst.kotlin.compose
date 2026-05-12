@@ -28,6 +28,7 @@ object DemoScenarios {
 
     private val umlFill = Color(0xFFE8F0FE)
     private val umlStroke = Color(0xFF3F7ACC)
+    private const val compoundStateCornerRadiusDp = 12
 
     val flatChain = DemoScenario(
         id = "flat_chain",
@@ -150,9 +151,9 @@ object DemoScenarios {
         id = "state_like_regions",
         title = "State-like regions",
         nodes = listOf(
-            DemoNode("StateMachine", x = 50f, y = 40f, width = 640f, height = 360f, content = { CompoundState("TopRegion") }),
-            DemoNode("RegionA", x = 90f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", content = { Region("RegionA") }),
-            DemoNode("RegionB", x = 390f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", content = { Region("RegionB") }),
+            DemoNode("StateMachine", x = 50f, y = 40f, width = 640f, height = 360f, content = { children -> CompoundState("StateMachine", children) }),
+            DemoNode("RegionA", x = 90f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", role = DemoNodeRole.REGION, content = { children -> Region("RegionA", children) }),
+            DemoNode("RegionB", x = 390f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", role = DemoNodeRole.REGION, content = { children -> Region("RegionB", children) }),
             DemoNode("A1", x = 130f, y = 150f, width = 90f, height = 48f, containerId = "RegionA", content = { SimpleState("A1") }),
             DemoNode("A2", x = 230f, y = 240f, width = 90f, height = 48f, containerId = "RegionA", content = { SimpleState("A2") }),
             DemoNode("B1", x = 430f, y = 150f, width = 90f, height = 48f, containerId = "RegionB", content = { SimpleState("B1") }),
@@ -188,13 +189,12 @@ object DemoScenarios {
         id = "uml_statechart_nested_regions",
         title = "UML statechart with nested regions",
         nodes = listOf(
-            DemoNode("Machine", x = 40f, y = 30f, width = 700f, height = 420f, content = { CompoundState("Machine") }),
-            DemoNode("TopRegion", x = 90f, y = 80f, width = 600f, height = 330f, containerId = "Machine", content = { Region("TopRegion") }),
-            DemoNode("ParallelA", x = 130f, y = 130f, width = 250f, height = 250f, containerId = "TopRegion", content = { CompoundState("ParallelA") }),
-            DemoNode("ParallelB", x = 420f, y = 130f, width = 230f, height = 250f, containerId = "TopRegion", content = { CompoundState("ParallelB") }),
-            DemoNode("SubRegionA1", x = 160f, y = 170f, width = 190f, height = 150f, containerId = "ParallelA", content = { Region("SubRegionA1") }),
-            DemoNode("Idle", x = 190f, y = 205f, width = 100f, height = 48f, containerId = "SubRegionA1", content = { Region("Idle") }),
-            DemoNode("Active", x = 190f, y = 265f, width = 100f, height = 48f, containerId = "SubRegionA1", content = { Region("Active") }),
+            DemoNode("Machine", x = 40f, y = 30f, width = 700f, height = 420f, content = { children -> CompoundState("Machine", children) }),
+            DemoNode("ParallelA", x = 130f, y = 130f, width = 250f, height = 250f, containerId = "Machine", role = DemoNodeRole.REGION, content = { children -> Region("ParallelA", children) }),
+            DemoNode("ParallelB", x = 420f, y = 130f, width = 230f, height = 250f, containerId = "Machine", role = DemoNodeRole.REGION, content = { children -> Region("ParallelB", children) }),
+            DemoNode("SubRegionA1", x = 160f, y = 170f, width = 190f, height = 150f, containerId = "ParallelA", role = DemoNodeRole.REGION, content = { children -> Region("SubRegionA1", children) }),
+            DemoNode("Idle", x = 190f, y = 205f, width = 100f, height = 48f, containerId = "SubRegionA1", content = { SimpleState("Idle") }),
+            DemoNode("Active", x = 190f, y = 265f, width = 100f, height = 48f, containerId = "SubRegionA1", content = { SimpleState("Active") }),
             DemoNode("Wait", x = 470f, y = 190f, width = 100f, height = 48f, containerId = "ParallelB", content = { SimpleState("Wait") }),
             DemoNode("Done", x = 470f, y = 270f, width = 100f, height = 48f, containerId = "ParallelB", content = { SimpleState("Done") })
         ),
@@ -210,7 +210,7 @@ object DemoScenarios {
         id = "uml_use_case_diagram",
         title = "UML use case diagram",
         nodes = listOf(
-            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, content = { Component("System") }),
+            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, content = { children -> Component("System", children) }),
             DemoNode("User", x = 40f, y = 150f, width = 100f, height = 56f, content = { Actor("User") }),
             DemoNode("Admin", x = 40f, y = 250f, width = 100f, height = 56f, content = { Actor("Admin") }),
             DemoNode("Login", x = 270f, y = 120f, width = 110f, height = 56f, containerId = "System", content = { UseCase("Login") }),
@@ -230,7 +230,7 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, content = { Component("Controller") }),
+            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, content = { children -> Component("Controller", children) }),
             DemoNode("InputPort", x = 130f, y = 180f, width = 100f, height = 48f, containerId = "Controller", content = { Interface("InputPort") }),
             DemoNode("Core", x = 280f, y = 130f, width = 140f, height = 56f, containerId = "Controller", content = { Component("Core") }),
             DemoNode("OutputPort", x = 490f, y = 180f, width = 110f, height = 48f, containerId = "Controller", content = { Interface("OutputPort") }),
@@ -249,9 +249,9 @@ object DemoScenarios {
         id = "uml_deployment_diagram",
         title = "UML deployment diagram",
         nodes = listOf(
-            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, content = { DeploymentNode("Cloud") }),
-            DemoNode("WebNode", x = 120f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { DeploymentNode("WebNode") }),
-            DemoNode("DbNode", x = 360f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { DeploymentNode("DbNode") }),
+            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, content = { children -> DeploymentNode("Cloud", children) }),
+            DemoNode("WebNode", x = 120f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { children -> DeploymentNode("WebNode", children) }),
+            DemoNode("DbNode", x = 360f, y = 110f, width = 180f, height = 220f, containerId = "Cloud", content = { children -> DeploymentNode("DbNode", children) }),
             DemoNode("WebApp", x = 150f, y = 170f, width = 120f, height = 56f, containerId = "WebNode", content = { Component("WebApp") }),
             DemoNode("Database", x = 390f, y = 170f, width = 120f, height = 56f, containerId = "DbNode", content = { Component("Database") }),
             DemoNode("Client", x = 80f, y = 430f, width = 110f, height = 56f, content = { Actor("Client") })
@@ -267,12 +267,12 @@ object DemoScenarios {
         id = "uml_class_package_crossing_relations",
         title = "UML class/package crossing relations",
         nodes = listOf(
-            DemoNode("PackageDomain", x = 60f, y = 60f, width = 290f, height = 280f, content = {Package("Domain")}),
-            DemoNode("PackageInfra", x = 390f, y = 60f, width = 290f, height = 280f, content = {Package("Infra")}),
-            DemoNode("Order", x = 110f, y = 130f, width = 100f, height = 56f, containerId = "PackageDomain", content = {Class("Order")}),
-            DemoNode("Customer", x = 220f, y = 230f, width = 110f, height = 56f, containerId = "PackageDomain", content = {Class("Customer")}),
-            DemoNode("OrderRepo", x = 440f, y = 130f, width = 120f, height = 56f, containerId = "PackageInfra", content = {Class("OrderRepo")}),
-            DemoNode("EventBus", x = 560f, y = 230f, width = 100f, height = 56f, containerId = "PackageInfra", content = {Class("EventBus")}),
+            DemoNode("PackageDomain", x = 60f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Domain", children) }),
+            DemoNode("PackageInfra", x = 390f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Infra", children) }),
+            DemoNode("Order", x = 110f, y = 130f, width = 100f, height = 56f, containerId = "PackageDomain", content = { Class("Order") }),
+            DemoNode("Customer", x = 220f, y = 230f, width = 110f, height = 56f, containerId = "PackageDomain", content = { Class("Customer") }),
+            DemoNode("OrderRepo", x = 440f, y = 130f, width = 120f, height = 56f, containerId = "PackageInfra", content = { Class("OrderRepo") }),
+            DemoNode("EventBus", x = 560f, y = 230f, width = 100f, height = 56f, containerId = "PackageInfra", content = { Class("EventBus") }),
         ),
         edges = listOf(
             DemoEdge("e_pkg_1", "Order", "Customer"),
@@ -303,7 +303,7 @@ object DemoScenarios {
      * Composable that looks like a UML Package. A Box with a tab at top left containing the name.
      */
     @Composable
-    fun Package(name:String) =  Box(
+    fun Package(name: String, children: @Composable () -> Unit = {}) = Box(
         modifier = Modifier.fillMaxSize()
     ) {
         Box(
@@ -312,7 +312,9 @@ object DemoScenarios {
                 .padding(top = 18.dp)
                 .background(umlFill)
                 .border(1.5.dp, umlStroke)
-        )
+        ) {
+            children()
+        }
         Box(
             modifier = Modifier
                 .background(umlFill)
@@ -355,7 +357,7 @@ object DemoScenarios {
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill, RoundedCornerShape(12.dp))
-            .border(1.5.dp, umlStroke, RoundedCornerShape(12.dp)),
+            .border(1.5.dp, umlStroke, RoundedCornerShape(5.dp)),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -368,34 +370,41 @@ object DemoScenarios {
     /**
      * Composable that looks like a UML State.
      * A rounded corner Box with the name centered at the top.
-     * a partition line spanning the width of the box under the name,
-     * contained regions go in the lower compartment
+     * The partition line under the header is rendered on top via declaration order in Box.
+     * Contained regions go in the lower compartment, rendered via [children].
      */
     @Composable
-    fun CompoundState(name:String) =  Column(
+    fun CompoundState(name: String, children: @Composable () -> Unit = {}) = Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(umlFill, RoundedCornerShape(12.dp))
-            .border(1.5.dp, umlStroke, RoundedCornerShape(12.dp))
+            .background(umlFill, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
+            .border(1.5.dp, umlStroke, RoundedCornerShape(6.dp))
     ) {
-        Text(
-            text = name,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = umlStroke,
-            textAlign = TextAlign.Center
-        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = umlStroke,
+                textAlign = TextAlign.Center
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(compoundStateCornerRadiusDp.dp)
+            ) {
+                children()
+            }
+        }
+        // Declared after Column in Box z-order → renders on top of children
         HorizontalDivider(
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier
+                .padding(top = (4 + compoundStateCornerRadiusDp).dp)
+                .padding(horizontal = compoundStateCornerRadiusDp.dp),
             thickness = 1.5.dp,
             color = umlStroke
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(6.dp)
         )
     }
 
@@ -459,7 +468,7 @@ object DemoScenarios {
     }
 
     @Composable
-    fun DeploymentNode(name: String) = Box(
+    fun DeploymentNode(name: String, children: @Composable () -> Unit = {}) = Box(
         modifier = Modifier.fillMaxSize()
     ) {
         Box(
@@ -476,6 +485,7 @@ object DemoScenarios {
                 .border(1.5.dp, umlStroke),
             contentAlignment = Alignment.TopCenter
         ) {
+            children()
             Text(
                 text = name,
                 modifier = Modifier.padding(top = 4.dp),
@@ -487,12 +497,13 @@ object DemoScenarios {
     }
 
     @Composable
-    fun Component(name: String) = Box(
+    fun Component(name: String, children: @Composable () -> Unit = {}) = Box(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill)
             .border(1.5.dp, umlStroke)
     ) {
+        children()
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -543,15 +554,16 @@ object DemoScenarios {
     }
 
     /**
-     * Region in a statechart – just a dividing box.
+     * Region in a statechart. Renders its name label on top of contained child nodes.
      */
     @Composable
-    fun Region(name: String) = Box(
+    fun Region(name: String, children: @Composable () -> Unit = {}) = Box(
         modifier = Modifier
             .fillMaxSize()
             .background(umlFill)
-            .border(1.5.dp, umlStroke)
     ) {
+        children()
+        // Label on top
         Text(
             text = name,
             modifier = Modifier
@@ -562,5 +574,4 @@ object DemoScenarios {
         )
     }
 }
-
 

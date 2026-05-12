@@ -12,33 +12,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import net.akehurst.kotlin.components.layout.graph.CollapsePolicy
+import net.akehurst.kotlin.components.layout.graph.CompoundLayoutAlgorithm
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundEdge
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraph
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundNode
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
+    val normalizedNodes = normalizeRegionTiles(nodes)
     val root = GraphLayoutCompoundGraph(id = "root")
     val graphById = mutableMapOf(root.id to root)
     val parentGraphByGraphId = mutableMapOf<String, String?>()
     parentGraphByGraphId[root.id] = null
 
-    val nodesById = nodes.associateBy { it.id }
-    val containerIds = nodes.mapNotNull { it.containerId }.toSet()
+    val nodesById = normalizedNodes.associateBy { it.id }
+    val childNodesByContainerId = normalizedNodes.filter { it.containerId != null }.groupBy { it.containerId!! }
+    val containerIds = normalizedNodes.mapNotNull { it.containerId }.toSet()
     containerIds.forEach { containerId ->
         if (containerId !in graphById) {
             val containerNode = nodesById[containerId]
             val collapsed = containerNode?.defaultCollapsed == true
+            val layoutAlgorithm = selectLayoutAlgorithmForContainer(containerId, childNodesByContainerId)
+            val isRegionContainer = containerNode?.role == DemoNodeRole.REGION
+            val hasRegionChildren = childNodesByContainerId[containerId]
+                .orEmpty()
+                .let { children -> children.isNotEmpty() && children.all { it.role == DemoNodeRole.REGION } }
             graphById[containerId] = GraphLayoutCompoundGraph(
                 id = containerId,
+                layoutAlgorithm = layoutAlgorithm,
+                routeBoundary = !isRegionContainer,
                 collapsePolicy = if (collapsed) CollapsePolicy.COLLAPSED_BY_DEFAULT else CollapsePolicy.EXPANDED_BY_DEFAULT,
-                isCollapsed = collapsed
+                isCollapsed = collapsed,
+                padding = if (hasRegionChildren) REGION_TILING_PADDING.toDouble() else if (isRegionContainer) 12.0 else 32.0,
+                headerHeight = if (hasRegionChildren) REGION_TILING_HEADER_HEIGHT.toDouble() else if (isRegionContainer) 32.0 else null
             )
         }
     }
 
     val ownerGraphByNodeId = mutableMapOf<String, String>()
-    nodes.sortedBy { it.id }.forEach { node ->
+    normalizedNodes.sortedBy { it.id }.forEach { node ->
         val ownerGraphId = node.containerId ?: root.id
         val owner = graphById.getOrPut(ownerGraphId) { GraphLayoutCompoundGraph(id = ownerGraphId) }
         owner.nodes[node.id] = GraphLayoutCompoundNode(
@@ -74,10 +86,10 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         // Register Compose content for every node.
         // Containers get a shaded background + header label; leaf nodes get a centred label.
         // Any node whose content is NOT registered here would show the red ⚠ error indicator.
-        nodes.sortedBy { it.id }.forEach { node ->
-            val isContainer = nodes.any { it.containerId == node.id }
-            node.content?.let{state.addNodeContent(node.id,it)}
-                ?: state.addNodeContent(node.id) {
+        normalizedNodes.sortedBy { it.id }.forEach { node ->
+            val isContainer = normalizedNodes.any { it.containerId == node.id }
+            node.content?.let { state.addNodeContent(node.id, it) }
+                ?: state.addNodeContent(node.id) { children ->
                     if (isContainer) {
                         Box(
                             modifier = Modifier
@@ -86,6 +98,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
                                 .border(1.5.dp, Color(0xFF3F7ACC))
                                 .padding(start = 8.dp, top = 4.dp)
                         ) {
+                            children()
                             Text(
                                 text = node.id,
                                 style = MaterialTheme.typography.labelSmall,
@@ -115,6 +128,52 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         edges.sortedBy { it.id }.forEach { edge ->
             state.addEdgeContent(edge.id, emptyList())
         }
+    }
+}
+
+private const val REGION_TILING_HEADER_HEIGHT = 28f
+private const val REGION_TILING_PADDING = 12f
+
+private fun normalizeRegionTiles(nodes: List<DemoNode>): List<DemoNode> {
+    val nodesById = nodes.associateBy { it.id }
+    val childNodesByContainerId = nodes.filter { it.containerId != null }.groupBy { it.containerId!! }
+    val normalizedById = nodes.associateBy { it.id }.toMutableMap()
+
+    childNodesByContainerId.keys.sorted().forEach { containerId ->
+        val container = nodesById[containerId] ?: return@forEach
+        val children = childNodesByContainerId[containerId].orEmpty().sortedBy { it.id }
+        if (children.isEmpty() || children.any { it.role != DemoNodeRole.REGION }) {
+            return@forEach
+        }
+
+        val cols = kotlin.math.ceil(kotlin.math.sqrt(children.size.toDouble())).toInt().coerceAtLeast(1)
+        val rows = kotlin.math.ceil(children.size.toDouble() / cols.toDouble()).toInt().coerceAtLeast(1)
+        val tileWidth = container.width / cols.toFloat()
+        val tileHeight = ((container.height - REGION_TILING_HEADER_HEIGHT).coerceAtLeast(1f)) / rows.toFloat()
+
+        children.forEachIndexed { index, child ->
+            val row = index / cols
+            val col = index % cols
+            normalizedById[child.id] = child.copy(
+                x = container.x + (col * tileWidth),
+                y = container.y + REGION_TILING_HEADER_HEIGHT + (row * tileHeight),
+                width = tileWidth,
+                height = tileHeight
+            )
+        }
+    }
+
+    return nodes.map { normalizedById.getValue(it.id) }
+}
+
+private fun selectLayoutAlgorithmForContainer(
+    containerId: String,
+    childNodesByContainerId: Map<String, List<DemoNode>>
+): CompoundLayoutAlgorithm? {
+    val children = childNodesByContainerId[containerId].orEmpty()
+    return when {
+        children.size > 1 && children.all { it.role == DemoNodeRole.REGION } -> CompoundLayoutAlgorithm.TESSELLATED
+        else -> null
     }
 }
 

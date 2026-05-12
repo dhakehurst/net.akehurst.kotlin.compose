@@ -19,6 +19,7 @@
 - Phase mapping now matches `Compound Layout Specification.md` phases 0-7.
 - Step-level acceptance includes: local/global transform contract, stable edge-route IDs, collapse policy semantics, and cross-target parity.
 - Remaining high-risk items: cross-hierarchy edge routing quality, profile tuning trade-offs (compactness vs readability), and incremental recompute boundaries.
+- Region-layout refinements now captured: tessellated region fill behavior, single-divider border rendering, and reduced boundary-hop routing for sibling-region transitions.
 
 ## Research and yFiles-inspired constraints (applies to all steps)
 - Keep core layout domain-agnostic; map UML/statechart/package semantics before entering layout.
@@ -184,6 +185,12 @@ Goal: improve readability/compactness trade-offs and validate profile behavior o
 Deliverables:
 - Profile presets wired and tuned: `genericCompound`, `hierarchyBiased`, `orthogonalBiased`, `compact`, `treeLikeSeriesParallel`.
 - Spacing/alignment tuning guided by UML-like and state-like scenarios.
+- Region-based tessellation tuning:
+  - when immediate children are all regions, use deterministic row-major tiling that fills container content area
+  - normalize region child bounds to tile bounds (author hints are advisory)
+  - render shared region seams as single divider lines
+- Routing refinement discovered during live review:
+  - for nested region containers, disable intermediate boundary participation where appropriate (`routeBoundary = false`) to prevent redundant boundary intersections and zig-zag routes.
 - Review notes documenting where readability intentionally wins over compactness.
 
 Live demo update:
@@ -193,6 +200,14 @@ Live demo update:
 Acceptance:
 - Each preset produces distinct, documented behavior across target scenarios.
 - At least two domain mappings (class-like and state-like) use same core algorithm with only mapping/profile changes.
+- In region scenarios, tessellated regions fill available area and separators appear as single borders.
+- Region-crossing transitions avoid unnecessary boundary hops while preserving deterministic output.
+
+### Region-based layout notes (captured from implementation)
+- Region containers are currently selected for tessellated layout when all direct children have region role.
+- Container header area remains reserved; region tiling fills the remaining content area.
+- To avoid double borders, region node content should not paint per-node outer borders when shared seams are drawn centrally by the view.
+- Boundary routing through intermediate region containers can reduce readability; routing should prioritize enclosure-level clarity for sibling-region transitions.
 
 ### Step 7: Determinism + performance hardening
 Goal: lock reliability and regression safety.

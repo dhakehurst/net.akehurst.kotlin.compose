@@ -71,6 +71,7 @@ fun DemoApp() {
             DebugToggle("Bounds", overlay.showBounds) { overlay = overlay.copy(showBounds = it) }
             DebugToggle("Ports", overlay.showPorts) { overlay = overlay.copy(showPorts = it) }
             DebugToggle("Edge IDs", overlay.showEdgeIds) { overlay = overlay.copy(showEdgeIds = it) }
+            DebugToggle("Content origins", overlay.showContentOrigins) { overlay = overlay.copy(showContentOrigins = it) }
 
             // Collapse/expand toggles — re-read collapseVersion so the sidebar recomposes
             // after each toggle and reflects the updated isCollapsed value.
@@ -128,9 +129,10 @@ private fun LiveLayoutCanvas(
     scenarioId: String,
     compoundState: GraphLayoutCompoundGraphState,
     collapseVersion: Int,
-    @Suppress("UNUSED_PARAMETER") overlay: DebugOverlaySettings
+    overlay: DebugOverlaySettings
 ) {
     var viewState by remember { mutableStateOf(GraphLayoutViewState()) }
+    compoundState.showContentOrigins.value = overlay.showContentOrigins
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(

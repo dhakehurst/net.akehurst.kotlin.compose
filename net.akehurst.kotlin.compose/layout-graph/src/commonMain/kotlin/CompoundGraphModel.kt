@@ -1,6 +1,7 @@
 package net.akehurst.kotlin.components.layout.graph
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 
 /**
@@ -15,17 +16,25 @@ data class GraphLayoutCompoundGraphState(
     val routing: EdgeRouting = EdgeRouting.DIRECT,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
 ) {
-    /** Compose content for each node, keyed by node ID. */
-    val nodeContentById = mutableStateMapOf<String, @Composable () -> Unit>()
+    /** Optional debug overlay toggle used by the demo renderer. */
+    val showContentOrigins = mutableStateOf(false)
+
+    /**
+     * Compose content for each node, keyed by node ID.
+     * The lambda receives a children composable that renders the node's contained children
+     * at their layout-computed local positions. Container composables should call children
+     * at the appropriate place in their visual hierarchy; leaf composables may ignore it.
+     */
+    val nodeContentById = mutableStateMapOf<String, @Composable (@Composable () -> Unit) -> Unit>()
 
     /** Compose content slots for each edge, keyed by edge ID. */
     val edgeContentById = mutableStateMapOf<String, List<@Composable () -> Unit>>()
 
     /**
      * Convenience: register Compose content for a node that already exists in [root] (or any child graph).
-     * The layout algorithm ignores this; the renderer uses it.
+     * The [content] lambda receives the node's contained children as a composable argument.
      */
-    fun addNodeContent(nodeId: String, content: @Composable () -> Unit) {
+    fun addNodeContent(nodeId: String, content: @Composable (@Composable () -> Unit) -> Unit) {
         nodeContentById[nodeId] = content
     }
 
@@ -40,14 +49,22 @@ data class GraphLayoutCompoundGraphState(
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
+    val layoutAlgorithm: CompoundLayoutAlgorithm? = null,
     val layoutProfile: CompoundLayoutProfile? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
+    val routeBoundary: Boolean = true,
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false,
-    val padding: Double = 24.0
+    val padding: Double = 24.0,
+    val headerHeight: Double? = null
 )
+
+enum class CompoundLayoutAlgorithm {
+    SUGIYAMA,
+    TESSELLATED
+}
 
 data class GraphLayoutCompoundNode(
     val id: String,
