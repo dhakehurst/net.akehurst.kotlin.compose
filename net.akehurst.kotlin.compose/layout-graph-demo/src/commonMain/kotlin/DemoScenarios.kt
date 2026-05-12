@@ -19,16 +19,54 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import net.akehurst.kotlin.components.layout.graph.EdgeContentPosition
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeSymbol
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeText
 
 object DemoScenarios {
 
     private val umlFill = Color(0xFFE8F0FE)
     private val umlStroke = Color(0xFF3F7ACC)
     private const val compoundStateCornerRadiusDp = 12
+
+    private fun labelledEdge(text: String) = GraphLayoutEdgeContent(
+        texts = listOf(GraphLayoutEdgeText(text = text, position = EdgeContentPosition.MIDDLE))
+    )
+
+    private fun transitionEdge(text: String) = GraphLayoutEdgeContent(
+        endSymbol = arrowHead(umlStroke),
+        texts = listOf(GraphLayoutEdgeText(text = text, position = EdgeContentPosition.MIDDLE))
+    )
+
+    private fun arrowHead(color: Color) = GraphLayoutEdgeSymbol(
+        pathPoints = listOf(
+            Offset(0f, 0f),
+            Offset(-12f, 6f),
+            Offset(-12f, -6f)
+        ),
+        isClosed = true,
+        fillColor = color,
+        strokeColor = color,
+        strokeWidth = 1.5f
+    )
+
+    private fun openTriangleHead(color: Color) = GraphLayoutEdgeSymbol(
+        pathPoints = listOf(
+            Offset(0f, 0f),
+            Offset(-14f, 7f),
+            Offset(-14f, -7f)
+        ),
+        isClosed = true,
+        fillColor = Color.White,
+        strokeColor = color,
+        strokeWidth = 1.5f
+    )
 
     val flatChain = DemoScenario(
         id = "flat_chain",
@@ -140,10 +178,10 @@ object DemoScenarios {
             DemoNode("Service", x = 300f, y = 300f, width = 120f, height = 56f, content = { Class("Service") })
         ),
         edges = listOf(
-            DemoEdge("e_uml_1", "DerivedA", "Base"),
-            DemoEdge("e_uml_2", "DerivedB", "Base"),
-            DemoEdge("e_uml_3", "Service", "DerivedA"),
-            DemoEdge("e_uml_4", "Service", "DerivedB")
+            DemoEdge("e_uml_1", "DerivedA", "Base", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
+            DemoEdge("e_uml_2", "DerivedB", "Base", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
+            DemoEdge("e_uml_3", "Service", "DerivedA", content = labelledEdge("uses")),
+            DemoEdge("e_uml_4", "Service", "DerivedB", content = labelledEdge("uses"))
         )
     )
 
@@ -160,9 +198,9 @@ object DemoScenarios {
             DemoNode("B2", x = 530f, y = 240f, width = 90f, height = 48f, containerId = "RegionB", content = { SimpleState("B2") }),
         ),
         edges = listOf(
-            DemoEdge("e_state_1", "A1", "A2"),
-            DemoEdge("e_state_2", "A2", "B1"),
-            DemoEdge("e_state_3", "B1", "B2")
+            DemoEdge("e_state_1", "A1", "A2", content = transitionEdge("next")),
+            DemoEdge("e_state_2", "A2", "B1", content = transitionEdge("cross")),
+            DemoEdge("e_state_3", "B1", "B2", content = transitionEdge("done"))
         )
     )
 
@@ -177,11 +215,22 @@ object DemoScenarios {
             DemoNode("Address", x = 320f, y = 280f, width = 120f, height = 56f, content = { Class("Address") })
         ),
         edges = listOf(
-            DemoEdge("e_cls_gen_person", "Person", "NamedElement"),
-            DemoEdge("e_cls_gen_company", "Company", "NamedElement"),
-            DemoEdge("e_cls_assoc_works_on", "Person", "Project"),
-            DemoEdge("e_cls_assoc_owns", "Company", "Project"),
-            DemoEdge("e_cls_assoc_located_at", "Company", "Address")
+            DemoEdge("e_cls_gen_person", "Person", "NamedElement", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
+            DemoEdge("e_cls_gen_company", "Company", "NamedElement", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
+            DemoEdge(
+                "e_cls_assoc_works_on",
+                "Person",
+                "Project",
+                content = GraphLayoutEdgeContent(
+                    texts = listOf(
+                        GraphLayoutEdgeText("1", position = EdgeContentPosition.START),
+                        GraphLayoutEdgeText("worksOn", position = EdgeContentPosition.MIDDLE),
+                        GraphLayoutEdgeText("*", position = EdgeContentPosition.END)
+                    )
+                )
+            ),
+            DemoEdge("e_cls_assoc_owns", "Company", "Project", content = labelledEdge("owns")),
+            DemoEdge("e_cls_assoc_located_at", "Company", "Address", content = labelledEdge("locatedAt"))
         )
     )
 
@@ -199,10 +248,10 @@ object DemoScenarios {
             DemoNode("Done", x = 470f, y = 270f, width = 100f, height = 48f, containerId = "ParallelB", content = { SimpleState("Done") })
         ),
         edges = listOf(
-            DemoEdge("e_state_nested_1", "Idle", "Active"),
-            DemoEdge("e_state_nested_2", "Active", "Wait"),
-            DemoEdge("e_state_nested_3", "Wait", "Done"),
-            DemoEdge("e_state_nested_4", "Done", "Idle")
+            DemoEdge("e_state_nested_1", "Idle", "Active", content = transitionEdge("activate")),
+            DemoEdge("e_state_nested_2", "Active", "Wait", content = transitionEdge("handoff")),
+            DemoEdge("e_state_nested_3", "Wait", "Done", content = transitionEdge("complete")),
+            DemoEdge("e_state_nested_4", "Done", "Idle", content = transitionEdge("reset"))
         )
     )
 

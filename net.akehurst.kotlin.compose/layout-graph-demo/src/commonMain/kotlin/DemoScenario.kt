@@ -1,6 +1,7 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
 import androidx.compose.runtime.Composable
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
 
 /**
  * Deterministic IDs are required so visual comparisons stay stable between runs.
@@ -32,7 +33,8 @@ enum class DemoNodeRole {
 data class DemoEdge(
     val id: String,
     val sourceId: String,
-    val targetId: String
+    val targetId: String,
+    val content: GraphLayoutEdgeContent = GraphLayoutEdgeContent()
 )
 
 data class DebugOverlaySettings(

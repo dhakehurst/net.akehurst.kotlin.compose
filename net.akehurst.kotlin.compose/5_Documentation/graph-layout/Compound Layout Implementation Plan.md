@@ -34,6 +34,7 @@
 - After each step: provide changed files, acceptance checklist, and visual review notes.
 - Keep layout core model in `commonMain` UI-agnostic.
 - Keep route output keyed by stable edge IDs (`edgeRoutesByEdgeId`).
+- Keep caller-supplied rendering content keyed by stable IDs for both nodes and edges, outside the core layout algorithm; edge rendering content includes endpoint symbols and positioned text labels.
 - Ensure deterministic output for identical input.
 - **Every step must update `DemoApp.kt` / `LiveLayoutCanvas` so the live JVM demo reflects the new layout output for the relevant scenarios.**
 - Validate JVM live output after each step by running `./gradlew :layout-graph-demo:run`.
@@ -84,6 +85,7 @@ Deliverables:
 - Compound graph structures in `commonMain`.
 - Containment represented as ownership/inclusion tree (not routable edge kind).
 - Adapter from existing flat graph API to compound model.
+- Caller-facing compound state preserves Compose rendering content for nodes and edges, keyed by stable IDs; node content may render nested children, and edge content may define start/end symbols plus text labels positioned at the start, middle, or end of a route.
 
 Live demo update:
 - `DemoApp.kt`: no visible rendering change expected; demo continues to render flat scenarios via adapter to confirm no regression.
@@ -91,6 +93,8 @@ Live demo update:
 Acceptance:
 - Existing flat examples render via adapter with no behavioral regression.
 - Model invariants validated (single parent per node, acyclic containment).
+- Node and edge rendering content remain available after adapting flat scenarios into the compound model.
+- Endpoint symbols and positioned edge text remain bound by stable edge ID.
 
 ### Step 2: Recursive container placement
 Goal: place nested graphs with correct bounds and transforms.
@@ -136,6 +140,7 @@ Goal: route external edges through container boundaries.
 Deliverables:
 - Boundary port selection rules.
 - `edgeRoutesByEdgeId` routing output in global coordinates.
+- Edge rendering content remains bound by stable edge ID so route geometry, endpoint symbols, and text labels can evolve independently.
 - Multi-edge separation and basic self-loop handling.
 - Compound-aware rectilinear routing mode and direct mode parity checks.
 - Endpoint boundary-attachment contract:

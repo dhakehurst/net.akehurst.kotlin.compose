@@ -29,7 +29,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 import androidx.compose.foundation.Canvas
 
 // ── Error indicator defaults ────────────────────────────────────────────────
@@ -64,7 +68,7 @@ private fun MissingNodeContent(nodeId: String) {
 /**
  * Shown when an edge has no entry in [GraphLayoutCompoundGraphState.edgeContentById].
  * Appears as a small label at the edge route midpoint.
- * An edge with an *empty list* is treated as intentionally unlabelled; only a *missing key* triggers this.
+ * An edge with [GraphLayoutEdgeContent] but no texts/symbols is treated as intentionally plain.
  */
 @Composable
 private fun MissingEdgeContent(edgeId: String) {
@@ -80,6 +84,128 @@ private fun MissingEdgeContent(edgeId: String) {
             color = errorRed,
             style = MaterialTheme.typography.labelSmall
         )
+    }
+}
+
+@Composable
+private fun EdgeTextBubble(text: GraphLayoutEdgeText) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .background(text.backgroundColor)
+            .border(1.dp, text.borderColor)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text.text,
+            color = text.textColor,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+private data class EdgeAnchor(
+    val point: Pair<Double, Double>,
+    val angleRadians: Float
+)
+
+private data class EdgeTextPlacement(
+    val edgeId: String,
+    val position: EdgeContentPosition,
+    val texts: List<GraphLayoutEdgeText> = emptyList(),
+    val isMissing: Boolean = false
+)
+
+private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContentPosition): EdgeAnchor {
+    if (route.isEmpty()) return EdgeAnchor(0.0 to 0.0, 0f)
+    if (route.size == 1) return EdgeAnchor(route.first(), 0f)
+
+    fun angle(from: Pair<Double, Double>, to: Pair<Double, Double>) = atan2(
+        (to.second - from.second).toFloat(),
+        (to.first - from.first).toFloat()
+    )
+
+    return when (position) {
+        EdgeContentPosition.START -> EdgeAnchor(route.first(), angle(route[0], route[1]))
+        EdgeContentPosition.END -> EdgeAnchor(route.last(), angle(route[route.lastIndex - 1], route.last()))
+        EdgeContentPosition.MIDDLE -> {
+            val segmentLengths = route.zipWithNext { start, end ->
+                val dx = end.first - start.first
+                val dy = end.second - start.second
+                sqrt((dx * dx) + (dy * dy))
+            }
+            val totalLength = segmentLengths.sum()
+            if (totalLength <= 0.0) {
+                EdgeAnchor(route[route.size / 2], angle(route[0], route[1]))
+            } else {
+                val targetLength = totalLength / 2.0
+                var traversed = 0.0
+                var segmentIndex = 0
+                while (segmentIndex < segmentLengths.lastIndex && traversed + segmentLengths[segmentIndex] < targetLength) {
+                    traversed += segmentLengths[segmentIndex]
+                    segmentIndex += 1
+                }
+                val start = route[segmentIndex]
+                val end = route[segmentIndex + 1]
+                val segmentLength = segmentLengths[segmentIndex].coerceAtLeast(1e-6)
+                val ratio = ((targetLength - traversed) / segmentLength).coerceIn(0.0, 1.0)
+                EdgeAnchor(
+                    point = (
+                        start.first + ((end.first - start.first) * ratio)
+                    ) to (
+                        start.second + ((end.second - start.second) * ratio)
+                    ),
+                    angleRadians = angle(start, end)
+                )
+            }
+        }
+    }
+}
+
+private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float): Offset {
+    val distance = 18f
+    return when (position) {
+        EdgeContentPosition.START -> Offset(
+            x = cos(angleRadians) * distance,
+            y = sin(angleRadians) * distance
+        )
+
+        EdgeContentPosition.END -> Offset(
+            x = -cos(angleRadians) * distance,
+            y = -sin(angleRadians) * distance
+        )
+
+        EdgeContentPosition.MIDDLE -> Offset.Zero
+    }
+}
+
+private fun drawEdgeSymbol(
+    symbol: GraphLayoutEdgeSymbol,
+    anchor: EdgeAnchor,
+    globalToViewportOffsetX: Double,
+    globalToViewportOffsetY: Double,
+    drawPathOnCanvas: (Path, Color?, Stroke?) -> Unit
+) {
+    if (symbol.pathPoints.isEmpty()) return
+
+    val cosTheta = cos(anchor.angleRadians)
+    val sinTheta = sin(anchor.angleRadians)
+    val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat()
+    val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat()
+    val transformedPath = Path().apply {
+        symbol.pathPoints.forEachIndexed { index, point ->
+            val x = anchorX + (point.x * cosTheta) - (point.y * sinTheta)
+            val y = anchorY + (point.x * sinTheta) + (point.y * cosTheta)
+            if (index == 0) moveTo(x, y) else lineTo(x, y)
+        }
+        if (symbol.isClosed) close()
+    }
+
+    if (symbol.isClosed && symbol.fillColor.alpha > 0f) {
+        drawPathOnCanvas(transformedPath, symbol.fillColor, null)
+    }
+    if (symbol.strokeWidth > 0f && symbol.strokeColor.alpha > 0f) {
+        drawPathOnCanvas(transformedPath, symbol.strokeColor, Stroke(width = symbol.strokeWidth))
     }
 }
 
@@ -145,15 +271,15 @@ private fun NodeContent(
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].
  *
  * Node content is resolved from [GraphLayoutCompoundGraphState.nodeContentById] by stable node ID.
- * Edge labels are resolved from [GraphLayoutCompoundGraphState.edgeContentById] by stable edge ID.
+ * Edge rendering is resolved from [GraphLayoutCompoundGraphState.edgeContentById] by stable edge ID.
  *
  * **Missing content contract:**
  * - If a node ID has no entry in [GraphLayoutCompoundGraphState.nodeContentById], a red
  *   [MissingNodeContent] placeholder is rendered in the node's bounds. Content must be provided.
  * - If an edge ID has no entry in [GraphLayoutCompoundGraphState.edgeContentById], a red
  *   [MissingEdgeContent] label is rendered at the edge midpoint. Content must be provided.
- * - If an edge ID maps to an *empty list* that is an intentional "no label" — only the route
- *   line is drawn, with no error.
+ * - If an edge ID maps to [GraphLayoutEdgeContent] with no symbols/texts, that is an intentional
+ *   plain line and no error is shown.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -246,11 +372,16 @@ fun CompoundGraphLayoutView(
     val density = LocalDensity.current
     val stateForGestures by rememberUpdatedState(viewState)
 
-    // Edges that need a composable label slot: null entry = missing (error), non-empty list = labels.
-    // Empty list = intentionally unlabelled, no slot needed.
-    val edgesNeedingLabelSlot = sortedEdgeIds.filter { edgeId ->
-        val content = state.edgeContentById[edgeId]
-        content == null || content.isNotEmpty()
+    val edgeContentById = state.edgeContentById.toMap()
+    val edgeTextPlacements = sortedEdgeIds.flatMap { edgeId ->
+        val content = edgeContentById[edgeId]
+        when {
+            content == null -> listOf(EdgeTextPlacement(edgeId = edgeId, position = EdgeContentPosition.MIDDLE, isMissing = true))
+            else -> EdgeContentPosition.entries.mapNotNull { position ->
+                val textsAtPosition = content.texts.filter { it.position == position }
+                if (textsAtPosition.isEmpty()) null else EdgeTextPlacement(edgeId = edgeId, position = position, texts = textsAtPosition)
+            }
+        }
     }
 
     Box(modifier = modifier.clip(RectangleShape)) {
@@ -374,6 +505,38 @@ fun CompoundGraphLayoutView(
                             style = Stroke(width = 2f)
                         )
                     }
+
+                    val edgeContent = edgeContentById[edgeId]
+                    if (edgeContent != null) {
+                        edgeContent.startSymbol?.let { symbol ->
+                            drawEdgeSymbol(
+                                symbol = symbol,
+                                anchor = routeAnchor(route, EdgeContentPosition.START),
+                                globalToViewportOffsetX = globalToViewportOffsetX,
+                                globalToViewportOffsetY = globalToViewportOffsetY
+                            ) { path, color, stroke ->
+                                if (stroke == null) {
+                                    drawPath(path = path, color = color ?: Color.Transparent)
+                                } else {
+                                    drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                }
+                            }
+                        }
+                        edgeContent.endSymbol?.let { symbol ->
+                            drawEdgeSymbol(
+                                symbol = symbol,
+                                anchor = routeAnchor(route, EdgeContentPosition.END),
+                                globalToViewportOffsetX = globalToViewportOffsetX,
+                                globalToViewportOffsetY = globalToViewportOffsetY
+                            ) { path, color, stroke ->
+                                if (stroke == null) {
+                                    drawPath(path = path, color = color ?: Color.Transparent)
+                                } else {
+                                    drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (state.showContentOrigins.value) {
@@ -397,21 +560,18 @@ fun CompoundGraphLayoutView(
                 }
             }
 
-            // ── Layer 3: Edge label composables ──────────────────────────────
-            // One composable slot per edge that has labels or a missing-content indicator.
-            // Positioned at the midpoint of the edge route.
-            if (edgesNeedingLabelSlot.isNotEmpty()) {
+            // ── Layer 3: Edge text overlays ───────────────────────────────────
+            if (edgeTextPlacements.isNotEmpty()) {
                 Layout(
                     content = {
-                        edgesNeedingLabelSlot.forEach { edgeId ->
-                            val content = state.edgeContentById[edgeId]
-                            if (null == content) {
-                                // Key is absent — must be provided
-                                MissingEdgeContent(edgeId)
+                        edgeTextPlacements.forEach { placement ->
+                            if (placement.isMissing) {
+                                MissingEdgeContent(placement.edgeId)
                             } else {
-                                // Non-empty list: wrap slots in a Column so it is one measurable
                                 Column {
-                                    content.forEach { slot -> slot() }
+                                    placement.texts.forEach { text ->
+                                        EdgeTextBubble(text)
+                                    }
                                 }
                             }
                         }
@@ -421,16 +581,15 @@ fun CompoundGraphLayoutView(
                         m.measure(Constraints(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0, maxHeight = Constraints.Infinity))
                     }
                     layout(totalWidth.roundToInt(), totalHeight.roundToInt()) {
-                        edgesNeedingLabelSlot.forEachIndexed { index, edgeId ->
-                            val route = layoutResult.edgeRoutesByEdgeId[edgeId]
-                            val midPoint = if (route != null && route.isNotEmpty()) {
-                                route[route.size / 2]
-                            } else {
-                                0.0 to 0.0
-                            }
+                        edgeTextPlacements.forEachIndexed { index, placement ->
+                            val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
+                            val anchor = routeAnchor(route, placement.position)
+                            val textOffset = edgeTextOffset(placement.position, anchor.angleRadians)
+                            val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat() + textOffset.x
+                            val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat() + textOffset.y
                             placeables[index].placeRelative(
-                                x = (midPoint.first + globalToViewportOffsetX).roundToInt(),
-                                y = (midPoint.second + globalToViewportOffsetY).roundToInt()
+                                x = (anchorX - (placeables[index].width / 2f)).roundToInt(),
+                                y = (anchorY - (placeables[index].height / 2f)).roundToInt()
                             )
                         }
                     }

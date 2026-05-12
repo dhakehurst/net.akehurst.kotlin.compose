@@ -237,10 +237,47 @@ The layout *algorithm* is UI-agnostic: `GraphLayoutCompoundNode`, `GraphLayoutCo
 
 The *caller-facing state class* `GraphLayoutCompoundGraphState` is the integration point for Compose UIs. It holds:
 
-- `nodeContentById: Map<String, @Composable () -> Unit>` — Compose content for each node, keyed by stable node ID.
-- `edgeContentById: Map<String, List<@Composable () -> Unit>>` — Compose content for each edge, keyed by stable edge ID.
+- `nodeContentById: Map<String, @Composable (@Composable () -> Unit) -> Unit>` — Compose content for each node, keyed by stable node ID. The lambda receives a `children` composable so container-like nodes can render their nested content within their own visual chrome, while leaf nodes may ignore it.
+- `edgeContentById: Map<String, GraphLayoutEdgeContent>` — structured rendering information for each edge, keyed by stable edge ID.
 
-This mirrors the pattern of the flat `GraphLayoutGraphState`. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up composables by the same stable IDs present in the layout result. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
+Minimum caller-facing edge-rendering shape:
+
+```kotlin
+enum class EdgeContentPosition {
+    START,
+    MIDDLE,
+    END
+}
+
+data class GraphLayoutEdgeSymbol(
+    val pathPoints: List<Offset>,
+    val isClosed: Boolean = true,
+    val fillColor: Color = Color.Transparent,
+    val strokeColor: Color = Color(0xFF444444),
+    val strokeWidth: Float = 1.5f
+)
+
+data class GraphLayoutEdgeText(
+    val text: String,
+    val position: EdgeContentPosition = EdgeContentPosition.MIDDLE
+)
+
+data class GraphLayoutEdgeContent(
+    val startSymbol: GraphLayoutEdgeSymbol? = null,
+    val endSymbol: GraphLayoutEdgeSymbol? = null,
+    val texts: List<GraphLayoutEdgeText> = emptyList()
+)
+```
+
+This mirrors the pattern of the flat `GraphLayoutGraphState`, while extending it so both node visuals and edge visuals are externally supplied and remain stable across recomputations. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up node composables and edge rendering entries by the same stable IDs present in the layout result and applies them to the computed node bounds and edge routes. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
+
+Edge rendering contract:
+- the layout result remains responsible for geometry only (`edgeRoutesByEdgeId` and endpoint positions)
+- edge rendering metadata is resolved separately via `edgeContentById`
+- edge content must be attachable by stable edge ID so routing can change without losing the associated visual decorators
+- endpoint symbols are defined by local path points and attached to the start/end route tangents
+- text labels declare whether they appear at the `START`, `MIDDLE`, or `END` of the route
+- an edge with no registered content still renders with the default route stroke
 
 ## 6. Compound-graph behavior
 

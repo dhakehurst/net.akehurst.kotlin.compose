@@ -123,10 +123,11 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
                 }
         }
 
-        // Register edge content: empty list signals "intentionally unlabelled plain line".
+        // Register edge rendering content.
+        // Use GraphLayoutEdgeContent() for an intentionally plain line.
         // Remove or skip the addEdgeContent call for an edge to see the red ⚠ error indicator instead.
         edges.sortedBy { it.id }.forEach { edge ->
-            state.addEdgeContent(edge.id, emptyList())
+            state.addEdgeContent(edge.id, edge.content)
         }
     }
 }

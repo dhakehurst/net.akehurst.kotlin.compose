@@ -3,6 +3,8 @@ package net.akehurst.kotlin.components.layout.graph
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 
 /**
  * Compound graph root state used by the recursive layout pipeline.
@@ -27,8 +29,8 @@ data class GraphLayoutCompoundGraphState(
      */
     val nodeContentById = mutableStateMapOf<String, @Composable (@Composable () -> Unit) -> Unit>()
 
-    /** Compose content slots for each edge, keyed by edge ID. */
-    val edgeContentById = mutableStateMapOf<String, List<@Composable () -> Unit>>()
+    /** Structured rendering information for each edge, keyed by edge ID. */
+    val edgeContentById = mutableStateMapOf<String, GraphLayoutEdgeContent>()
 
     /**
      * Convenience: register Compose content for a node that already exists in [root] (or any child graph).
@@ -41,10 +43,53 @@ data class GraphLayoutCompoundGraphState(
     /**
      * Convenience: register Compose content for an edge that already exists in [root] (or any child graph).
      */
-    fun addEdgeContent(edgeId: String, content: List<@Composable () -> Unit>) {
+    fun addEdgeContent(edgeId: String, content: GraphLayoutEdgeContent = GraphLayoutEdgeContent()) {
         edgeContentById[edgeId] = content
     }
 }
+
+enum class EdgeContentPosition {
+    START,
+    MIDDLE,
+    END
+}
+
+/**
+ * Symbol attached to an edge endpoint.
+ *
+ * [pathPoints] are expressed in symbol-local coordinates with the attachment point at `(0, 0)`.
+ * The symbol's forward direction is positive X; the view rotates it to align with the edge tangent.
+ */
+data class GraphLayoutEdgeSymbol(
+    val pathPoints: List<Offset>,
+    val isClosed: Boolean = true,
+    val fillColor: Color = Color.Transparent,
+    val strokeColor: Color = Color(0xFF444444),
+    val strokeWidth: Float = 1.5f
+)
+
+/**
+ * Text label rendered at a deterministic position along an edge.
+ */
+data class GraphLayoutEdgeText(
+    val text: String,
+    val position: EdgeContentPosition = EdgeContentPosition.MIDDLE,
+    val textColor: Color = Color(0xFF222222),
+    val backgroundColor: Color = Color.White.copy(alpha = 0.92f),
+    val borderColor: Color = Color(0x55444444)
+)
+
+/**
+ * Caller-facing edge rendering description.
+ *
+ * Geometry still comes from the layout result; this structure adds visuals that attach to that geometry,
+ * such as endpoint symbols and text labels at the start, middle, or end of the route.
+ */
+data class GraphLayoutEdgeContent(
+    val startSymbol: GraphLayoutEdgeSymbol? = null,
+    val endSymbol: GraphLayoutEdgeSymbol? = null,
+    val texts: List<GraphLayoutEdgeText> = emptyList()
+)
 
 data class GraphLayoutCompoundGraph(
     val id: String,
@@ -136,7 +181,16 @@ fun GraphLayoutGraphState.toCompoundGraphState(rootId: String = "root"): GraphLa
             kind = if (edge.sourceId == edge.targetId) EdgeKind.SELF_LOOP else EdgeKind.ADJACENCY
         )
     }
-    return GraphLayoutCompoundGraphState(id = id, routing = routing, root = root)
+    return GraphLayoutCompoundGraphState(id = id, routing = routing, root = root).also { compoundState ->
+        nodesById.values.forEach { node ->
+            compoundState.addNodeContent(node.id) {
+                node.content()
+            }
+        }
+        edgesById.values.forEach { edge ->
+            compoundState.addEdgeContent(edge.id, GraphLayoutEdgeContent())
+        }
+    }
 }
 
 /**
