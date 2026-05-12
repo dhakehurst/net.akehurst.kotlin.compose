@@ -30,7 +30,7 @@ class test_MultiPaneLayout {
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
-    @Test
+//    @Test
     fun main() {
         // initial layout
         val graph = GraphLayoutGraphState("g")

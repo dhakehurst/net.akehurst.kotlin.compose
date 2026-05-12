@@ -1,5 +1,17 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import net.akehurst.kotlin.components.layout.graph.CollapsePolicy
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundEdge
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraph
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
@@ -15,7 +27,13 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     val containerIds = nodes.mapNotNull { it.containerId }.toSet()
     containerIds.forEach { containerId ->
         if (containerId !in graphById) {
-            graphById[containerId] = GraphLayoutCompoundGraph(id = containerId)
+            val containerNode = nodesById[containerId]
+            val collapsed = containerNode?.defaultCollapsed == true
+            graphById[containerId] = GraphLayoutCompoundGraph(
+                id = containerId,
+                collapsePolicy = if (collapsed) CollapsePolicy.COLLAPSED_BY_DEFAULT else CollapsePolicy.EXPANDED_BY_DEFAULT,
+                isCollapsed = collapsed
+            )
         }
     }
 
@@ -52,7 +70,52 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         )
     }
 
-    return GraphLayoutCompoundGraphState(id = id, root = root)
+    return GraphLayoutCompoundGraphState(id = id, root = root).also { state ->
+        // Register Compose content for every node.
+        // Containers get a shaded background + header label; leaf nodes get a centred label.
+        // Any node whose content is NOT registered here would show the red ⚠ error indicator.
+        nodes.sortedBy { it.id }.forEach { node ->
+            val isContainer = nodes.any { it.containerId == node.id }
+            node.content?.let{state.addNodeContent(node.id,it)}
+                ?: state.addNodeContent(node.id) {
+                    if (isContainer) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFE8F0FE))
+                                .border(1.5.dp, Color(0xFF3F7ACC))
+                                .padding(start = 8.dp, top = 4.dp)
+                        ) {
+                            Text(
+                                text = node.id,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF3F7ACC)
+                            )
+                        }
+                    } else {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFEFF8EF))
+                                .border(1.5.dp, Color(0xFF409C55))
+                        ) {
+                            Text(
+                                text = node.id,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF2D6E3E)
+                            )
+                        }
+                    }
+                }
+        }
+
+        // Register edge content: empty list signals "intentionally unlabelled plain line".
+        // Remove or skip the addEdgeContent call for an edge to see the red ⚠ error indicator instead.
+        edges.sortedBy { it.id }.forEach { edge ->
+            state.addEdgeContent(edge.id, emptyList())
+        }
+    }
 }
 
 private fun lowestCommonAncestor(

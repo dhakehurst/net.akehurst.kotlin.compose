@@ -27,6 +27,8 @@ This document defines a better layout plan based on:
 
 ### Primary goals
 - Support graphs nested inside other graphs.
+- support different layout algorithms
+- nested graphs can optionally have a different layout algorithm to the parent, but otherwise use the initial algorithm as default
 - Layout multiple packages, regions, or statecharts cleanly.
 - Keep hierarchies visually consistent and readable.
 - Improve crossing minimization and orthogonal routing.
@@ -227,6 +229,17 @@ The core algorithm should only consume abstract semantics:
 
 Domain concepts (UML/statechart/package) must be mapped to these generic semantics outside the core layout engine.
 
+### 5.9 Compose content and the UI/algorithm boundary
+
+The layout *algorithm* is UI-agnostic: `GraphLayoutCompoundNode`, `GraphLayoutCompoundEdge`, and `GraphLayoutCompoundGraph` carry no Compose dependencies and can be used in any context.
+
+The *caller-facing state class* `GraphLayoutCompoundGraphState` is the integration point for Compose UIs. It holds:
+
+- `nodeContentById: Map<String, @Composable () -> Unit>` — Compose content for each node, keyed by stable node ID.
+- `edgeContentById: Map<String, List<@Composable () -> Unit>>` — Compose content for each edge, keyed by stable edge ID.
+
+This mirrors the pattern of the flat `GraphLayoutGraphState`. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up composables by the same stable IDs present in the layout result. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
+
 ## 6. Compound-graph behavior
 
 ### 6.1 Containers
@@ -279,12 +292,18 @@ Containment must be explicit and acyclic.
 - `RECTILINEAR`
 - compound-aware rectilinear routing
 
+Endpoint boundary attachment contract:
+- All routed edges terminate at node/container boundaries, never at visual centers.
+- For `DIRECT`, compute each endpoint as the intersection of the straight center-to-center ray with the source/target boundary.
+- For `RECTILINEAR` (including compound-aware rectilinear), choose boundary touch points that reduce overlap and ambiguity; default to the center of the closest border side when no stronger separation heuristic applies.
+
 ### Port rules
 - ordinary nodes use node-side ports
 - containers use boundary ports
 - port side should depend on edge direction and layer placement
 - multi-edges should be separated instead of stacked on top of each other
 - collapsed containers must expose boundary ports for all external connectivity represented by hidden descendants
+- endpoint anchor selection should prefer distinct boundary positions for parallel/near-parallel routes to improve readability
 
 ### Edge handling rules
 - self-loops should be local and readable
@@ -292,6 +311,20 @@ Containment must be explicit and acyclic.
 - internal edges should stay inside the container if possible
 - external edges should leave and enter via container boundaries
 - edges may be rerouted around a container if that reduces crossings or bends
+
+### 7.5 Deterministic endpoint geometry notes
+
+To keep endpoint clipping deterministic across JVM/JS/Wasm, use the following rules:
+
+- **Boundary epsilon**: use a fixed epsilon (`1e-6`) for boundary membership/intersection checks.
+- **Shape model**: treat routable node/container bounds as axis-aligned rectangles for endpoint clipping.
+- **Direct endpoint rule**: for edge `u -> v`, compute the center-to-center ray and clip at the first boundary hit from each side.
+- **Degenerate direct case**: if source and target centers are equal, choose anchor side by deterministic priority `RIGHT, BOTTOM, LEFT, TOP`.
+- **Corner hits**: if intersection lies within epsilon of a corner, resolve to a single side by deterministic priority `RIGHT, BOTTOM, LEFT, TOP`.
+- **Rectilinear default anchor**: choose the closest border side center to the first/last orthogonal segment direction.
+- **Rectilinear ties**: if equal distance/score, break ties by side priority `RIGHT, BOTTOM, LEFT, TOP`, then by stable node ID.
+- **Parallel-edge separation**: apply deterministic slot offsets indexed by stable edge ID ordering to avoid stacked endpoints.
+- **Output normalization**: snap values with absolute magnitude `< epsilon` to `0.0` to reduce floating-point drift in snapshots.
 
 ### 7.4 Routing preferences by generic profile
 
@@ -400,6 +433,9 @@ When collapse state changes, the layout should preserve:
 - child bounds are inside parent bounds
 - no node is placed outside its container
 - cross-boundary edges attach to boundary ports
+- all edge endpoints lie on source/target boundaries (within epsilon), not node centers
+- direct-routing endpoints match center-ray-to-boundary intersections
+- rectilinear-routing endpoints use suitable boundary sides and default to closest-border centers when ties/constraints do not dictate otherwise
 - containment tree remains acyclic
 - layout output is deterministic for identical input
 - layout output is identical across supported targets (JVM/JS/Wasm) for identical input

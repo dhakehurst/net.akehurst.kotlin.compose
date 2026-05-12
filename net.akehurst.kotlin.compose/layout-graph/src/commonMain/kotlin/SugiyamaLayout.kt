@@ -353,7 +353,7 @@ class SugiyamaLayout<NT : Any>(
             val center = if (neighbors.isEmpty()) -1.0 else neighbors.map { it.posInLayer }.average()
             node.id to center
         }
-        layer.sortBy { barycenters[it.id] }
+        layer.sortWith(compareBy<SNode<NT>>({ barycenters[it.id] }, { it.id }))
     }
 
     /**
@@ -379,7 +379,7 @@ class SugiyamaLayout<NT : Any>(
             }
             node.id to median
         }
-        layer.sortBy { medians[it.id] }
+        layer.sortWith(compareBy<SNode<NT>>({ medians[it.id] }, { it.id }))
     }
 
     /**

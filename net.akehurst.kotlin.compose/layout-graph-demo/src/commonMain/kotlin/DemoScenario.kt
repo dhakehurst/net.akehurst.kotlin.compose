@@ -1,5 +1,7 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
+import androidx.compose.runtime.Composable
+
 /**
  * Deterministic IDs are required so visual comparisons stay stable between runs.
  */
@@ -16,7 +18,10 @@ data class DemoNode(
     val y: Float,
     val width: Float,
     val height: Float,
-    val containerId: String? = null
+    val containerId: String? = null,
+    /** If true, this container starts collapsed and has [CollapsePolicy.COLLAPSED_BY_DEFAULT]. */
+    val defaultCollapsed: Boolean = false,
+    val content: (@Composable () -> Unit)? = null
 )
 
 data class DemoEdge(

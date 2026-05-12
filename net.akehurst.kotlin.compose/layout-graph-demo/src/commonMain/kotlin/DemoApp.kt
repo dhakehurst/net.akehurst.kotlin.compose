@@ -1,6 +1,5 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -24,14 +22,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import net.akehurst.kotlin.components.layout.graph.CompoundLayoutEngine
+import net.akehurst.kotlin.components.layout.graph.CompoundGraphLayoutView
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutViewState
+import net.akehurst.kotlin.components.layout.graph.collapsibleChildGraphs
+import net.akehurst.kotlin.components.layout.graph.toggleCollapsed
 
 @Composable
 fun DemoApp() {
@@ -39,6 +37,13 @@ fun DemoApp() {
     var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
     var overlay by remember { mutableStateOf(DebugOverlaySettings()) }
     val selectedScenario = scenarios.first { it.id == selectedScenarioId }
+
+    // Compound state lives here so the sidebar can toggle collapse on it.
+    val compoundState = remember(selectedScenarioId) { selectedScenario.toCompoundGraphState() }
+
+    // Incrementing this triggers layout recomputation inside CompoundGraphLayoutView.
+    // It is reset to 0 whenever the scenario changes (because of the remember key).
+    var collapseVersion by remember(selectedScenarioId) { mutableStateOf(0) }
 
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFFF6F6F6))) {
         Column(
@@ -66,6 +71,28 @@ fun DemoApp() {
             DebugToggle("Bounds", overlay.showBounds) { overlay = overlay.copy(showBounds = it) }
             DebugToggle("Ports", overlay.showPorts) { overlay = overlay.copy(showPorts = it) }
             DebugToggle("Edge IDs", overlay.showEdgeIds) { overlay = overlay.copy(showEdgeIds = it) }
+
+            // Collapse/expand toggles — re-read collapseVersion so the sidebar recomposes
+            // after each toggle and reflects the updated isCollapsed value.
+            val collapsibleGraphs = if (collapseVersion >= 0) {
+                compoundState.collapsibleChildGraphs().sortedBy { it.id }
+            } else emptyList()
+
+            if (collapsibleGraphs.isNotEmpty()) {
+                Text("Containers", style = MaterialTheme.typography.titleMedium)
+                collapsibleGraphs.forEach { childGraph ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = childGraph.isCollapsed,
+                            onCheckedChange = {
+                                compoundState.toggleCollapsed(childGraph.id)
+                                collapseVersion++
+                            }
+                        )
+                        Text(childGraph.id, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
 
         Box(
@@ -76,7 +103,13 @@ fun DemoApp() {
                 .border(width = 1.dp, color = Color(0xFFD8D8D8))
                 .padding(8.dp)
         ) {
-            LiveLayoutCanvas(scenario = selectedScenario, overlay = overlay)
+            LiveLayoutCanvas(
+                title = selectedScenario.title,
+                scenarioId = selectedScenario.id,
+                compoundState = compoundState,
+                collapseVersion = collapseVersion,
+                overlay = overlay
+            )
         }
     }
 }
@@ -90,71 +123,35 @@ private fun DebugToggle(label: String, value: Boolean, update: (Boolean) -> Unit
 }
 
 @Composable
-private fun LiveLayoutCanvas(scenario: DemoScenario, overlay: DebugOverlaySettings) {
-    val layoutResult = remember(scenario) {
-        val compoundState = scenario.toCompoundGraphState()
-        CompoundLayoutEngine().layout(compoundState)
-    }
+private fun LiveLayoutCanvas(
+    title: String,
+    scenarioId: String,
+    compoundState: GraphLayoutCompoundGraphState,
+    collapseVersion: Int,
+    @Suppress("UNUSED_PARAMETER") overlay: DebugOverlaySettings
+) {
+    var viewState by remember { mutableStateOf(GraphLayoutViewState()) }
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        layoutResult.edgeRoutesByEdgeId.entries.sortedBy { it.key }.forEach { (_, route) ->
-            if (route.size >= 2) {
-                drawPath(
-                    path = Path().apply {
-                        route.forEachIndexed { index, point ->
-                            val x = point.first.toFloat()
-                            val y = point.second.toFloat()
-                            if (0 == index) moveTo(x, y) else lineTo(x, y)
-                        }
-                    },
-                    color = Color(0xFF444444),
-                    style = Stroke(width = 2f)
-                )
-            }
-        }
-
-        val allNodes = layoutResult.nodeLayoutsById.values.sortedWith(
-            compareBy({ !it.isContainer }, { it.ownerGraphId }, { it.nodeId })
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(bottom = 4.dp)
         )
-        allNodes.forEach { node ->
-            val isContainer = node.isContainer
-            val fill = if (isContainer) Color(0xFFEDF4FF) else Color(0xFFEFF8EF)
-            val stroke = if (isContainer) Color(0xFF3F7ACC) else Color(0xFF409C55)
-            val topLeft = Offset(
-                x = node.globalX.toFloat(),
-                y = node.globalY.toFloat()
-            )
-            val size = Size(node.width.toFloat(), node.height.toFloat())
+        Text(
+            text = "id=$scenarioId  mode=compound_layout",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
 
-            drawRoundRect(color = fill, topLeft = topLeft, size = size, cornerRadius = CornerRadius(8f, 8f))
-            drawRoundRect(color = stroke, topLeft = topLeft, size = size, cornerRadius = CornerRadius(8f, 8f), style = Stroke(width = 2f))
-
-            if (overlay.showBounds) {
-                drawRect(color = Color(0x66D32F2F), topLeft = topLeft, size = size, style = Stroke(width = 1f))
-            }
-
-            if (overlay.showPorts) {
-                val ports = listOf(
-                    Offset(topLeft.x + node.width.toFloat() / 2f, topLeft.y),
-                    Offset(topLeft.x + node.width.toFloat(), topLeft.y + node.height.toFloat() / 2f),
-                    Offset(topLeft.x + node.width.toFloat() / 2f, topLeft.y + node.height.toFloat()),
-                    Offset(topLeft.x, topLeft.y + node.height.toFloat() / 2f)
-                )
-                ports.forEach { port -> drawCircle(color = Color(0xFFD32F2F), radius = 3f, center = port) }
-            }
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Text(text = scenario.title, style = MaterialTheme.typography.titleMedium)
-        Text(text = "id=${scenario.id}", style = MaterialTheme.typography.bodySmall)
-        Text(text = "mode=compound_layout", style = MaterialTheme.typography.bodySmall)
-        if (overlay.showEdgeIds) {
-            Text(
-                text = layoutResult.edgeRoutesByEdgeId.keys.sorted().joinToString(prefix = "edges: ", separator = ", "),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+        CompoundGraphLayoutView(
+            state = compoundState,
+            layoutKey = collapseVersion,
+            viewState = viewState,
+            updateView = { offset: Offset, zoom: Float ->
+                viewState = GraphLayoutViewState(zoom = zoom, offset = offset)
+            },
+            modifier = Modifier.weight(1f)
+        )
     }
 }
-

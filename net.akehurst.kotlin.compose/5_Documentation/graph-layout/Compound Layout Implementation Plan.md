@@ -8,11 +8,25 @@
 ## Implementation checklist
 - [x] Step 0: Contracts + demo scaffold
 - [x] Step 1: Compound model + flat adapter
-- [ ] Step 2: Recursive container placement
-- [ ] Step 3: Compound-aware per-level layout integration
-- [ ] Step 4: Boundary ports + cross-container routing
-- [ ] Step 5: Collapse/expand behavior
-- [ ] Step 6: Determinism + performance hardening
+- [x] Step 2: Recursive container placement
+- [x] Step 3: Compound-aware per-level layout integration
+- [x] Step 4: Boundary ports + cross-container routing
+- [x] Step 5: Collapse/expand behavior
+- [ ] Step 6: Refinement + profile tuning
+- [ ] Step 7: Determinism + performance hardening
+
+## Specification alignment snapshot
+- Phase mapping now matches `Compound Layout Specification.md` phases 0-7.
+- Step-level acceptance includes: local/global transform contract, stable edge-route IDs, collapse policy semantics, and cross-target parity.
+- Remaining high-risk items: cross-hierarchy edge routing quality, profile tuning trade-offs (compactness vs readability), and incremental recompute boundaries.
+
+## Research and yFiles-inspired constraints (applies to all steps)
+- Keep core layout domain-agnostic; map UML/statechart/package semantics before entering layout.
+- Treat containment as inclusion-tree structure only; never infer containment from adjacency edges.
+- Preserve hierarchy direction per local level; apply stable tie-breakers by ID in every ordering phase.
+- Use Sugiyama-style per-level flow (`cycle removal -> layering -> dummy insertion -> crossing reduction -> coordinate assignment -> routing`) and keep child graphs atomic at parent levels.
+- Incorporate yFiles-like profile behavior: hierarchical default, orthogonal-biased routing, compact mode, and tree/series-parallel bias where graph metrics indicate suitability.
+- Prefer readability when in conflict with compactness for cross-boundary and hierarchy-critical routes.
 
 ## Working agreements for implementation and review
 - Deliver in small, reviewable slices.
@@ -24,6 +38,25 @@
 - Validate JVM live output after each step by running `./gradlew :layout-graph-demo:run`.
 
 ## Step plan
+
+## Specification traceability (spec -> plan)
+| Specification section | Required capability | Plan step(s) |
+| --- | --- | --- |
+| 5.1 Graph model | Compound graph structures + inclusion ownership | Step 1 |
+| 5.2 Recursive layout pipeline | Leaf-first recursion + child-as-atomic parent layout | Step 2, Step 3 |
+| 5.3 Layout strategy per level | Sugiyama-style per-level flow | Step 3 |
+| 5.6 Layout result shape | Stable IDs, local/global coordinates, edge routes by ID | Step 2, Step 4 |
+| 5.7 Coordinate/transform contract | Local-to-global transform accumulation | Step 2 |
+| 5.8 Domain-agnostic semantics | No UML/statechart hard-coding in core layout | Step 1, Step 3, Step 6 |
+| 6.3 Cross-container edges | Boundary-attached, readable cross-container routing | Step 4 |
+| 6.5 Collapse/expand behavior | Default policy + runtime state + hidden descendant handling | Step 5 |
+| 7 Routing and ports | Routing modes, boundary ports, multi-edge separation | Step 4, Step 6 |
+| 8 Layout quality criteria | Readability, hierarchy clarity, crossing/bend reduction | Step 3, Step 4, Step 6 |
+| 9 Phase 6 refinement | Presets + spacing/alignment tuning | Step 6 |
+| 9 Phase 7 hardening | Determinism, incremental recompute, perf/memory baselines | Step 7 |
+| 10 Algorithm outline | End-to-end orchestration and merge strategy | Step 2 to Step 5 |
+| 11 Testing strategy | Structural, visual, assertions, parity coverage | Step 7 (+ tests listed below) |
+| 15 Acceptance criteria | Nested layout, routing, collapse, determinism, parity | Step 2 to Step 7 |
 
 ### Step 0: Contracts + demo scaffold
 Goal: establish a runnable review loop before algorithm changes.
@@ -63,6 +96,7 @@ Goal: place nested graphs with correct bounds and transforms.
 
 Deliverables:
 - Leaf-first recursive layout orchestration.
+- Inclusion-tree validation (acyclic, single direct parent per node).
 - Parent bounds from child bounds + padding/header rules.
 - Local/global coordinate transform contract implemented in result.
 
@@ -73,6 +107,7 @@ Live demo update:
 Acceptance:
 - Nested scenarios show children inside container bounds in the live demo.
 - Global coordinates are consistent with local + accumulated transforms.
+- Child/global bounds and node placements are stable for identical input.
 
 ### Step 3: Compound-aware per-level layout integration
 Goal: integrate level layout while treating child graphs as atomic nodes.
@@ -80,6 +115,9 @@ Goal: integrate level layout while treating child graphs as atomic nodes.
 Deliverables:
 - Parent-level graph built from atomic child placeholders.
 - Existing Sugiyama-style steps reused per level where possible.
+- Crossing reduction uses deterministic barycenter/median-style ordering with ID tie-breakers.
+- Long edges are expanded with dummy nodes at each local level.
+- Per-level algorithm/profile selection supported: inherit parent profile by default, allow explicit override for child graphs.
 - Stable ordering tie-breakers by ID.
 
 Live demo update:
@@ -89,6 +127,7 @@ Live demo update:
 Acceptance:
 - Directional flow and layer order are stable across reruns in the live demo.
 - Crossing count trends improve vs naive placement on target scenarios.
+- Child-level profile override works while preserving deterministic output.
 
 ### Step 4: Boundary ports + cross-container routing
 Goal: route external edges through container boundaries.
@@ -97,6 +136,15 @@ Deliverables:
 - Boundary port selection rules.
 - `edgeRoutesByEdgeId` routing output in global coordinates.
 - Multi-edge separation and basic self-loop handling.
+- Compound-aware rectilinear routing mode and direct mode parity checks.
+- Endpoint boundary-attachment contract:
+  - Direct routing endpoints are computed as center-ray boundary intersections (edge would continue to center, but is clipped at boundary).
+  - Rectilinear routing endpoints attach at suitable boundary points to reduce overlap; default anchor is the center of the closest border side.
+- Deterministic geometry/tie-break contract for cross-target parity:
+  - Fixed boundary epsilon (`1e-6`) and normalized near-zero output.
+  - Corner/degenerate tie-break side order: `RIGHT, BOTTOM, LEFT, TOP`.
+  - Parallel-edge endpoint slotting based on stable edge ID ordering.
+- Routing profile presets (`DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT`, `CHANNEL_BIASED`) with deterministic fallback behavior.
 
 Live demo update:
 - `DemoApp.kt`: edges between nodes in different containers visually attach at container boundaries rather than passing through them.
@@ -105,6 +153,11 @@ Live demo update:
 Acceptance:
 - Cross-container edges attach at boundaries in the live demo, not through unrelated containers.
 - Route output uses stable edge IDs.
+- External routes avoid unrelated containers unless no valid alternative exists.
+- Edge endpoints visually stop at source/target boundaries (not centers) in both direct and rectilinear modes.
+- Direct mode endpoint clipping matches center-to-center ray intersections with node/container boundaries.
+- Rectilinear mode endpoint anchoring reduces overlap for parallel edges, with closest-border-center fallback.
+- Tie-break outcomes (corner hits, degenerate centers, anchor ties) are deterministic and consistent across repeated JVM runs.
 
 ### Step 5: Collapse/expand behavior
 Goal: support runtime visibility changes with stable layout behavior.
@@ -113,6 +166,7 @@ Deliverables:
 - Collapse policy default + runtime state handling.
 - External connectivity aggregation for collapsed descendants.
 - Deterministic rerouting and stable relative ordering where possible.
+- Collapsed containers expose boundary ports for hidden-descendant connectivity.
 
 Live demo update:
 - `DemoApp.kt`: add a collapse/expand toggle per container in the sidebar.
@@ -122,21 +176,40 @@ Live demo update:
 Acceptance:
 - Collapsed containers hide internal nodes/edges in the live demo.
 - Expand/collapse cycles remain deterministic for unaffected regions.
+- Default collapsed/expanded state follows `collapsePolicy`.
 
-### Step 6: Determinism + performance hardening
+### Step 6: Refinement + profile tuning
+Goal: improve readability/compactness trade-offs and validate profile behavior on representative diagrams.
+
+Deliverables:
+- Profile presets wired and tuned: `genericCompound`, `hierarchyBiased`, `orthogonalBiased`, `compact`, `treeLikeSeriesParallel`.
+- Spacing/alignment tuning guided by UML-like and state-like scenarios.
+- Review notes documenting where readability intentionally wins over compactness.
+
+Live demo update:
+- `DemoApp.kt`: profile selector and per-scenario profile defaults exposed in sidebar.
+- Visual comparison mode for profile A/B review on the same scenario.
+
+Acceptance:
+- Each preset produces distinct, documented behavior across target scenarios.
+- At least two domain mappings (class-like and state-like) use same core algorithm with only mapping/profile changes.
+
+### Step 7: Determinism + performance hardening
 Goal: lock reliability and regression safety.
 
 Deliverables:
 - Determinism tests with repeated-run snapshots.
-- Baseline performance metrics for representative scenario sizes.
-- Review notes on known trade-offs (compactness vs readability).
+- Cross-target parity checks for JVM/JS/Wasm on identical inputs.
+- Incremental recompute boundaries for collapse/expand and localized edits.
+- Baseline performance and memory metrics for representative scenario sizes.
 
 Live demo update:
-- `DemoApp.kt`: add a "re-run layout" button that triggers a repeated layout pass and confirms the output is visually identical.
+- `DemoApp.kt`: add a "re-run layout" button that triggers repeated layout and highlights any divergence.
 - Display layout computation time in the status bar.
 
 Acceptance:
 - Identical input yields identical output on repeated JVM runs, visible in the demo.
+- Cross-target parity tests pass for selected snapshots.
 - Performance baseline recorded and tracked.
 
 ## Scenario corpus (draft)
@@ -148,6 +221,9 @@ Acceptance:
 - `mixed_collapsed_expanded_siblings`: one collapsed sibling and one expanded sibling.
 - `uml_like_inheritance_association`: hierarchy-like plus association-like mix.
 - `state_like_regions`: region-like nested structure with boundary-crossing transitions.
+- `package_like_dependencies`: package tree with cross-package dependencies.
+- `series_parallel_subregion`: tree-like/series-parallel inner region inside a hierarchical parent.
+- `multi_edge_channel`: multiple cross-container edges between same endpoints to validate channel separation.
 
 ## Per-step review template
 Use this template for each implementation slice:
@@ -167,10 +243,53 @@ Use this template for each implementation slice:
 5. Test evidence
 - Tests run and outcomes.
 
+## Proposed acceptance test IDs
+
+Naming convention:
+- Common deterministic/structural tests: `CompoundLayout<Capability>Test`
+- Platform parity snapshots: `CompoundLayoutParity<Scenario>Test`
+
+`commonTest` candidates (structural + deterministic assertions):
+- `CompoundLayoutEmptyGraphTest`
+- `CompoundLayoutSingleNodeTest`
+- `CompoundLayoutSingleContainerTwoNodesTest`
+- `CompoundLayoutSiblingContainersCrossEdgesTest`
+- `CompoundLayoutDeepNestingTest`
+- `CompoundLayoutCyclicAdjacencyAcyclicContainmentTest`
+- `CompoundLayoutCollapsedContainerVisibilityTest`
+- `CompoundLayoutMixedCollapsedExpandedSiblingsTest`
+- `CompoundLayoutBoundsContainmentInvariantTest`
+- `CompoundLayoutBoundaryPortAttachmentInvariantTest`
+- `CompoundLayoutEdgeEndpointOnBoundaryInvariantTest`
+- `CompoundLayoutDirectEndpointCenterRayIntersectionTest`
+- `CompoundLayoutRectilinearEndpointClosestBorderFallbackTest`
+- `CompoundLayoutStableEdgeRouteIdsTest`
+- `CompoundLayoutCollapsePolicyDefaultStateTest`
+- `CompoundLayoutExpandCollapseDeterminismTest`
+- `CompoundLayoutDeterministicRepeatRunTest`
+
+`jvmTest` candidates (visual/snapshot + profile behavior):
+- `CompoundLayoutSnapshotUmlLikeInheritanceAssociationTest`
+- `CompoundLayoutSnapshotPackageLikeDependenciesTest`
+- `CompoundLayoutSnapshotStateLikeRegionsTest`
+- `CompoundLayoutSnapshotSeriesParallelSubregionTest`
+- `CompoundLayoutProfileHierarchyBiasedTest`
+- `CompoundLayoutProfileOrthogonalBiasedTest`
+- `CompoundLayoutProfileCompactTest`
+- `CompoundLayoutProfileChannelBiasedTest`
+
+JS/Wasm parity snapshot candidates (target-specific test source sets):
+- `CompoundLayoutParityUmlLikeInheritanceAssociationTest`
+- `CompoundLayoutParityStateLikeRegionsTest`
+- `CompoundLayoutParityDeepNestingTest`
+- `CompoundLayoutParityCollapsedContainerExternalLinksTest`
+
 ## Definition of done
 - Compound layout supports nested containers and cross-container routing.
 - Collapse/expand behavior is deterministic and reviewable live.
 - Output API is stable (`edgeRoutesByEdgeId`, local/global coordinates).
 - Existing flat usage remains supported through adapter during migration.
+- Profile presets are available and validated against scenario corpus.
+- Determinism and cross-target parity are verified on representative snapshots.
 - Documentation and scenario corpus remain aligned with implementation.
 

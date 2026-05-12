@@ -71,6 +71,158 @@ class test_CompoundRecursiveLayout {
         val expectedLeafGlobalY = leafNode.localY + l2Graph.globalOffsetY
         assertEquals(expectedLeafGlobalX, leafNode.globalX)
         assertEquals(expectedLeafGlobalY, leafNode.globalY)
+
+        assertEquals("root", result.graphId)
+        assertTrue(result.localBounds.right >= result.localBounds.left)
+        assertTrue(result.globalBounds.right >= result.globalBounds.left)
+        assertTrue("L1" in result.childResults)
+        assertTrue("Leaf" in result.childResults.getValue("L1").childResults.getValue("L2").globalNodePositions)
+    }
+
+    @Test
+    fun parent_level_layout_treats_child_graphs_as_atomic_nodes_for_cross_container_edges() {
+        val root = GraphLayoutCompoundGraph(id = "root")
+        root.nodes["Left"] = GraphLayoutCompoundNode(id = "Left", widthHint = 220.0, heightHint = 120.0)
+        root.nodes["Right"] = GraphLayoutCompoundNode(id = "Right", widthHint = 220.0, heightHint = 120.0)
+
+        val left = GraphLayoutCompoundGraph(id = "Left")
+        left.nodes["LA"] = GraphLayoutCompoundNode(id = "LA", widthHint = 90.0, heightHint = 48.0)
+
+        val right = GraphLayoutCompoundGraph(id = "Right")
+        right.nodes["RB"] = GraphLayoutCompoundNode(id = "RB", widthHint = 90.0, heightHint = 48.0)
+
+        root.children[left.id] = left
+        root.children[right.id] = right
+        root.edges["e_lr"] = GraphLayoutCompoundEdge(id = "e_lr", sourceId = "LA", targetId = "RB")
+
+        val result = CompoundLayoutEngine().layout(GraphLayoutCompoundGraphState(id = "atomic", root = root))
+
+        val leftContainer = assertNotNull(result.nodeLayoutsById["Left"])
+        val rightContainer = assertNotNull(result.nodeLayoutsById["Right"])
+        assertTrue(rightContainer.globalY > leftContainer.globalY)
+    }
+
+    @Test
+    fun child_layout_profile_override_changes_local_level_spacing() {
+        fun createState(childProfile: CompoundLayoutProfile?): GraphLayoutCompoundGraphState {
+            val root = GraphLayoutCompoundGraph(
+                id = "root",
+                layoutProfile = CompoundLayoutProfile.HIERARCHY_BIASED
+            )
+            root.nodes["Container"] = GraphLayoutCompoundNode(id = "Container", widthHint = 260.0, heightHint = 170.0)
+
+            val child = GraphLayoutCompoundGraph(
+                id = "Container",
+                layoutProfile = childProfile
+            )
+            child.nodes["A"] = GraphLayoutCompoundNode(id = "A", widthHint = 90.0, heightHint = 48.0)
+            child.nodes["B"] = GraphLayoutCompoundNode(id = "B", widthHint = 90.0, heightHint = 48.0)
+            child.edges["e_ab"] = GraphLayoutCompoundEdge(id = "e_ab", sourceId = "A", targetId = "B")
+            root.children[child.id] = child
+
+            return GraphLayoutCompoundGraphState(id = "profile_$childProfile", root = root)
+        }
+
+        val inherited = CompoundLayoutEngine().layout(createState(childProfile = null))
+        val compact = CompoundLayoutEngine().layout(createState(childProfile = CompoundLayoutProfile.COMPACT))
+
+        val inheritedA = assertNotNull(inherited.nodeLayoutsById["A"])
+        val inheritedB = assertNotNull(inherited.nodeLayoutsById["B"])
+        val compactA = assertNotNull(compact.nodeLayoutsById["A"])
+        val compactB = assertNotNull(compact.nodeLayoutsById["B"])
+
+        val inheritedDeltaY = inheritedB.localY - inheritedA.localY
+        val compactDeltaY = compactB.localY - compactA.localY
+        assertTrue(compactDeltaY < inheritedDeltaY)
+
+        val childGraphLayout = assertNotNull(compact.graphLayoutsById["Container"])
+        assertEquals(CompoundLayoutProfile.COMPACT, childGraphLayout.profile)
+    }
+
+    @Test
+    fun cross_container_route_avoids_unrelated_container_interior() {
+        val root = GraphLayoutCompoundGraph(id = "root")
+        root.nodes["Left"] = GraphLayoutCompoundNode(id = "Left", widthHint = 210.0, heightHint = 130.0)
+        root.nodes["Middle"] = GraphLayoutCompoundNode(id = "Middle", widthHint = 210.0, heightHint = 130.0)
+        root.nodes["Right"] = GraphLayoutCompoundNode(id = "Right", widthHint = 210.0, heightHint = 130.0)
+
+        val left = GraphLayoutCompoundGraph(id = "Left")
+        left.nodes["L1"] = GraphLayoutCompoundNode(id = "L1", widthHint = 90.0, heightHint = 48.0)
+
+        val middle = GraphLayoutCompoundGraph(id = "Middle")
+        middle.nodes["M1"] = GraphLayoutCompoundNode(id = "M1", widthHint = 90.0, heightHint = 48.0)
+
+        val right = GraphLayoutCompoundGraph(id = "Right")
+        right.nodes["R1"] = GraphLayoutCompoundNode(id = "R1", widthHint = 90.0, heightHint = 48.0)
+
+        root.children[left.id] = left
+        root.children[middle.id] = middle
+        root.children[right.id] = right
+        root.edges["e_lr"] = GraphLayoutCompoundEdge(id = "e_lr", sourceId = "L1", targetId = "R1")
+
+        val result = CompoundLayoutEngine().layout(GraphLayoutCompoundGraphState(id = "obstacle", root = root))
+        val route = result.edgeRoutesByEdgeId.getValue("e_lr")
+        val middleContainer = assertNotNull(result.nodeLayoutsById["Middle"])
+
+        val intersectsInterior = route.zipWithNext().any { (a, b) ->
+            segmentIntersectsRectInterior(
+                a = a,
+                b = b,
+                left = middleContainer.globalX,
+                right = middleContainer.globalX + middleContainer.width,
+                top = middleContainer.globalY,
+                bottom = middleContainer.globalY + middleContainer.height
+            )
+        }
+
+        assertTrue(!intersectsInterior, "Route should avoid unrelated container interior: $route")
+    }
+
+    private fun segmentIntersectsRectInterior(
+        a: Pair<Double, Double>,
+        b: Pair<Double, Double>,
+        left: Double,
+        right: Double,
+        top: Double,
+        bottom: Double
+    ): Boolean {
+        val eps = 1e-6
+        val insetLeft = left + eps
+        val insetRight = right - eps
+        val insetTop = top + eps
+        val insetBottom = bottom - eps
+        if (insetLeft >= insetRight || insetTop >= insetBottom) {
+            return false
+        }
+
+        val dx = b.first - a.first
+        val dy = b.second - a.second
+        var t0 = 0.0
+        var t1 = 1.0
+
+        fun clip(p: Double, q: Double): Boolean {
+            if (kotlin.math.abs(p) < eps) {
+                return q >= 0.0
+            }
+            val r = q / p
+            return if (p < 0.0) {
+                if (r > t1) false else {
+                    if (r > t0) t0 = r
+                    true
+                }
+            } else {
+                if (r < t0) false else {
+                    if (r < t1) t1 = r
+                    true
+                }
+            }
+        }
+
+        if (!clip(-dx, a.first - insetLeft)) return false
+        if (!clip(dx, insetRight - a.first)) return false
+        if (!clip(-dy, a.second - insetTop)) return false
+        if (!clip(dy, insetBottom - a.second)) return false
+        return t0 < t1 && t1 > 0.0 && t0 < 1.0
     }
 }
 

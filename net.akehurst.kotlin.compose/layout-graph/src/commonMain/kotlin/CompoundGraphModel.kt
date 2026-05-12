@@ -1,17 +1,46 @@
 package net.akehurst.kotlin.components.layout.graph
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+
 /**
  * Compound graph root state used by the recursive layout pipeline.
+ *
+ * The layout algorithm only consumes [root] (UI-agnostic).
+ * Compose content for each node / edge is held here, keyed by stable ID,
+ * so the rendering layer can look them up without the algorithm needing to know about them.
  */
 data class GraphLayoutCompoundGraphState(
     val id: String,
     val routing: EdgeRouting = EdgeRouting.DIRECT,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
-)
+) {
+    /** Compose content for each node, keyed by node ID. */
+    val nodeContentById = mutableStateMapOf<String, @Composable () -> Unit>()
+
+    /** Compose content slots for each edge, keyed by edge ID. */
+    val edgeContentById = mutableStateMapOf<String, List<@Composable () -> Unit>>()
+
+    /**
+     * Convenience: register Compose content for a node that already exists in [root] (or any child graph).
+     * The layout algorithm ignores this; the renderer uses it.
+     */
+    fun addNodeContent(nodeId: String, content: @Composable () -> Unit) {
+        nodeContentById[nodeId] = content
+    }
+
+    /**
+     * Convenience: register Compose content for an edge that already exists in [root] (or any child graph).
+     */
+    fun addEdgeContent(edgeId: String, content: List<@Composable () -> Unit>) {
+        edgeContentById[edgeId] = content
+    }
+}
 
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
+    val layoutProfile: CompoundLayoutProfile? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
@@ -60,6 +89,14 @@ enum class CollapsePolicy {
     COLLAPSED_BY_DEFAULT
 }
 
+enum class CompoundLayoutProfile {
+    DEFAULT,
+    HIERARCHY_BIASED,
+    ORTHOGONAL_BIASED,
+    COMPACT,
+    CHANNEL_BIASED
+}
+
 data class CompoundGraphValidationResult(
     val errors: List<String>
 ) {
@@ -83,6 +120,35 @@ fun GraphLayoutGraphState.toCompoundGraphState(rootId: String = "root"): GraphLa
         )
     }
     return GraphLayoutCompoundGraphState(id = id, routing = routing, root = root)
+}
+
+/**
+ * Toggles the [GraphLayoutCompoundGraph.isCollapsed] flag of the child graph with [graphId].
+ * No-op if the graph is not found.
+ */
+fun GraphLayoutCompoundGraphState.toggleCollapsed(graphId: String) {
+    fun find(graph: GraphLayoutCompoundGraph): GraphLayoutCompoundGraph? {
+        if (graph.id == graphId) return graph
+        return graph.children.values.firstNotNullOfOrNull { find(it) }
+    }
+    find(root)?.let { it.isCollapsed = !it.isCollapsed }
+}
+
+/**
+ * Returns all descendant child graphs (i.e. every graph that is a child of some graph in the
+ * containment tree, excluding the root itself).  These are the graphs that can be
+ * collapsed/expanded by the user.
+ */
+fun GraphLayoutCompoundGraphState.collapsibleChildGraphs(): List<GraphLayoutCompoundGraph> {
+    val result = mutableListOf<GraphLayoutCompoundGraph>()
+    fun walk(graph: GraphLayoutCompoundGraph) {
+        graph.children.values.forEach { child ->
+            result.add(child)
+            walk(child)
+        }
+    }
+    walk(root)
+    return result
 }
 
 fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationResult {
