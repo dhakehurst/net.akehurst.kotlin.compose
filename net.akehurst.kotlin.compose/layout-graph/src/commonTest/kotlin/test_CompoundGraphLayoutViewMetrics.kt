@@ -85,5 +85,42 @@ class test_CompoundGraphLayoutViewMetrics {
         assertEquals(124.0, requiredContainerWidth)
         assertEquals(252.0, requiredContainerHeight)
     }
+
+    @Test
+    fun measured_container_metrics_preserve_padding_when_child_content_exceeds_host_size() {
+        val childNodes = listOf(
+            CompoundNodeLayout(
+                nodeId = "InsideA",
+                ownerGraphId = "Container1",
+                localX = 0.0,
+                localY = 0.0,
+                globalX = 24.0,
+                globalY = 40.0,
+                width = 140.0,
+                height = 56.0,
+                isContainer = false
+            )
+        )
+
+        val metrics = resolveContainerChildHostMetrics(
+            containerWidth = 150.0,
+            containerHeight = 120.0,
+            measuredHostLeft = 10.0,
+            measuredHostTop = 20.0,
+            measuredHostRight = 140.0,
+            measuredHostBottom = 110.0,
+            childNodes = childNodes,
+            contentOriginX = 24.0,
+            contentOriginY = 40.0
+        )
+
+        assertEquals(10.0, metrics.originX)
+        assertEquals(20.0, metrics.originY)
+        assertEquals(10.0, metrics.insetRight)
+        assertEquals(10.0, metrics.insetBottom)
+
+        val requiredContainerWidth = requiredChildHostWidth(childNodes, contentOriginX = 24.0) + metrics.originX + metrics.insetRight
+        assertEquals(160.0, requiredContainerWidth)
+    }
 }
 

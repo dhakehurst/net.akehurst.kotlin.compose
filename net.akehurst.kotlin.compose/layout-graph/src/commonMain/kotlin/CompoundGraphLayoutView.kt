@@ -364,19 +364,21 @@ private fun NodeContent(
         val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
         val contentOriginX = containerGraphLayout?.globalOffsetX ?: node.globalX
         val contentOriginY = containerGraphLayout?.globalOffsetY ?: node.globalY
-        // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
-        // insets are computed in zoom-independent layout pixels.
-        var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
         val childNodes = layoutResult.nodeLayoutsById.values
             .filter { it.ownerGraphId == node.nodeId }
             .sortedWith(compareBy({ if (it.isContainer) 0 else 1 }, { it.nodeId }))
-        val children: @Composable () -> Unit = {
-            Box(
-                modifier = Modifier.onGloballyPositioned { coordinates ->
-                    val containerCoords = containerCoordinates ?: return@onGloballyPositioned
+        // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
+        // insets are computed in zoom-independent layout pixels.
+        var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
+        var childHostCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
+        val reportContainerMetrics: () -> Unit = {
+            val containerCoords = containerCoordinates
+            val hostCoords = childHostCoordinates
+            if (containerCoords != null && hostCoords != null) {
+                try {
                     // Use localBoundingBoxOf so that values are in container-local layout
                     // pixels, completely independent of graphicsLayer zoom / translation.
-                    val hostInContainer = containerCoords.localBoundingBoxOf(coordinates, clipBounds = false)
+                    val hostInContainer = containerCoords.localBoundingBoxOf(hostCoords, clipBounds = false)
                     onChildHostMeasured(
                         node.nodeId,
                         resolveContainerChildHostMetrics(
@@ -391,7 +393,28 @@ private fun NodeContent(
                             contentOriginY = contentOriginY
                         )
                     )
+                } catch (_: IllegalStateException) {
+                    // Coordinates may be detached if composition order causes callbacks to fire
+                    // out of sync; silently defer until both are stable.
                 }
+            }
+        }
+        // Sample on the next frame so the coordinate pair is attached before measuring.
+        LaunchedEffect(containerCoordinates, childHostCoordinates) {
+            val containerCoords = containerCoordinates
+            val hostCoords = childHostCoordinates
+            if (containerCoords != null && hostCoords != null) {
+                withFrameNanos { }
+                reportContainerMetrics()
+            }
+        }
+        val children: @Composable () -> Unit = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coordinates ->
+                        childHostCoordinates = coordinates
+                    }
             ) {
                 if (childNodes.isNotEmpty()) {
                     Layout(
@@ -438,18 +461,22 @@ private fun NodeContent(
             }
         }
         Box(
-            modifier = Modifier.onGloballyPositioned { coordinates ->
-                containerCoordinates = coordinates
-                nodeCoordinatesById[node.nodeId] = coordinates
-            }
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    containerCoordinates = coordinates
+                    nodeCoordinatesById[node.nodeId] = coordinates
+                }
         ) {
             if (content != null) content(children) else MissingNodeContent(node.nodeId)
         }
     } else {
         Box(
-            modifier = Modifier.onGloballyPositioned { coordinates ->
-                nodeCoordinatesById[node.nodeId] = coordinates
-            }
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    nodeCoordinatesById[node.nodeId] = coordinates
+                }
         ) {
             if (content != null) content {} else MissingNodeContent(node.nodeId)
         }
@@ -472,17 +499,16 @@ internal fun resolveContainerChildHostMetrics(
     val measuredRight = max(originX, measuredHostRight)
     val measuredBottom = max(originY, measuredHostBottom)
 
-    val childContentRight = requiredChildHostWidth(childNodes, contentOriginX)
-    val childContentBottom = requiredChildHostHeight(childNodes, contentOriginY)
-
-    val effectiveHostRight = max(measuredRight, originX + childContentRight)
-    val effectiveHostBottom = max(measuredBottom, originY + childContentBottom)
+    // Keep measured outer insets (for example container padding) stable.
+    // Child overflow must expand container size, not erase measured padding.
+    val measuredInsetRight = max(0.0, containerWidth - measuredRight)
+    val measuredInsetBottom = max(0.0, containerHeight - measuredBottom)
 
     return ContainerChildHostMetrics(
         originX = originX,
         originY = originY,
-        insetRight = max(0.0, containerWidth - effectiveHostRight),
-        insetBottom = max(0.0, containerHeight - effectiveHostBottom)
+        insetRight = measuredInsetRight,
+        insetBottom = measuredInsetBottom
     )
 }
 

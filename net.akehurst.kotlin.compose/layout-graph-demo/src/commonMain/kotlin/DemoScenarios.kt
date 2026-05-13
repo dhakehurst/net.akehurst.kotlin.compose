@@ -22,8 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import net.akehurst.kotlin.components.layout.graph.ChildLayout
 import net.akehurst.kotlin.components.layout.graph.EdgeContentPosition
@@ -103,7 +105,22 @@ object DemoScenarios {
         id = "single_container_two_nodes",
         title = "Single container two nodes",
         nodes = listOf(
-            DemoNode("Container1", content = { children -> SimpleBoxContainer("Container1", children) }),
+            DemoNode("Container1", content = { children -> SimpleBoxContainer("Container1", 0.dp, children) }),
+            DemoNode("InsideA", containerId = "Container1", content = { SimpleBox("InsideA") }),
+            DemoNode("InsideB", containerId = "Container1", content = { SimpleBox("InsideB") }),
+            DemoNode("Outside", content = { SimpleBox("Outside") }),
+        ),
+        edges = listOf(
+            DemoEdge("e_single_1", "InsideA", "InsideB"),
+            DemoEdge("e_single_2", "InsideB", "Outside")
+        )
+    )
+
+    val singleContainerTwoNodesWithPadding = DemoScenario(
+        id = "single_container_two_nodes_withPadding",
+        title = "Single container two nodes with padding",
+        nodes = listOf(
+            DemoNode("Container1", content = { children -> SimpleBoxContainer("Container1", 20.dp,children) }),
             DemoNode("InsideA", containerId = "Container1", content = { SimpleBox("InsideA") }),
             DemoNode("InsideB", containerId = "Container1", content = { SimpleBox("InsideB") }),
             DemoNode("Outside", content = { SimpleBox("Outside") }),
@@ -118,8 +135,8 @@ object DemoScenarios {
         id = "sibling_containers_cross_edges",
         title = "Sibling containers cross edges",
         nodes = listOf(
-            DemoNode("ContainerL", content = { children -> SimpleBoxContainer("ContainerL", children) }),
-            DemoNode("ContainerR", content = { children -> SimpleBoxContainer("ContainerR", children) }),
+            DemoNode("ContainerL", content = { children -> SimpleBoxContainer("ContainerL", 0.dp,children) }),
+            DemoNode("ContainerR", content = { children -> SimpleBoxContainer("ContainerR", 0.dp,children) }),
             DemoNode("L1", containerId = "ContainerL", content = { SimpleBox("L1") }),
             DemoNode("L2", containerId = "ContainerL", content = { SimpleBox("L2") }),
             DemoNode("R1", containerId = "ContainerR", content = { SimpleBox("R1") }),
@@ -136,9 +153,9 @@ object DemoScenarios {
         id = "deep_nesting",
         title = "Deep nesting",
         nodes = listOf(
-            DemoNode("RootContainer", content = { children -> SimpleBoxContainer("RootContainer", children) }),
-            DemoNode("Level1", containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", children) }),
-            DemoNode("Level2", containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", children) }),
+            DemoNode("RootContainer", content = { children -> SimpleBoxContainer("RootContainer", 0.dp,children) }),
+            DemoNode("Level1", containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", 0.dp,children) }),
+            DemoNode("Level2", containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", 0.dp,children) }),
             DemoNode("LeafA", containerId = "Level2", content = { SimpleBox("LeafA") }),
             DemoNode("LeafB", containerId = "Level2", content = { SimpleBox("LeafB") }),
             DemoNode("External", containerId = "Level1", content = { SimpleBox("External") }),
@@ -154,7 +171,7 @@ object DemoScenarios {
         title = "Collapsed container external links",
         nodes = listOf(
             DemoNode("Upstream", content = { SimpleBox("Upstream") }),
-            DemoNode("CollapsedMid", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedMid", children) }),
+            DemoNode("CollapsedMid", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedMid", 0.dp,children) }),
             DemoNode("InnerX", containerId = "CollapsedMid", content = { SimpleBox("InnerX") }),
             DemoNode("InnerY", containerId = "CollapsedMid", content = { SimpleBox("InnerY") }),
             DemoNode("Downstream", content = { SimpleBox("Downstream") }),
@@ -170,10 +187,10 @@ object DemoScenarios {
         id = "mixed_collapsed_expanded_siblings",
         title = "Mixed collapsed/expanded siblings",
         nodes = listOf(
-            DemoNode("CollapsedSib", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", children) }),
+            DemoNode("CollapsedSib", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", 0.dp,children) }),
             DemoNode("C1", containerId = "CollapsedSib", content = { SimpleBox("C1") }),
             DemoNode("C2", containerId = "CollapsedSib", content = { SimpleBox("C2") }),
-            DemoNode("ExpandedSib", content = { children -> SimpleBoxContainer("ExpandedSib", children) }),
+            DemoNode("ExpandedSib", content = { children -> SimpleBoxContainer("ExpandedSib", 0.dp,children) }),
             DemoNode("Ex1", containerId = "ExpandedSib", content = { SimpleBox("Ex1") }),
             DemoNode("Ex2", containerId = "ExpandedSib", content = { SimpleBox("Ex2") }),
         ),
@@ -362,6 +379,7 @@ object DemoScenarios {
     val all: List<DemoScenario> = listOf(
         flatChain,
         singleContainerTwoNodes,
+        singleContainerTwoNodesWithPadding,
         siblingContainersCrossEdges,
         deepNesting,
         collapsedContainerExternalLinks,
@@ -383,27 +401,33 @@ object DemoScenarios {
     fun SimpleBox(name: String) = Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxSize()//.minWidthToContent(30.dp)
             .background(Color(0xFFEFF8EF))
             .border(1.5.dp, Color.Black)
+            .padding(10.dp)
     ) {
-        Text(text = name, style = MaterialTheme.typography.bodySmall, color = Color.Black)
+        Text(text = name, style = MaterialTheme.typography.bodySmall, color = Color.Black, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
     }
 
     /**
      * simple named container
      */
     @Composable
-    fun SimpleBoxContainer(name: String, children: @Composable () -> Unit) = Column(
+    fun SimpleBoxContainer(name: String, padding:Dp = Dp.Unspecified, children: @Composable () -> Unit) = Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(Color(0xFFE8F0FE))
             .border(1.5.dp, Color(0xFF3F7ACC))
-            .padding(5.dp)
+            .padding(padding)
     ) {
-        Text(text = name, style = MaterialTheme.typography.labelSmall, color = Color(0xFF3F7ACC), maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
-        Box {
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = Color.Black, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xccb4c0FE))
+                .weight(1f)
+        ) {
             children()
         }
     }
@@ -413,7 +437,7 @@ object DemoScenarios {
      */
     @Composable
     fun Package(name: String, children: @Composable () -> Unit) = Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.containerNodeFrame(30.dp)
     ) {
         Box(
             modifier = Modifier
@@ -442,7 +466,7 @@ object DemoScenarios {
     @Composable
     fun Class(name: String) = Column(
         modifier = Modifier
-            .fillMaxSize()
+            .minWidthToContent(30.dp)
             .background(umlFill)
             .border(1.5.dp, umlStroke)
     ) {
@@ -470,7 +494,7 @@ object DemoScenarios {
     @Composable
     fun SimpleState(name: String) = Box(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxSize()//.minWidthToContent(30.dp)
             .background(umlFill, RoundedCornerShape(12.dp))
             .border(1.5.dp, umlStroke, RoundedCornerShape(5.dp)),
         contentAlignment = Alignment.Center
@@ -491,7 +515,7 @@ object DemoScenarios {
     @Composable
     fun CompoundState(name: String, children: @Composable () -> Unit) = Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(umlFill, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
             .border(1.5.dp, umlStroke, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
     ) {
@@ -521,7 +545,7 @@ object DemoScenarios {
     @Composable
     fun UseCase(name: String) = Box(
         modifier = Modifier
-            .fillMaxSize()
+            .minWidthToContent(30.dp)
             .background(umlFill, CircleShape)
             .border(1.5.dp, umlStroke, CircleShape),
         contentAlignment = Alignment.Center
@@ -537,7 +561,7 @@ object DemoScenarios {
     @Composable
     fun Actor(name: String) = Box(
         modifier = Modifier
-            .fillMaxSize()
+            .minWidthToContent(30.dp)
             .background(umlFill)
             .border(1.5.dp, umlStroke),
         contentAlignment = Alignment.Center
@@ -579,7 +603,7 @@ object DemoScenarios {
 
     @Composable
     fun DeploymentNode(name: String, children: @Composable () -> Unit) = Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.containerNodeFrame(30.dp)
     ) {
         Box(
             modifier = Modifier
@@ -609,7 +633,7 @@ object DemoScenarios {
     @Composable
     fun Component(name: String, children: @Composable () -> Unit) = Column(
         modifier = Modifier
-            .fillMaxSize()
+            .containerNodeFrame(30.dp)
             .background(umlFill)
             .border(1.5.dp, umlStroke)
     ) {
@@ -646,7 +670,7 @@ object DemoScenarios {
     @Composable
     fun Interface(name: String) = Column(
         modifier = Modifier
-            .fillMaxSize()
+            .minWidthToContent(30.dp)
             .background(umlFill)
             .border(1.5.dp, umlStroke),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -673,7 +697,7 @@ object DemoScenarios {
     @Composable
     fun Region(name: String, children: @Composable () -> Unit) = Column(
         modifier = Modifier
-            .fillMaxSize()
+            .containerNodeFrame(30.dp)
             .background(umlFill)
     ) {
         // Label on top
@@ -694,5 +718,36 @@ object DemoScenarios {
             children()
         }
 
+    }
+
+    // Container renderers must fill allocated node bounds; min-width still applies when unconstrained.
+    fun Modifier.containerNodeFrame(hardMinWidth: Dp = Dp.Unspecified) =
+        this.fillMaxSize().minWidthToContent(hardMinWidth)
+
+    fun Modifier.minWidthToContent(hardMinWidth: Dp = Dp.Unspecified) = this.layout { measurable, constraints ->
+        // Convert the optional Dp to pixels, defaulting to 0 if not specified
+        val hardMinPx = if (hardMinWidth != Dp.Unspecified) hardMinWidth.roundToPx() else 0
+
+        // 1. Query the content for its natural width
+        val contentWidth = measurable.maxIntrinsicWidth(constraints.maxHeight)
+
+        // 2. The target width is the largest of:
+        // - The parent's minimum constraint
+        // - The content's natural width
+        // - The custom hard minimum width (if provided)
+        val targetWidth = maxOf(constraints.minWidth, contentWidth, hardMinPx)
+
+        // 3. Create new constraints that force this target width, overriding parent max limits if necessary
+        val placeable = measurable.measure(
+            constraints.copy(
+                minWidth = targetWidth,
+                maxWidth = maxOf(constraints.maxWidth, targetWidth)
+            )
+        )
+
+        // 4. Place the content
+        layout(placeable.width, placeable.height) {
+            placeable.placeRelative(0, 0)
+        }
     }
 }

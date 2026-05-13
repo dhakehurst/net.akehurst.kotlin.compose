@@ -63,7 +63,7 @@ fun DemoApp() {
                         selected = selectedScenarioId == scenario.id,
                         onClick = { selectedScenarioId = scenario.id }
                     )
-                    Text(scenario.id)
+                    Text(scenario.title)
                 }
             }
 
