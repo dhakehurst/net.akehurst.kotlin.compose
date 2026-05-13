@@ -3,14 +3,13 @@ package net.akehurst.kotlin.components.layout.graph.demo
 import net.akehurst.kotlin.components.layout.graph.*
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
-    val normalizedNodes = normalizeRegionTiles(nodes)
     val root = GraphLayoutCompoundGraph(id = "root")
     val graphById = mutableMapOf(root.id to root)
     val parentGraphByGraphId = mutableMapOf<String, String?>()
     parentGraphByGraphId[root.id] = null
 
-    val nodesById = normalizedNodes.associateBy { it.id }
-    val containerIds = normalizedNodes.mapNotNull { it.containerId }.toSet()
+    val nodesById = nodes.associateBy { it.id }
+    val containerIds = nodes.mapNotNull { it.containerId }.toSet()
     containerIds.forEach { containerId ->
         if (containerId !in graphById) {
             val containerNode = nodesById[containerId]
@@ -31,13 +30,13 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     }
 
     val ownerGraphByNodeId = mutableMapOf<String, String>()
-    normalizedNodes.sortedBy { it.id }.forEach { node ->
+    nodes.sortedBy { it.id }.forEach { node ->
         val ownerGraphId = node.containerId ?: root.id
         val owner = graphById.getOrPut(ownerGraphId) { GraphLayoutCompoundGraph(id = ownerGraphId) }
         owner.nodes[node.id] = GraphLayoutCompoundNode(
             id = node.id,
-            widthHint = node.width.toDouble(),
-            heightHint = node.height.toDouble()
+            widthHint = node.widthHint?.toDouble(),
+            heightHint = node.heightHint?.toDouble()
         )
         ownerGraphByNodeId[node.id] = ownerGraphId
     }
@@ -65,9 +64,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
 
     return GraphLayoutCompoundGraphState(id = id, root = root).also { state ->
         // Register Compose content for every node.
-        // Containers get a shaded background + header label; leaf nodes get a centred label.
-        // Any node whose content is NOT registered here would show the red ⚠ error indicator.
-        normalizedNodes.sortedBy { it.id }.forEach { node ->
+        nodes.sortedBy { it.id }.forEach { node ->
             node.content.let { state.addNodeContent(node.id, it) }
         }
 
@@ -78,41 +75,6 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             state.addEdgeContent(edge.id, edge.content)
         }
     }
-}
-
-private fun normalizeRegionTiles(nodes: List<DemoNode>): List<DemoNode> {
-    val nodesById = nodes.associateBy { it.id }
-    val childNodesByContainerId = nodes.filter { it.containerId != null }.groupBy { it.containerId!! }
-    val normalizedById = nodes.associateBy { it.id }.toMutableMap()
-
-    childNodesByContainerId.keys.sorted().forEach { containerId ->
-        val container = nodesById[containerId] ?: return@forEach
-        if (container.childLayout != ChildLayout.TESSELLATE) {
-            return@forEach
-        }
-        val children = childNodesByContainerId[containerId].orEmpty().sortedBy { it.id }
-        if (children.isEmpty()) {
-            return@forEach
-        }
-
-        val cols = kotlin.math.ceil(kotlin.math.sqrt(children.size.toDouble())).toInt().coerceAtLeast(1)
-        val rows = kotlin.math.ceil(children.size.toDouble() / cols.toDouble()).toInt().coerceAtLeast(1)
-        val tileWidth = container.width / cols.toFloat()
-        val tileHeight = container.height / rows.toFloat()
-
-        children.forEachIndexed { index, child ->
-            val row = index / cols
-            val col = index % cols
-            normalizedById[child.id] = child.copy(
-                x = container.x + (col * tileWidth),
-                y = container.y + (row * tileHeight),
-                width = tileWidth,
-                height = tileHeight
-            )
-        }
-    }
-
-    return nodes.map { normalizedById.getValue(it.id) }
 }
 
 

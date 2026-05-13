@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import net.akehurst.kotlin.components.layout.graph.ChildLayout
 import net.akehurst.kotlin.components.layout.graph.EdgeContentPosition
@@ -86,10 +87,10 @@ object DemoScenarios {
         id = "flat_chain",
         title = "Flat chain",
         nodes = listOf(
-            DemoNode("A", x = 80f, y = 120f, width = 90f, height = 56f, content = { SimpleBox("A") }),
-            DemoNode("B", x = 220f, y = 120f, width = 90f, height = 56f, content = { SimpleBox("B") }),
-            DemoNode("C", x = 360f, y = 120f, width = 90f, height = 56f, content = { SimpleBox("C") }),
-            DemoNode("D", x = 500f, y = 120f, width = 90f, height = 56f, content = { SimpleBox("D") }),
+            DemoNode("A", content = { SimpleBox("A") }),
+            DemoNode("B", content = { SimpleBox("B") }),
+            DemoNode("C", content = { SimpleBox("C") }),
+            DemoNode("D", content = { SimpleBox("D") }),
         ),
         edges = listOf(
             DemoEdge("e_flat_1", "A", "B"),
@@ -102,10 +103,10 @@ object DemoScenarios {
         id = "single_container_two_nodes",
         title = "Single container two nodes",
         nodes = listOf(
-            DemoNode("Container1", x = 90f, y = 70f, width = 360f, height = 240f, content = { children -> SimpleBoxContainer("Container1", children) }),
-            DemoNode("InsideA", x = 140f, y = 130f, width = 100f, height = 56f, containerId = "Container1", content = { SimpleBox("InsideA") }),
-            DemoNode("InsideB", x = 300f, y = 130f, width = 100f, height = 56f, containerId = "Container1", content = { SimpleBox("InsideB") }),
-            DemoNode("Outside", x = 510f, y = 130f, width = 110f, height = 56f, content = { SimpleBox("Outside") }),
+            DemoNode("Container1", content = { children -> SimpleBoxContainer("Container1", children) }),
+            DemoNode("InsideA", containerId = "Container1", content = { SimpleBox("InsideA") }),
+            DemoNode("InsideB", containerId = "Container1", content = { SimpleBox("InsideB") }),
+            DemoNode("Outside", content = { SimpleBox("Outside") }),
         ),
         edges = listOf(
             DemoEdge("e_single_1", "InsideA", "InsideB"),
@@ -117,12 +118,12 @@ object DemoScenarios {
         id = "sibling_containers_cross_edges",
         title = "Sibling containers cross edges",
         nodes = listOf(
-            DemoNode("ContainerL", x = 60f, y = 70f, width = 280f, height = 240f, content = { children -> SimpleBoxContainer("ContainerL", children) }),
-            DemoNode("ContainerR", x = 380f, y = 70f, width = 280f, height = 240f, content = { children -> SimpleBoxContainer("ContainerR", children) }),
-            DemoNode("L1", x = 110f, y = 130f, width = 90f, height = 50f, containerId = "ContainerL", content = { SimpleBox("L1") }),
-            DemoNode("L2", x = 220f, y = 200f, width = 90f, height = 50f, containerId = "ContainerL", content = { SimpleBox("L2") }),
-            DemoNode("R1", x = 430f, y = 130f, width = 90f, height = 50f, containerId = "ContainerR", content = { SimpleBox("R1") }),
-            DemoNode("R2", x = 540f, y = 200f, width = 90f, height = 50f, containerId = "ContainerR", content = { SimpleBox("R2") }),
+            DemoNode("ContainerL", content = { children -> SimpleBoxContainer("ContainerL", children) }),
+            DemoNode("ContainerR", content = { children -> SimpleBoxContainer("ContainerR", children) }),
+            DemoNode("L1", containerId = "ContainerL", content = { SimpleBox("L1") }),
+            DemoNode("L2", containerId = "ContainerL", content = { SimpleBox("L2") }),
+            DemoNode("R1", containerId = "ContainerR", content = { SimpleBox("R1") }),
+            DemoNode("R2", containerId = "ContainerR", content = { SimpleBox("R2") }),
         ),
         edges = listOf(
             DemoEdge("e_sibling_1", "L1", "R1"),
@@ -135,12 +136,12 @@ object DemoScenarios {
         id = "deep_nesting",
         title = "Deep nesting",
         nodes = listOf(
-            DemoNode("RootContainer", x = 60f, y = 40f, width = 620f, height = 340f, content = { children -> SimpleBoxContainer("RootContainer", children) }),
-            DemoNode("Level1", x = 120f, y = 90f, width = 500f, height = 250f, containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", children) }),
-            DemoNode("Level2", x = 180f, y = 140f, width = 260f, height = 140f, containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", children) }),
-            DemoNode("LeafA", x = 210f, y = 180f, width = 90f, height = 48f, containerId = "Level2", content = { SimpleBox("LeafA") }),
-            DemoNode("LeafB", x = 330f, y = 180f, width = 90f, height = 48f, containerId = "Level2", content = { SimpleBox("LeafB") }),
-            DemoNode("External", x = 520f, y = 180f, width = 90f, height = 48f, containerId = "Level1", content = { SimpleBox("External") }),
+            DemoNode("RootContainer", content = { children -> SimpleBoxContainer("RootContainer", children) }),
+            DemoNode("Level1", containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", children) }),
+            DemoNode("Level2", containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", children) }),
+            DemoNode("LeafA", containerId = "Level2", content = { SimpleBox("LeafA") }),
+            DemoNode("LeafB", containerId = "Level2", content = { SimpleBox("LeafB") }),
+            DemoNode("External", containerId = "Level1", content = { SimpleBox("External") }),
         ),
         edges = listOf(
             DemoEdge("e_deep_1", "LeafA", "LeafB"),
@@ -152,11 +153,11 @@ object DemoScenarios {
         id = "collapsed_container_external_links",
         title = "Collapsed container external links",
         nodes = listOf(
-            DemoNode("Upstream", x = 70f, y = 140f, width = 110f, height = 56f, content = { SimpleBox("Upstream") }),
-            DemoNode("CollapsedMid", x = 240f, y = 100f, width = 240f, height = 140f, defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedMid", children) }),
-            DemoNode("InnerX", x = 270f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid", content = { SimpleBox("InnerX") }),
-            DemoNode("InnerY", x = 370f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedMid", content = { SimpleBox("InnerY") }),
-            DemoNode("Downstream", x = 540f, y = 140f, width = 120f, height = 56f, content = { SimpleBox("Downstream") }),
+            DemoNode("Upstream", content = { SimpleBox("Upstream") }),
+            DemoNode("CollapsedMid", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedMid", children) }),
+            DemoNode("InnerX", containerId = "CollapsedMid", content = { SimpleBox("InnerX") }),
+            DemoNode("InnerY", containerId = "CollapsedMid", content = { SimpleBox("InnerY") }),
+            DemoNode("Downstream", content = { SimpleBox("Downstream") }),
         ),
         edges = listOf(
             DemoEdge("e_collapsed_1", "Upstream", "InnerX"),
@@ -169,12 +170,12 @@ object DemoScenarios {
         id = "mixed_collapsed_expanded_siblings",
         title = "Mixed collapsed/expanded siblings",
         nodes = listOf(
-            DemoNode("CollapsedSib", x = 80f, y = 90f, width = 200f, height = 140f, defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", children) }),
-            DemoNode("C1", x = 110f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib", content = { SimpleBox("C1") }),
-            DemoNode("C2", x = 195f, y = 148f, width = 80f, height = 44f, containerId = "CollapsedSib", content = { SimpleBox("C2") }),
-            DemoNode("ExpandedSib", x = 330f, y = 70f, width = 320f, height = 250f, content = { children -> SimpleBoxContainer("ExpandedSib", children) }),
-            DemoNode("Ex1", x = 380f, y = 140f, width = 90f, height = 48f, containerId = "ExpandedSib", content = { SimpleBox("Ex1") }),
-            DemoNode("Ex2", x = 500f, y = 220f, width = 90f, height = 48f, containerId = "ExpandedSib", content = { SimpleBox("Ex2") }),
+            DemoNode("CollapsedSib", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", children) }),
+            DemoNode("C1", containerId = "CollapsedSib", content = { SimpleBox("C1") }),
+            DemoNode("C2", containerId = "CollapsedSib", content = { SimpleBox("C2") }),
+            DemoNode("ExpandedSib", content = { children -> SimpleBoxContainer("ExpandedSib", children) }),
+            DemoNode("Ex1", containerId = "ExpandedSib", content = { SimpleBox("Ex1") }),
+            DemoNode("Ex2", containerId = "ExpandedSib", content = { SimpleBox("Ex2") }),
         ),
         edges = listOf(
             DemoEdge("e_mixed_1", "C2", "Ex1"),
@@ -186,10 +187,10 @@ object DemoScenarios {
         id = "uml_like_inheritance_association",
         title = "UML-like inheritance and association",
         nodes = listOf(
-            DemoNode("Base", x = 300f, y = 60f, width = 120f, height = 56f, content = { Class("Base") }),
-            DemoNode("DerivedA", x = 170f, y = 190f, width = 130f, height = 56f, content = { Class("DerivedA") }),
-            DemoNode("DerivedB", x = 430f, y = 190f, width = 130f, height = 56f, content = { Class("DerivedB") }),
-            DemoNode("Service", x = 300f, y = 300f, width = 120f, height = 56f, content = { Class("Service") })
+            DemoNode("Base", content = { Class("Base") }),
+            DemoNode("DerivedA", content = { Class("DerivedA") }),
+            DemoNode("DerivedB", content = { Class("DerivedB") }),
+            DemoNode("Service", content = { Class("Service") })
         ),
         edges = listOf(
             DemoEdge("e_uml_1", "DerivedA", "Base", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
@@ -203,13 +204,13 @@ object DemoScenarios {
         id = "state_like_regions",
         title = "State-like regions",
         nodes = listOf(
-            DemoNode("StateMachine", x = 50f, y = 40f, width = 640f, height = 360f, childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("StateMachine", children) }),
-            DemoNode("RegionA", x = 90f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionA", children) }),
-            DemoNode("RegionB", x = 390f, y = 100f, width = 260f, height = 250f, containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionB", children) }),
-            DemoNode("A1", x = 130f, y = 150f, width = 90f, height = 48f, containerId = "RegionA", content = { SimpleState("A1") }),
-            DemoNode("A2", x = 230f, y = 240f, width = 90f, height = 48f, containerId = "RegionA", content = { SimpleState("A2") }),
-            DemoNode("B1", x = 430f, y = 150f, width = 90f, height = 48f, containerId = "RegionB", content = { SimpleState("B1") }),
-            DemoNode("B2", x = 530f, y = 240f, width = 90f, height = 48f, containerId = "RegionB", content = { SimpleState("B2") }),
+            DemoNode("StateMachine", childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("StateMachine", children) }),
+            DemoNode("RegionA", containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionA", children) }),
+            DemoNode("RegionB", containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionB", children) }),
+            DemoNode("A1", containerId = "RegionA", content = { SimpleState("A1") }),
+            DemoNode("A2", containerId = "RegionA", content = { SimpleState("A2") }),
+            DemoNode("B1", containerId = "RegionB", content = { SimpleState("B1") }),
+            DemoNode("B2", containerId = "RegionB", content = { SimpleState("B2") }),
         ),
         edges = listOf(
             DemoEdge("e_state_1", "A1", "A2", content = transitionEdge("next")),
@@ -222,11 +223,11 @@ object DemoScenarios {
         id = "uml_class_associations_generalisation",
         title = "UML class: associations + generalisation",
         nodes = listOf(
-            DemoNode("NamedElement", x = 290f, y = 40f, width = 140f, height = 56f, content = { Class("NamedElement") }),
-            DemoNode("Person", x = 120f, y = 150f, width = 110f, height = 56f, content = { Class("Person") }),
-            DemoNode("Company", x = 320f, y = 150f, width = 120f, height = 56f, content = { Class("Company") }),
-            DemoNode("Project", x = 520f, y = 150f, width = 110f, height = 56f, content = { Class("Project") }),
-            DemoNode("Address", x = 320f, y = 280f, width = 120f, height = 56f, content = { Class("Address") })
+            DemoNode("NamedElement", content = { Class("NamedElement") }),
+            DemoNode("Person", content = { Class("Person") }),
+            DemoNode("Company", content = { Class("Company") }),
+            DemoNode("Project", content = { Class("Project") }),
+            DemoNode("Address", content = { Class("Address") })
         ),
         edges = listOf(
             DemoEdge("e_cls_gen_person", "Person", "NamedElement", content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke))),
@@ -252,39 +253,27 @@ object DemoScenarios {
         id = "uml_statechart_nested_regions",
         title = "UML statechart with nested regions",
         nodes = listOf(
-            DemoNode("Machine", x = 40f, y = 30f, width = 700f, height = 420f, childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("Machine", children) }),
+            DemoNode("Machine", childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("Machine", children) }),
             DemoNode(
                 "ParallelA",
-                x = 130f,
-                y = 130f,
-                width = 250f,
-                height = 250f,
                 containerId = "Machine",
                 childLayout = ChildLayout.TESSELLATE,
                 content = { children -> Region("ParallelA", children) }),
-            DemoNode("ParallelB", x = 420f, y = 130f, width = 230f, height = 250f, containerId = "Machine", childLayout = ChildLayout.GRAPH, content = { children -> Region("ParallelB", children) }),
+            DemoNode("ParallelB", containerId = "Machine", childLayout = ChildLayout.GRAPH, content = { children -> Region("ParallelB", children) }),
             DemoNode(
                 "SubRegionA1",
-                x = 160f,
-                y = 170f,
-                width = 190f,
-                height = 150f,
                 containerId = "ParallelA",
                 childLayout = ChildLayout.GRAPH,
                 content = { children -> Region("SubRegionA1", children) }),
             DemoNode(
                 "SubRegionA2",
-                x = 160f,
-                y = 170f,
-                width = 190f,
-                height = 150f,
                 containerId = "ParallelA",
                 childLayout = ChildLayout.GRAPH,
                 content = { children -> Region("SubRegionA2", children) }),
-            DemoNode("Idle", x = 190f, y = 205f, width = 100f, height = 48f, containerId = "SubRegionA1", content = { SimpleState("Idle") }),
-            DemoNode("Active", x = 190f, y = 265f, width = 100f, height = 48f, containerId = "SubRegionA2", content = { SimpleState("Active") }),
-            DemoNode("Wait", x = 470f, y = 190f, width = 100f, height = 48f, containerId = "ParallelB", content = { SimpleState("Wait") }),
-            DemoNode("Done", x = 470f, y = 270f, width = 100f, height = 48f, containerId = "ParallelB", content = { SimpleState("Done") })
+            DemoNode("Idle", containerId = "SubRegionA1", content = { SimpleState("Idle") }),
+            DemoNode("Active", containerId = "SubRegionA2", content = { SimpleState("Active") }),
+            DemoNode("Wait", containerId = "ParallelB", content = { SimpleState("Wait") }),
+            DemoNode("Done", containerId = "ParallelB", content = { SimpleState("Done") })
         ),
         edges = listOf(
             DemoEdge("e_state_nested_1", "Idle", "Active", content = transitionEdge("activate")),
@@ -298,12 +287,12 @@ object DemoScenarios {
         id = "uml_use_case_diagram",
         title = "UML use case diagram",
         nodes = listOf(
-            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, content = { children -> Component("System", children) }),
-            DemoNode("User", x = 40f, y = 150f, width = 100f, height = 56f, content = { Actor("User") }),
-            DemoNode("Admin", x = 40f, y = 250f, width = 100f, height = 56f, content = { Actor("Admin") }),
-            DemoNode("Login", x = 270f, y = 120f, width = 110f, height = 56f, containerId = "System", content = { UseCase("Login") }),
-            DemoNode("Browse", x = 430f, y = 120f, width = 120f, height = 56f, containerId = "System", content = { UseCase("Browse") }),
-            DemoNode("ManageUsers", x = 340f, y = 230f, width = 150f, height = 56f, containerId = "System", content = { UseCase("ManageUsers") })
+            DemoNode("System", content = { children -> Component("System", children) }),
+            DemoNode("User", content = { Actor("User") }),
+            DemoNode("Admin", content = { Actor("Admin") }),
+            DemoNode("Login", containerId = "System", content = { UseCase("Login") }),
+            DemoNode("Browse", containerId = "System", content = { UseCase("Browse") }),
+            DemoNode("ManageUsers", containerId = "System", content = { UseCase("ManageUsers") })
         ),
         edges = listOf(
             DemoEdge("e_uc_1", "User", "Login"),
@@ -318,12 +307,12 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, content = { children -> Component("Controller", children) }),
-            DemoNode("InputPort", x = 130f, y = 180f, width = 100f, height = 48f, containerId = "Controller", content = { Interface("InputPort") }),
-            DemoNode("Core", x = 280f, y = 130f, width = 140f, height = 56f, containerId = "Controller", content = { children -> Component("Core", children) }),
-            DemoNode("OutputPort", x = 490f, y = 180f, width = 110f, height = 48f, containerId = "Controller", content = { Interface("OutputPort") }),
-            DemoNode("Sensor", x = 80f, y = 410f, width = 100f, height = 56f, content = { children -> Component("Sensor", children) }),
-            DemoNode("Actuator", x = 540f, y = 410f, width = 110f, height = 56f, content = { children -> Component("Actuator", children) })
+            DemoNode("Controller", content = { children -> Component("Controller", children) }),
+            DemoNode("InputPort", containerId = "Controller", content = { Interface("InputPort") }),
+            DemoNode("Core", containerId = "Controller", content = { children -> Component("Core", children) }),
+            DemoNode("OutputPort", containerId = "Controller", content = { Interface("OutputPort") }),
+            DemoNode("Sensor", content = { children -> Component("Sensor", children) }),
+            DemoNode("Actuator", content = { children -> Component("Actuator", children) })
         ),
         edges = listOf(
             DemoEdge("e_comp_1", "Sensor", "InputPort"),
@@ -337,26 +326,12 @@ object DemoScenarios {
         id = "uml_deployment_diagram",
         title = "UML deployment diagram",
         nodes = listOf(
-            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, content = { children -> DeploymentNode("Cloud", children) }),
-            DemoNode(
-                "WebNode",
-                x = 120f,
-                y = 110f,
-                width = 180f,
-                height = 220f,
-                containerId = "Cloud",
-                content = { children -> DeploymentNode("WebNode", children) }),
-            DemoNode(
-                "DbNode",
-                x = 360f,
-                y = 110f,
-                width = 180f,
-                height = 220f,
-                containerId = "Cloud",
-                content = { children -> DeploymentNode("DbNode", children) }),
-            DemoNode("WebApp", x = 150f, y = 170f, width = 120f, height = 56f, containerId = "WebNode", content = { children -> Component("WebApp", children) }),
-            DemoNode("Database", x = 390f, y = 170f, width = 120f, height = 56f, containerId = "DbNode", content = { children -> Component("Database", children) }),
-            DemoNode("Client", x = 80f, y = 430f, width = 110f, height = 56f, content = { Actor("Client") })
+            DemoNode("Cloud", content = { children -> DeploymentNode("Cloud", children) }),
+            DemoNode("WebNode", containerId = "Cloud", content = { children -> DeploymentNode("WebNode", children) }),
+            DemoNode("DbNode", containerId = "Cloud", content = { children -> DeploymentNode("DbNode", children) }),
+            DemoNode("WebApp", containerId = "WebNode", content = { children -> Component("WebApp", children) }),
+            DemoNode("Database", containerId = "DbNode", content = { children -> Component("Database", children) }),
+            DemoNode("Client", content = { Actor("Client") })
         ),
         edges = listOf(
             DemoEdge("e_dep_1", "Client", "WebApp"),
@@ -369,12 +344,12 @@ object DemoScenarios {
         id = "uml_class_package_crossing_relations",
         title = "UML class/package crossing relations",
         nodes = listOf(
-            DemoNode("PackageDomain", x = 60f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Domain", children) }),
-            DemoNode("PackageInfra", x = 390f, y = 60f, width = 290f, height = 280f, content = { children -> Package("Infra", children) }),
-            DemoNode("Order", x = 110f, y = 130f, width = 100f, height = 56f, containerId = "PackageDomain", content = { Class("Order") }),
-            DemoNode("Customer", x = 220f, y = 230f, width = 110f, height = 56f, containerId = "PackageDomain", content = { Class("Customer") }),
-            DemoNode("OrderRepo", x = 440f, y = 130f, width = 120f, height = 56f, containerId = "PackageInfra", content = { Class("OrderRepo") }),
-            DemoNode("EventBus", x = 560f, y = 230f, width = 100f, height = 56f, containerId = "PackageInfra", content = { Class("EventBus") }),
+            DemoNode("PackageDomain", content = { children -> Package("Domain", children) }),
+            DemoNode("PackageInfra", content = { children -> Package("Infra", children) }),
+            DemoNode("Order", containerId = "PackageDomain", content = { Class("Order") }),
+            DemoNode("Customer", containerId = "PackageDomain", content = { Class("Customer") }),
+            DemoNode("OrderRepo", containerId = "PackageInfra", content = { Class("OrderRepo") }),
+            DemoNode("EventBus", containerId = "PackageInfra", content = { Class("EventBus") }),
         ),
         edges = listOf(
             DemoEdge("e_pkg_1", "Order", "Customer"),
@@ -425,8 +400,9 @@ object DemoScenarios {
             .fillMaxSize()
             .background(Color(0xFFE8F0FE))
             .border(1.5.dp, Color(0xFF3F7ACC))
+            .padding(5.dp)
     ) {
-        Text(text = name, style = MaterialTheme.typography.labelSmall, color = Color(0xFF3F7ACC))
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = Color(0xFF3F7ACC), maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
         Box {
             children()
         }

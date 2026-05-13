@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -376,17 +377,18 @@ private fun NodeContent(
                     // Use localBoundingBoxOf so that values are in container-local layout
                     // pixels, completely independent of graphicsLayer zoom / translation.
                     val hostInContainer = containerCoords.localBoundingBoxOf(coordinates, clipBounds = false)
-                    val originX = hostInContainer.left.coerceAtLeast(0f).toDouble()
-                    val originY = hostInContainer.top.coerceAtLeast(0f).toDouble()
-                    val insetRight = (containerCoords.size.width - hostInContainer.right).coerceAtLeast(0f).toDouble()
-                    val insetBottom = (containerCoords.size.height - hostInContainer.bottom).coerceAtLeast(0f).toDouble()
                     onChildHostMeasured(
                         node.nodeId,
-                        ContainerChildHostMetrics(
-                            originX = originX,
-                            originY = originY,
-                            insetRight = insetRight,
-                            insetBottom = insetBottom
+                        resolveContainerChildHostMetrics(
+                            containerWidth = containerCoords.size.width.toDouble(),
+                            containerHeight = containerCoords.size.height.toDouble(),
+                            measuredHostLeft = hostInContainer.left.toDouble(),
+                            measuredHostTop = hostInContainer.top.toDouble(),
+                            measuredHostRight = hostInContainer.right.toDouble(),
+                            measuredHostBottom = hostInContainer.bottom.toDouble(),
+                            childNodes = childNodes,
+                            contentOriginX = contentOriginX,
+                            contentOriginY = contentOriginY
                         )
                     )
                 }
@@ -405,6 +407,8 @@ private fun NodeContent(
                             }
                         }
                     ) { measurables, constraints ->
+                        val requiredChildWidth = requiredChildHostWidth(childNodes, contentOriginX)
+                        val requiredChildHeight = requiredChildHostHeight(childNodes, contentOriginY)
                         val placeables = childNodes.mapIndexed { i, childNode ->
                             measurables[i].measure(
                                 Constraints(
@@ -415,7 +419,13 @@ private fun NodeContent(
                                 )
                             )
                         }
-                        layout(constraints.maxWidth, constraints.maxHeight) {
+                        val layoutWidth = requiredChildWidth.roundToInt()
+                            .coerceAtLeast(constraints.minWidth)
+                            .coerceAtMost(constraints.maxWidth)
+                        val layoutHeight = requiredChildHeight.roundToInt()
+                            .coerceAtLeast(constraints.minHeight)
+                            .coerceAtMost(constraints.maxHeight)
+                        layout(layoutWidth, layoutHeight) {
                             childNodes.forEachIndexed { i, childNode ->
                                 placeables[i].placeRelative(
                                     (childNode.globalX - contentOriginX).roundToInt(),
@@ -445,6 +455,50 @@ private fun NodeContent(
         }
     }
 }
+
+internal fun resolveContainerChildHostMetrics(
+    containerWidth: Double,
+    containerHeight: Double,
+    measuredHostLeft: Double,
+    measuredHostTop: Double,
+    measuredHostRight: Double,
+    measuredHostBottom: Double,
+    childNodes: List<CompoundNodeLayout>,
+    contentOriginX: Double,
+    contentOriginY: Double
+): ContainerChildHostMetrics {
+    val originX = max(0.0, measuredHostLeft)
+    val originY = max(0.0, measuredHostTop)
+    val measuredRight = max(originX, measuredHostRight)
+    val measuredBottom = max(originY, measuredHostBottom)
+
+    val childContentRight = requiredChildHostWidth(childNodes, contentOriginX)
+    val childContentBottom = requiredChildHostHeight(childNodes, contentOriginY)
+
+    val effectiveHostRight = max(measuredRight, originX + childContentRight)
+    val effectiveHostBottom = max(measuredBottom, originY + childContentBottom)
+
+    return ContainerChildHostMetrics(
+        originX = originX,
+        originY = originY,
+        insetRight = max(0.0, containerWidth - effectiveHostRight),
+        insetBottom = max(0.0, containerHeight - effectiveHostBottom)
+    )
+}
+
+internal fun requiredChildHostWidth(
+    childNodes: List<CompoundNodeLayout>,
+    contentOriginX: Double
+): Double = childNodes.maxOfOrNull { childNode ->
+    max(0.0, childNode.globalX - contentOriginX) + childNode.width
+} ?: 0.0
+
+internal fun requiredChildHostHeight(
+    childNodes: List<CompoundNodeLayout>,
+    contentOriginY: Double
+): Double = childNodes.maxOfOrNull { childNode ->
+    max(0.0, childNode.globalY - contentOriginY) + childNode.height
+} ?: 0.0
 
 /**
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].

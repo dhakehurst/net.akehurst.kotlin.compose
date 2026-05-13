@@ -15,7 +15,13 @@ data class CompoundLayoutConfig(
     val defaultNodeWidth: Double = 100.0,
     val defaultNodeHeight: Double = 56.0,
     val defaultProfile: CompoundLayoutProfile = CompoundLayoutProfile.DEFAULT,
-    val defaultChildLayout: ChildLayout = ChildLayout.GRAPH
+    val defaultChildLayout: ChildLayout = ChildLayout.GRAPH,
+    val defaultContainerChildHostMetrics: ContainerChildHostMetrics = ContainerChildHostMetrics(
+        originX = 12.0,
+        originY = 24.0,
+        insetRight = 12.0,
+        insetBottom = 12.0
+    )
 )
 
 data class ContainerChildHostMetrics(
@@ -249,7 +255,7 @@ class CompoundLayoutEngine(
         val nodes = graph.nodes.values.sortedBy { it.id }
         val nodeSizesById = nodes.associate { node ->
             val childPlan = childPlansById[node.id]
-            val metrics = containerMetricsByNodeId[node.id] ?: ContainerChildHostMetrics()
+            val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
             val width = max(
                 node.widthHint ?: config.defaultNodeWidth,
                 (childPlan?.contentWidth ?: 0.0) + metrics.originX + metrics.insetRight
@@ -262,7 +268,8 @@ class CompoundLayoutEngine(
         }
 
         val childOriginByContainerNodeId = childPlansById.keys.associateWith { childId ->
-            val metrics = containerMetricsByNodeId[childId] ?: ContainerChildHostMetrics()
+            val childPlan = childPlansById[childId]
+            val metrics = containerMetricsByNodeId[childId] ?: fallbackContainerMetrics(childPlan)
             metrics.originX to metrics.originY
         }
 
@@ -1054,6 +1061,14 @@ class CompoundLayoutEngine(
                 nodeSpacing = 130.0,
                 edgeRouting = EdgeRouting.DIRECT
             )
+        }
+    }
+
+    private fun fallbackContainerMetrics(childPlan: PlannedGraphLayout?): ContainerChildHostMetrics {
+        return if (childPlan == null) {
+            ContainerChildHostMetrics()
+        } else {
+            config.defaultContainerChildHostMetrics
         }
     }
 

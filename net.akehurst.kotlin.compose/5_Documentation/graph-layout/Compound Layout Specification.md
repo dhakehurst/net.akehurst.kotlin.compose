@@ -158,7 +158,19 @@ data class GraphLayoutCompoundNode(
     val heightHint: Double? = null,
     val metadata: Map<String, String> = emptyMap()
 )
+```
 
+**Position and size contract for nodes:**
+
+- **Position (`x`, `y`) is never caller-supplied.** It is always the exclusive output of the layout algorithm. Callers must not provide positional fields when constructing `GraphLayoutCompoundNode`.
+- **Leaf node size** is resolved in this order of precedence:
+  1. `widthHint`/`heightHint` if provided — first-pass fixed size.
+  2. `CompoundLayoutConfig.defaultNodeWidth` / `defaultNodeHeight` — when no hint is provided.
+  3. Compose-measured size — triggers an automatic re-layout pass once the node composable is measured (see §5.9.1).
+- **Container node size** is computed from child bounds inflated by Compose-measured child-host insets (`ContainerChildHostMetrics`). `widthHint`/`heightHint` on a container act as a lower-bound floor: `size = max(hint ?: defaultSize, childContentSize + measuredInsets)`.
+- `widthHint` and `heightHint` are always optional. Callers that omit them receive the engine default on the first layout pass.
+
+```kotlin
 data class GraphLayoutCompoundEdge(
     val id: String,
     val sourceId: String,

@@ -36,6 +36,17 @@ class test_CompoundLayoutCrossBoundaryEdgeAnchoring {
         assertEquals(2, route.size, "direct routing should use only source and target endpoints")
     }
 
+    @Test
+    fun single_container_children_stay_inside_container_bounds() {
+        val result = engine.layout(DemoScenarios.singleContainerTwoNodes.toCompoundGraphState())
+        val container = result.nodeLayoutsById.getValue("Container1")
+        val insideA = result.nodeLayoutsById.getValue("InsideA")
+        val insideB = result.nodeLayoutsById.getValue("InsideB")
+
+        assertInside(container, insideA)
+        assertInside(container, insideB)
+    }
+
     // ── sibling containers: L1 → R1 ────────────────────────────────────────
 
     @Test
@@ -153,5 +164,19 @@ class test_CompoundLayoutCrossBoundaryEdgeAnchoring {
             if (tt > eps && xt >= left - eps && xt <= right + eps) candidates += tt to (xt to top)
         }
         return candidates.minBy { it.first }.second
+    }
+
+    private fun assertInside(container: CompoundNodeLayout, child: CompoundNodeLayout) {
+        val eps = 0.001
+        assertTrue(child.globalX >= container.globalX - eps, "${child.nodeId} should not extend left of ${container.nodeId}")
+        assertTrue(child.globalY >= container.globalY - eps, "${child.nodeId} should not extend above ${container.nodeId}")
+        assertTrue(
+            child.globalX + child.width <= container.globalX + container.width + eps,
+            "${child.nodeId} should not extend right of ${container.nodeId}"
+        )
+        assertTrue(
+            child.globalY + child.height <= container.globalY + container.height + eps,
+            "${child.nodeId} should not extend below ${container.nodeId}"
+        )
     }
 }

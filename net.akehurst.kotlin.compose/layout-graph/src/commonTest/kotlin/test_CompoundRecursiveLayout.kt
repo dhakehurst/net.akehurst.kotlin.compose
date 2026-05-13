@@ -61,11 +61,11 @@ class test_CompoundRecursiveLayout {
         val l2Node = assertNotNull(result.nodeLayoutsById["L2"])
         val leafNode = assertNotNull(result.nodeLayoutsById["Leaf"])
 
-        assertEquals(l1Node.globalX, l1Graph.globalOffsetX)
-        assertEquals(l1Node.globalY, l1Graph.globalOffsetY)
+        assertEquals(l1Node.globalX + 12.0, l1Graph.globalOffsetX)
+        assertEquals(l1Node.globalY + 24.0, l1Graph.globalOffsetY)
 
-        assertEquals(l2Node.globalX, l2Graph.globalOffsetX)
-        assertEquals(l2Node.globalY, l2Graph.globalOffsetY)
+        assertEquals(l2Node.globalX + 12.0, l2Graph.globalOffsetX)
+        assertEquals(l2Node.globalY + 24.0, l2Graph.globalOffsetY)
 
         val expectedLeafGlobalX = leafNode.localX + l2Graph.globalOffsetX
         val expectedLeafGlobalY = leafNode.localY + l2Graph.globalOffsetY
@@ -210,7 +210,7 @@ class test_CompoundRecursiveLayout {
     }
 
     @Test
-    fun container_size_and_child_origin_use_zero_metric_fallback_when_not_provided() {
+    fun container_size_and_child_origin_use_deterministic_fallback_metrics_when_not_provided() {
         val root = GraphLayoutCompoundGraph(id = "root")
         root.nodes["Container"] = GraphLayoutCompoundNode(id = "Container", widthHint = 50.0, heightHint = 50.0)
 
@@ -224,11 +224,10 @@ class test_CompoundRecursiveLayout {
         val container = assertNotNull(result.nodeLayoutsById["Container"])
         val childGraph = assertNotNull(result.graphLayoutsById["Container"])
 
-        // With zero/default metrics, container is inflated only by child content size.
-        assertEquals(120.0, container.width)
-        assertEquals(80.0, container.height)
-        assertEquals(container.globalX, childGraph.globalOffsetX)
-        assertEquals(container.globalY, childGraph.globalOffsetY)
+        assertEquals(144.0, container.width)
+        assertEquals(116.0, container.height)
+        assertEquals(container.globalX + 12.0, childGraph.globalOffsetX)
+        assertEquals(container.globalY + 24.0, childGraph.globalOffsetY)
     }
 
     private fun segmentIntersectsRectInterior(

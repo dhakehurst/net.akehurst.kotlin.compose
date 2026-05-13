@@ -16,10 +16,10 @@ data class DemoScenario(
 
 data class DemoNode(
     val id: String,
-    val x: Float,
-    val y: Float,
-    val width: Float,
-    val height: Float,
+    /** Optional first-pass width hint passed to the layout engine. When null the engine uses its default. */
+    val widthHint: Float? = null,
+    /** Optional first-pass height hint passed to the layout engine. When null the engine uses its default. */
+    val heightHint: Float? = null,
     val containerId: String? = null,
     /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
