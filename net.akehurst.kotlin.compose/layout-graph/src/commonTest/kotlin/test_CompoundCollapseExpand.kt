@@ -110,7 +110,7 @@ class test_CompoundCollapseExpand {
         )
 
         // Child has big content that would inflate the container if not collapsed.
-        val child = GraphLayoutCompoundGraph(id = "Container", isCollapsed = true, padding = 24.0)
+        val child = GraphLayoutCompoundGraph(id = "Container", isCollapsed = true)
         for (i in 1..5) {
             child.nodes["N$i"] = GraphLayoutCompoundNode(id = "N$i", widthHint = 200.0, heightHint = 100.0)
         }

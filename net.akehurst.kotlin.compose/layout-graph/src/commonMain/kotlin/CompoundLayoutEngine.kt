@@ -7,14 +7,22 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * Configures recursive compound layout sizing and spacing.
+ * Configures recursive compound layout sizing defaults.
+ *
+ * Container child-origin/inset geometry is provided as Compose-measured metrics at layout call sites.
  */
 data class CompoundLayoutConfig(
     val defaultNodeWidth: Double = 100.0,
     val defaultNodeHeight: Double = 56.0,
-    val containerHeaderHeight: Double = 28.0,
     val defaultProfile: CompoundLayoutProfile = CompoundLayoutProfile.DEFAULT,
-    val defaultAlgorithm: CompoundLayoutAlgorithm = CompoundLayoutAlgorithm.SUGIYAMA
+    val defaultChildLayout: ChildLayout = ChildLayout.GRAPH
+)
+
+data class ContainerChildHostMetrics(
+    val originX: Double = 0.0,
+    val originY: Double = 0.0,
+    val insetRight: Double = 0.0,
+    val insetBottom: Double = 0.0,
 )
 
 data class CompoundNodeLayout(
@@ -40,8 +48,6 @@ data class CompoundGraphLayout(
     val contentWidth: Double,
     val contentHeight: Double,
     val routeBoundary: Boolean,
-    val padding: Double,
-    val headerHeight: Double,
     val profile: CompoundLayoutProfile
 )
 
@@ -61,7 +67,8 @@ data class CompoundLayoutResult(
     val childResults: Map<String, CompoundLayoutResult> = emptyMap(),
     val nodeLayoutsById: Map<String, CompoundNodeLayout>,
     val graphLayoutsById: Map<String, CompoundGraphLayout>,
-    val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>
+    val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>,
+    val edgeEndpointsByEdgeId: Map<String, Pair<String, String>> = emptyMap()
 )
 
 private enum class BoundarySide {
@@ -89,10 +96,7 @@ private data class PlannedGraphLayout(
     val graphId: String,
     val profile: CompoundLayoutProfile,
     val routeBoundary: Boolean,
-    val childContentOffsetX: Double,
-    val childContentOffsetY: Double,
-    val padding: Double,
-    val headerHeight: Double,
+    val childOriginByContainerNodeId: Map<String, Pair<Double, Double>>,
     val nodeOrder: List<GraphLayoutCompoundNode>,
     val nodeSizesById: Map<String, Pair<Double, Double>>,
     val nodeTopLeftById: Map<String, Pair<Double, Double>>,
@@ -135,18 +139,22 @@ class CompoundLayoutEngine(
 
     private val boundaryEpsilon = 1e-6
 
-    fun layout(state: GraphLayoutCompoundGraphState): CompoundLayoutResult {
+    fun layout(
+        state: GraphLayoutCompoundGraphState,
+        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics> = emptyMap()
+    ): CompoundLayoutResult {
         val validation = state.validateInvariants()
         require(validation.isValid) { "Invalid compound graph state: ${validation.errors.joinToString()}" }
 
         val index = buildGraphIndex(state.root)
         val rootProfile = state.root.layoutProfile ?: config.defaultProfile
-        val initialAlgorithm = state.root.layoutAlgorithm ?: config.defaultAlgorithm
+        val initialChildLayout = state.root.childLayout ?: config.defaultChildLayout
         val rootPlan = planGraph(
             graph = state.root,
             index = index,
             inheritedProfile = rootProfile,
-            initialAlgorithm = initialAlgorithm
+            inheritedChildLayout = initialChildLayout,
+            containerMetricsByNodeId = containerMetricsByNodeId
         )
         val nodeLayouts = mutableMapOf<String, CompoundNodeLayout>()
         val graphLayouts = mutableMapOf<String, CompoundGraphLayout>()
@@ -166,6 +174,7 @@ class CompoundLayoutEngine(
         val edgeDescriptorsById = collectEdgeDescriptors(state.root)
         val collapsedRedirectMap = buildCollapsedNodeRedirectMap(state.root)
         val parallelSlotByEdgeId = computeParallelEdgeSlotsByResolvedEndpoints(edgeDescriptorsById, collapsedRedirectMap)
+        val resolvedEdgeEndpointsById = mutableMapOf<String, Pair<String, String>>()
 
         edgeDescriptorsById.keys.sorted().forEach { edgeId ->
             val descriptor = edgeDescriptorsById.getValue(edgeId)
@@ -175,6 +184,7 @@ class CompoundLayoutEngine(
             val source = nodeLayouts[sourceId]
             val target = nodeLayouts[targetId]
             if (source != null && target != null) {
+                resolvedEdgeEndpointsById[edgeId] = sourceId to targetId
                 val isCrossBoundary =
                     source.ownerGraphId != descriptor.ownerGraphId ||
                         target.ownerGraphId != descriptor.ownerGraphId
@@ -197,14 +207,16 @@ class CompoundLayoutEngine(
             graphLayouts = graphLayouts,
             nodeLayouts = nodeLayouts,
             edgeRoutesByEdgeId = edgeRoutesByEdgeId,
-            edgeDescriptorsById = edgeDescriptorsById
+            edgeDescriptorsById = edgeDescriptorsById,
+            edgeEndpointsByEdgeId = resolvedEdgeEndpointsById
         )
         val rootResult = resultByGraphId.getValue(state.root.id)
 
         return rootResult.copy(
             nodeLayoutsById = nodeLayouts,
             graphLayoutsById = graphLayouts,
-            edgeRoutesByEdgeId = edgeRoutesByEdgeId
+            edgeRoutesByEdgeId = edgeRoutesByEdgeId,
+            edgeEndpointsByEdgeId = resolvedEdgeEndpointsById
         )
     }
 
@@ -212,11 +224,11 @@ class CompoundLayoutEngine(
         graph: GraphLayoutCompoundGraph,
         index: CompoundGraphIndex,
         inheritedProfile: CompoundLayoutProfile,
-        initialAlgorithm: CompoundLayoutAlgorithm
+        inheritedChildLayout: ChildLayout,
+        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics>
     ): PlannedGraphLayout {
-        val effectiveAlgorithm = graph.layoutAlgorithm ?: initialAlgorithm
+        val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
         val effectiveProfile = graph.layoutProfile ?: inheritedProfile
-        val effectiveHeaderHeight = graph.headerHeight ?: config.containerHeaderHeight
         val profile = profileSettings(effectiveProfile)
         // Only recurse into non-collapsed children; collapsed containers are treated as plain nodes.
         val childPlansById = graph.children.keys.sorted()
@@ -226,7 +238,8 @@ class CompoundLayoutEngine(
                     graph = graph.children.getValue(childId),
                     index = index,
                     inheritedProfile = effectiveProfile,
-                    initialAlgorithm = initialAlgorithm
+                    inheritedChildLayout = effectiveChildLayout,
+                    containerMetricsByNodeId = containerMetricsByNodeId
                 )
             }
 
@@ -236,30 +249,31 @@ class CompoundLayoutEngine(
         val nodes = graph.nodes.values.sortedBy { it.id }
         val nodeSizesById = nodes.associate { node ->
             val childPlan = childPlansById[node.id]
-            val childPadding = childPlan?.padding ?: 0.0
-            val childHeaderHeight = childPlan?.headerHeight ?: 0.0
+            val metrics = containerMetricsByNodeId[node.id] ?: ContainerChildHostMetrics()
             val width = max(
                 node.widthHint ?: config.defaultNodeWidth,
-                (childPlan?.contentWidth ?: 0.0) + (2.0 * childPadding)
+                (childPlan?.contentWidth ?: 0.0) + metrics.originX + metrics.insetRight
             )
             val height = max(
                 node.heightHint ?: config.defaultNodeHeight,
-                (childPlan?.contentHeight ?: 0.0) + (2.0 * childPadding) + if (childPlan != null) childHeaderHeight else 0.0
+                (childPlan?.contentHeight ?: 0.0) + metrics.originY + metrics.insetBottom
             )
             node.id to (width to height)
         }
 
-        when (effectiveAlgorithm) {
-            CompoundLayoutAlgorithm.TESSELLATED -> {
+        val childOriginByContainerNodeId = childPlansById.keys.associateWith { childId ->
+            val metrics = containerMetricsByNodeId[childId] ?: ContainerChildHostMetrics()
+            metrics.originX to metrics.originY
+        }
+
+        when (effectiveChildLayout) {
+            ChildLayout.TESSELLATE -> {
                 val tiled = tessellateNodes(nodes, nodeSizesById)
                 return PlannedGraphLayout(
                     graphId = graph.id,
                     profile = effectiveProfile,
                     routeBoundary = graph.routeBoundary,
-                    childContentOffsetX = graph.childContentOffsetX,
-                    childContentOffsetY = graph.childContentOffsetY,
-                    padding = graph.padding,
-                    headerHeight = effectiveHeaderHeight,
+                    childOriginByContainerNodeId = childOriginByContainerNodeId,
                     nodeOrder = nodes,
                     nodeSizesById = tiled.nodeSizesById,
                     nodeTopLeftById = tiled.nodeTopLeftById,
@@ -271,7 +285,7 @@ class CompoundLayoutEngine(
                 )
             }
 
-            CompoundLayoutAlgorithm.SUGIYAMA -> Unit
+            ChildLayout.GRAPH -> Unit
         }
 
         val edges = graph.edges.values
@@ -321,10 +335,7 @@ class CompoundLayoutEngine(
             graphId = graph.id,
             profile = effectiveProfile,
             routeBoundary = graph.routeBoundary,
-            childContentOffsetX = graph.childContentOffsetX,
-            childContentOffsetY = graph.childContentOffsetY,
-            padding = graph.padding,
-            headerHeight = effectiveHeaderHeight,
+            childOriginByContainerNodeId = childOriginByContainerNodeId,
             nodeOrder = nodes,
             nodeSizesById = nodeSizesById,
             nodeTopLeftById = nodeTopLeftById,
@@ -357,8 +368,6 @@ class CompoundLayoutEngine(
             contentWidth = plan.contentWidth,
             contentHeight = plan.contentHeight,
             routeBoundary = plan.routeBoundary,
-            padding = plan.padding,
-            headerHeight = plan.headerHeight,
             profile = plan.profile
         )
 
@@ -389,12 +398,13 @@ class CompoundLayoutEngine(
         plan.childPlansById.keys.sorted().forEach { childId ->
             val childPlan = plan.childPlansById.getValue(childId)
             val childContainer = nodeLayouts[childId] ?: return@forEach
+            val childOrigin = plan.childOriginByContainerNodeId[childId] ?: (0.0 to 0.0)
             val childLocalOffset =
-                (childContainer.localX + childPlan.childContentOffsetX) to
-                    (childContainer.localY + childPlan.childContentOffsetY)
+                (childContainer.localX + childOrigin.first) to
+                    (childContainer.localY + childOrigin.second)
             val childGlobalOffset =
-                (childContainer.globalX + childPlan.childContentOffsetX) to
-                    (childContainer.globalY + childPlan.childContentOffsetY)
+                (childContainer.globalX + childOrigin.first) to
+                    (childContainer.globalY + childOrigin.second)
 
             materialize(
                 plan = childPlan,
@@ -706,7 +716,8 @@ class CompoundLayoutEngine(
         graphLayouts: Map<String, CompoundGraphLayout>,
         nodeLayouts: Map<String, CompoundNodeLayout>,
         edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>,
-        edgeDescriptorsById: Map<String, EdgeDescriptor>
+        edgeDescriptorsById: Map<String, EdgeDescriptor>,
+        edgeEndpointsByEdgeId: Map<String, Pair<String, String>>
     ): Map<String, CompoundLayoutResult> {
         val resultByGraphId = mutableMapOf<String, CompoundLayoutResult>()
 
@@ -750,7 +761,8 @@ class CompoundLayoutEngine(
                 childResults = childResults,
                 nodeLayoutsById = emptyMap(),
                 graphLayoutsById = emptyMap(),
-                edgeRoutesByEdgeId = edgeRoutesForGraph
+                edgeRoutesByEdgeId = edgeRoutesForGraph,
+                edgeEndpointsByEdgeId = edgeEndpointsByEdgeId.filterKeys { it in edgeRoutesForGraph.keys }
             )
             resultByGraphId[graphNode.id] = result
             return result
@@ -928,8 +940,8 @@ class CompoundLayoutEngine(
     }
 
     /**
-     * Like [computeParallelEdgeSlotByEdgeId] but groups edges by their *resolved* endpoints
-     * (after applying [redirectMap] for hidden nodes inside collapsed containers).
+     * Groups edges by their *resolved* endpoints (after applying [redirectMap]
+     * for hidden nodes inside collapsed containers) and assigns deterministic slots.
      */
     private fun computeParallelEdgeSlotsByResolvedEndpoints(
         edgeDescriptorsById: Map<String, EdgeDescriptor>,

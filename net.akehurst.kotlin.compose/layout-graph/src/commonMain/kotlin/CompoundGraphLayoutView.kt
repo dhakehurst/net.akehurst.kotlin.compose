@@ -15,6 +15,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -23,8 +24,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
@@ -103,6 +106,72 @@ private data class EdgeTextPlacement(
     val texts: List<GraphLayoutEdgeText> = emptyList(),
     val isMissing: Boolean = false
 )
+
+private const val boundaryEpsilon = 1e-6
+
+private fun clipRayToRectBoundary(from: Offset, to: Offset, rect: Rect): Offset {
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    if (kotlin.math.abs(dx) < boundaryEpsilon && kotlin.math.abs(dy) < boundaryEpsilon) {
+        return Offset(rect.right, rect.center.y)
+    }
+
+    val candidates = mutableListOf<Triple<Float, Int, Offset>>()
+
+    if (kotlin.math.abs(dx) >= boundaryEpsilon) {
+        val tRight = (rect.right - from.x) / dx
+        if (tRight > boundaryEpsilon) {
+            val y = from.y + tRight * dy
+            if (y >= rect.top - boundaryEpsilon && y <= rect.bottom + boundaryEpsilon) {
+                candidates.add(Triple(tRight, 0, Offset(rect.right, y)))
+            }
+        }
+        val tLeft = (rect.left - from.x) / dx
+        if (tLeft > boundaryEpsilon) {
+            val y = from.y + tLeft * dy
+            if (y >= rect.top - boundaryEpsilon && y <= rect.bottom + boundaryEpsilon) {
+                candidates.add(Triple(tLeft, 2, Offset(rect.left, y)))
+            }
+        }
+    }
+
+    if (kotlin.math.abs(dy) >= boundaryEpsilon) {
+        val tBottom = (rect.bottom - from.y) / dy
+        if (tBottom > boundaryEpsilon) {
+            val x = from.x + tBottom * dx
+            if (x >= rect.left - boundaryEpsilon && x <= rect.right + boundaryEpsilon) {
+                candidates.add(Triple(tBottom, 1, Offset(x, rect.bottom)))
+            }
+        }
+        val tTop = (rect.top - from.y) / dy
+        if (tTop > boundaryEpsilon) {
+            val x = from.x + tTop * dx
+            if (x >= rect.left - boundaryEpsilon && x <= rect.right + boundaryEpsilon) {
+                candidates.add(Triple(tTop, 3, Offset(x, rect.top)))
+            }
+        }
+    }
+
+    if (candidates.isEmpty()) {
+        return from
+    }
+
+    val minT = candidates.minOf { it.first }
+    return candidates
+        .filter { kotlin.math.abs(it.first - minT) <= boundaryEpsilon }
+        .minBy { it.second }
+        .third
+}
+
+private fun nodeBoundsInLayer(
+    graphLayerCoordinates: LayoutCoordinates?,
+    nodeCoordinates: LayoutCoordinates?
+): Rect? {
+    if (graphLayerCoordinates == null || nodeCoordinates == null) {
+        return null
+    }
+    return graphLayerCoordinates.localBoundingBoxOf(nodeCoordinates, clipBounds = false)
+}
 
 private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContentPosition): EdgeAnchor {
     if (route.isEmpty()) return EdgeAnchor(0.0 to 0.0, 0f)
@@ -202,56 +271,104 @@ private fun drawEdgeSymbol(
 /**
  * Renders one node recursively. If the node is a container, its node-content lambda receives
  * a children composable that places direct child nodes (containers first, then leaves)
- * at their layout-computed local positions. The container composable decides where in its
- * visual tree to call children, giving it full z-order control over overlays (dividers, etc.).
+ * at their layout-computed local positions.
+ *
+ * The container composable decides where in its visual tree to call children, which defines
+ * the child-host origin in Compose and gives full z-order control over overlays (dividers, etc.).
  */
 @Composable
 private fun NodeContent(
     node: CompoundNodeLayout,
     state: GraphLayoutCompoundGraphState,
     layoutResult: CompoundLayoutResult,
+    nodeCoordinatesById: MutableMap<String, LayoutCoordinates>,
+    onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit,
 ) {
     val content = state.nodeContentById[node.nodeId]
     if (node.isContainer) {
         val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
         val contentOriginX = containerGraphLayout?.globalOffsetX ?: node.globalX
         val contentOriginY = containerGraphLayout?.globalOffsetY ?: node.globalY
+        // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
+        // insets are computed in zoom-independent layout pixels.
+        var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
         val childNodes = layoutResult.nodeLayoutsById.values
             .filter { it.ownerGraphId == node.nodeId }
             .sortedWith(compareBy({ if (it.isContainer) 0 else 1 }, { it.nodeId }))
         val children: @Composable () -> Unit = {
-            if (childNodes.isNotEmpty()) {
-                Layout(
-                    content = {
-                        childNodes.forEach { childNode ->
-                            NodeContent(childNode, state, layoutResult)
-                        }
-                    }
-                ) { measurables, constraints ->
-                    val placeables = childNodes.mapIndexed { i, childNode ->
-                        measurables[i].measure(
-                            Constraints(
-                                minWidth = 0,
-                                maxWidth = childNode.width.roundToInt().coerceAtLeast(1),
-                                minHeight = 0,
-                                maxHeight = childNode.height.roundToInt().coerceAtLeast(1)
-                            )
+            Box(
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    val containerCoords = containerCoordinates ?: return@onGloballyPositioned
+                    // Use localBoundingBoxOf so that values are in container-local layout
+                    // pixels, completely independent of graphicsLayer zoom / translation.
+                    val hostInContainer = containerCoords.localBoundingBoxOf(coordinates, clipBounds = false)
+                    val originX = hostInContainer.left.coerceAtLeast(0f).toDouble()
+                    val originY = hostInContainer.top.coerceAtLeast(0f).toDouble()
+                    val insetRight = (containerCoords.size.width - hostInContainer.right).coerceAtLeast(0f).toDouble()
+                    val insetBottom = (containerCoords.size.height - hostInContainer.bottom).coerceAtLeast(0f).toDouble()
+                    onChildHostMeasured(
+                        node.nodeId,
+                        ContainerChildHostMetrics(
+                            originX = originX,
+                            originY = originY,
+                            insetRight = insetRight,
+                            insetBottom = insetBottom
                         )
-                    }
-                    layout(constraints.maxWidth, constraints.maxHeight) {
-                        childNodes.forEachIndexed { i, childNode ->
-                            placeables[i].placeRelative(
-                                (childNode.globalX - contentOriginX).roundToInt(),
-                                (childNode.globalY - contentOriginY).roundToInt()
+                    )
+                }
+            ) {
+                if (childNodes.isNotEmpty()) {
+                    Layout(
+                        content = {
+                            childNodes.forEach { childNode ->
+                                NodeContent(
+                                    node = childNode,
+                                    state = state,
+                                    layoutResult = layoutResult,
+                                    nodeCoordinatesById = nodeCoordinatesById,
+                                    onChildHostMeasured = onChildHostMeasured
+                                )
+                            }
+                        }
+                    ) { measurables, constraints ->
+                        val placeables = childNodes.mapIndexed { i, childNode ->
+                            measurables[i].measure(
+                                Constraints(
+                                    minWidth = 0,
+                                    maxWidth = childNode.width.roundToInt().coerceAtLeast(1),
+                                    minHeight = 0,
+                                    maxHeight = childNode.height.roundToInt().coerceAtLeast(1)
+                                )
                             )
+                        }
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            childNodes.forEachIndexed { i, childNode ->
+                                placeables[i].placeRelative(
+                                    (childNode.globalX - contentOriginX).roundToInt(),
+                                    (childNode.globalY - contentOriginY).roundToInt()
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-        if (content != null) content(children) else MissingNodeContent(node.nodeId)
+        Box(
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                containerCoordinates = coordinates
+                nodeCoordinatesById[node.nodeId] = coordinates
+            }
+        ) {
+            if (content != null) content(children) else MissingNodeContent(node.nodeId)
+        }
     } else {
-        if (content != null) content {} else MissingNodeContent(node.nodeId)
+        Box(
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                nodeCoordinatesById[node.nodeId] = coordinates
+            }
+        ) {
+            if (content != null) content {} else MissingNodeContent(node.nodeId)
+        }
     }
 }
 
@@ -282,8 +399,13 @@ fun CompoundGraphLayoutView(
      */
     layoutKey: Any = Unit,
 ) {
-    val layoutResult = remember(state.id, layoutKey) {
-        CompoundLayoutEngine().layout(state)
+    var measuredContainerMetrics by remember(state.id, layoutKey) {
+        mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
+    }
+    var graphLayerCoordinates by remember(state.id, layoutKey) { mutableStateOf<LayoutCoordinates?>(null) }
+    val nodeCoordinatesById = remember(state.id, layoutKey) { mutableStateMapOf<String, LayoutCoordinates>() }
+    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics) {
+        CompoundLayoutEngine().layout(state, measuredContainerMetrics)
     }
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
@@ -304,7 +426,7 @@ fun CompoundGraphLayoutView(
     }
     val tessellatedGraphIds = remember(state.id, layoutKey) {
         fun collect(graph: GraphLayoutCompoundGraph): List<String> {
-            val include = if (graph.layoutAlgorithm == CompoundLayoutAlgorithm.TESSELLATED && !graph.isCollapsed) {
+            val include = if (graph.childLayout == ChildLayout.TESSELLATE && !graph.isCollapsed) {
                 listOf(graph.id)
             } else {
                 emptyList()
@@ -357,6 +479,14 @@ fun CompoundGraphLayoutView(
     val globalToViewportOffsetX = -minX
     val globalToViewportOffsetY = -minY
 
+    val onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit = remember {
+        { nodeId, metrics ->
+            if (measuredContainerMetrics[nodeId] != metrics) {
+                measuredContainerMetrics = measuredContainerMetrics + (nodeId to metrics)
+            }
+        }
+    }
+
     val density = LocalDensity.current
     val stateForGestures by rememberUpdatedState(viewState)
 
@@ -375,6 +505,9 @@ fun CompoundGraphLayoutView(
     Box(modifier = modifier.clip(RectangleShape)) {
         Box(
             modifier = Modifier
+                .onGloballyPositioned { coordinates ->
+                    graphLayerCoordinates = coordinates
+                }
                 .graphicsLayer(
                     scaleX = viewState.zoom,
                     scaleY = viewState.zoom,
@@ -402,7 +535,13 @@ fun CompoundGraphLayoutView(
             Layout(
                 content = {
                     rootNodes.forEach { node ->
-                        NodeContent(node, state, layoutResult)
+                        NodeContent(
+                            node = node,
+                            state = state,
+                            layoutResult = layoutResult,
+                            nodeCoordinatesById = nodeCoordinatesById,
+                            onChildHostMeasured = onChildHostMeasured
+                        )
                     }
                 }
             ) { measurables, _ ->
@@ -494,6 +633,20 @@ fun CompoundGraphLayoutView(
                         )
                     }
 
+                    // Draw debug endpoint circles if enabled
+                    if (state.showDebugOverlay.value && route.size >= 2) {
+                        val debugBlue = Color(0xFF2196F3)
+                        val debugRed = Color(0xFFD32F2F)
+                        // Draw circle at start endpoint
+                        val startX = (route[0].first + globalToViewportOffsetX).toFloat()
+                        val startY = (route[0].second + globalToViewportOffsetY).toFloat()
+                        drawCircle(color = debugBlue, radius = 4f, center = Offset(startX, startY))
+                        // Draw circle at end endpoint
+                        val endX = (route[route.lastIndex].first + globalToViewportOffsetX).toFloat()
+                        val endY = (route[route.lastIndex].second + globalToViewportOffsetY).toFloat()
+                        drawCircle(color = debugRed, radius = 4f, center = Offset(endX, endY))
+                    }
+
                     val edgeContent = edgeContentById[edgeId]
                     if (edgeContent != null) {
                         edgeContent.startSymbol?.let { symbol ->
@@ -543,6 +696,28 @@ fun CompoundGraphLayoutView(
                             start = Offset(ox, oy - r),
                             end = Offset(ox, oy + r),
                             strokeWidth = 1.5f
+                        )
+                    }
+                }
+
+                if (state.showDebugOverlay.value) {
+                    // ── DEBUG: Draw measured node bounds ────────────────────────
+                    val debugColors = listOf(
+                        Color(0xB36200EE),
+                        Color(0xB303DAC6),
+                        Color(0xB3FF6D00),
+                        Color(0xB32196F3),
+                        Color(0xB3D32F2F),
+                        Color(0xB34CAF50),
+                    )
+                    nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
+                        val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
+                        val color = debugColors[index % debugColors.size]
+                        drawRect(
+                            color = color,
+                            topLeft = Offset(rect.left, rect.top),
+                            size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
+                            style = Stroke(width = 2f)
                         )
                     }
                 }

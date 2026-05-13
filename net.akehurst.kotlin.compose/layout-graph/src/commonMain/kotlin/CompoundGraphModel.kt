@@ -20,6 +20,8 @@ data class GraphLayoutCompoundGraphState(
 ) {
     /** Optional debug overlay toggle used by the demo renderer. */
     val showContentOrigins = mutableStateOf(false)
+    /** Temporary visual diagnostics: measured node bounds + adjusted edge endpoints. */
+    val showDebugOverlay = mutableStateOf(false)
 
     /**
      * Compose content for each node, keyed by node ID.
@@ -88,26 +90,29 @@ data class GraphLayoutEdgeContent(
     val texts: List<GraphLayoutEdgeText> = emptyList()
 )
 
+/**
+ * Core compound graph structure consumed by the layout engine.
+ *
+ * Layout semantics (nodes, edges, containment, collapse state) live here.
+ * Container presentation geometry comes from Compose measurement at render time.
+ */
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
-    val layoutAlgorithm: CompoundLayoutAlgorithm? = null,
+    /** Optional layout strategy for this graph's immediate children. Null inherits from parent. */
+    val childLayout: ChildLayout? = null,
     val layoutProfile: CompoundLayoutProfile? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
     val routeBoundary: Boolean = true,
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
-    var isCollapsed: Boolean = false,
-    val childContentOffsetX: Double = 0.0,
-    val childContentOffsetY: Double = 0.0,
-    val padding: Double = 24.0,
-    val headerHeight: Double? = null
+    var isCollapsed: Boolean = false
 )
 
-enum class CompoundLayoutAlgorithm {
-    SUGIYAMA,
-    TESSELLATED
+enum class ChildLayout {
+    GRAPH,
+    TESSELLATE
 }
 
 data class GraphLayoutCompoundNode(

@@ -20,6 +20,7 @@
 - Step-level acceptance includes: local/global transform contract, stable edge-route IDs, collapse policy semantics, and cross-target parity.
 - Remaining high-risk items: cross-hierarchy edge routing quality, profile tuning trade-offs (compactness vs readability), and incremental recompute boundaries.
 - Region-layout refinements now captured: tessellated region fill behavior, single-divider border rendering, reduced boundary-hop routing for sibling-region transitions, and per-container child-layout inheritance.
+- Container presentation intent captured: child-content origin and insets are measured from Compose child-host placement; legacy model geometry fields (`childContentOffsetX/Y`, `padding`, `headerHeight`) are removed.
 
 ## Research and yFiles-inspired constraints (applies to all steps)
 - Keep core layout domain-agnostic; map UML/statechart/package semantics before entering layout.
@@ -37,7 +38,7 @@
 - Keep layout core model in `commonMain` UI-agnostic.
 - Keep route output keyed by stable edge IDs (`edgeRoutesByEdgeId`).
 - Keep caller-supplied rendering content keyed by stable IDs for both nodes and edges, outside the core layout algorithm; edge rendering content includes endpoint symbols and positioned text labels.
-- Treat container visuals, padding, and margins as Compose-facing presentation concerns rather than hard-coded core layout behavior.
+- Treat container visuals and insets as Compose-facing concerns; pass measured child-host metrics to layout rather than storing geometry fields on the core model.
 - Ensure deterministic output for identical input.
 - **Every step must update `DemoApp.kt` / `LiveLayoutCanvas` so the live JVM demo reflects the new layout output for the relevant scenarios.**
 - Validate JVM live output after each step by running `./gradlew :layout-graph-demo:run`.
@@ -88,6 +89,7 @@ Deliverables:
 - Compound graph structures in `commonMain`.
 - Containment represented as ownership/inclusion tree (not routable edge kind).
 - Per-container child-layout field with inheritance semantics (`GRAPH` default at root, `TESSELLATE` optional per container).
+- Core compound model excludes container geometry hint fields (`childContentOffsetX/Y`, `padding`, `headerHeight`).
 - Adapter from existing flat graph API to compound model.
 - Caller-facing compound state preserves Compose rendering content for nodes and edges, keyed by stable IDs; node content may render nested children, and edge content may define start/end symbols plus text labels positioned at the start, middle, or end of a route.
 
@@ -108,7 +110,8 @@ Deliverables:
 - Leaf-first recursive layout orchestration.
 - Inclusion-tree validation (acyclic, single direct parent per node).
 - Effective child-layout resolution per container.
-- Parent bounds from child bounds + Compose-supplied spacing/header constraints.
+- Parent bounds from child bounds + Compose-measured child-host metrics.
+- Child-content origin and insets captured from Compose measurement with deterministic first-pass fallback and automatic relayout.
 - Local/global coordinate transform contract implemented in result.
 
 Live demo update:
@@ -119,6 +122,7 @@ Acceptance:
 - Nested scenarios show children inside container bounds in the live demo.
 - Global coordinates are consistent with local + accumulated transforms.
 - Containers without explicit child-layout selection use the same effective child layout as their parent.
+- Container child origin is derived from Compose placement of the `children` host; no per-container offset fields are required.
 - Child/global bounds and node placements are stable for identical input.
 
 ### Step 3: Compound-aware per-level layout integration
@@ -219,13 +223,15 @@ Acceptance:
 
 ### Region-based layout notes (captured from implementation)
 - Region containers should be selectable for tessellated layout explicitly via the container's child-layout setting; state-region mappings are the main motivating example.
-- Container header area remains reserved; region tiling fills the remaining content area.
+- Region tiling area follows measured child-host bounds from Compose container content.
 - To avoid double borders, region node content should not paint per-node outer borders when shared seams are drawn centrally by the view.
 - Boundary routing through intermediate region containers can reduce readability; routing should prioritize enclosure-level clarity for sibling-region transitions.
 
 ### Compose/presentation boundary notes
 - A container may or may not render a visible boundary; that decision belongs to Compose-specific node content.
-- Padding and margins are presentation-driven inputs and should be supplied to layout from Compose-facing code rather than fixed in the core model.
+- Child-content origin/insets are measured from Compose child-host placement and supplied to layout at render time.
+- Core compound model fields do not carry container geometry hints (`childContentOffsetX/Y`, `padding`, `headerHeight`).
+- First-pass layout may use deterministic fallback insets, then re-layout automatically once measurements are available.
 
 ### Step 7: Determinism + performance hardening
 Goal: lock reliability and regression safety.

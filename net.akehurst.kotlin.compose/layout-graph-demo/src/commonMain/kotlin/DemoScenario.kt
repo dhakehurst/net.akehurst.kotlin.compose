@@ -1,6 +1,7 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
 import androidx.compose.runtime.Composable
+import net.akehurst.kotlin.components.layout.graph.ChildLayout
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
 
 /**
@@ -22,15 +23,11 @@ data class DemoNode(
     val containerId: String? = null,
     /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
-    val role: DemoNodeRole? = null,
-    val childContentOffsetX: Float? = null,
-    val childContentOffsetY: Float? = null,
-    val content: (@Composable (@Composable () -> Unit) -> Unit)? = null
+    /** Optional layout strategy for this node's immediate children. */
+    val childLayout: ChildLayout? = null,
+    val content: (@Composable (@Composable () -> Unit) -> Unit)
 )
 
-enum class DemoNodeRole {
-    REGION
-}
 
 data class DemoEdge(
     val id: String,

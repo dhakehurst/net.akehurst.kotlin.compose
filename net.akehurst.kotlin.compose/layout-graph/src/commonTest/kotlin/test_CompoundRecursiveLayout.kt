@@ -178,6 +178,59 @@ class test_CompoundRecursiveLayout {
         assertTrue(!intersectsInterior, "Route should avoid unrelated container interior: $route")
     }
 
+    @Test
+    fun container_size_and_child_origin_follow_measured_child_host_metrics() {
+        val root = GraphLayoutCompoundGraph(id = "root")
+        root.nodes["Container"] = GraphLayoutCompoundNode(id = "Container", widthHint = 50.0, heightHint = 50.0)
+
+        val child = GraphLayoutCompoundGraph(id = "Container")
+        child.nodes["Inner"] = GraphLayoutCompoundNode(id = "Inner", widthHint = 120.0, heightHint = 80.0)
+        root.children[child.id] = child
+
+        val state = GraphLayoutCompoundGraphState(id = "measured_metrics", root = root)
+        val measured = ContainerChildHostMetrics(
+            originX = 10.0,
+            originY = 20.0,
+            insetRight = 30.0,
+            insetBottom = 40.0
+        )
+
+        val result = CompoundLayoutEngine().layout(
+            state = state,
+            containerMetricsByNodeId = mapOf("Container" to measured)
+        )
+
+        val container = assertNotNull(result.nodeLayoutsById["Container"])
+        val childGraph = assertNotNull(result.graphLayoutsById["Container"])
+
+        assertEquals(160.0, container.width)
+        assertEquals(140.0, container.height)
+        assertEquals(container.globalX + measured.originX, childGraph.globalOffsetX)
+        assertEquals(container.globalY + measured.originY, childGraph.globalOffsetY)
+    }
+
+    @Test
+    fun container_size_and_child_origin_use_zero_metric_fallback_when_not_provided() {
+        val root = GraphLayoutCompoundGraph(id = "root")
+        root.nodes["Container"] = GraphLayoutCompoundNode(id = "Container", widthHint = 50.0, heightHint = 50.0)
+
+        val child = GraphLayoutCompoundGraph(id = "Container")
+        child.nodes["Inner"] = GraphLayoutCompoundNode(id = "Inner", widthHint = 120.0, heightHint = 80.0)
+        root.children[child.id] = child
+
+        val state = GraphLayoutCompoundGraphState(id = "fallback_metrics", root = root)
+        val result = CompoundLayoutEngine().layout(state = state)
+
+        val container = assertNotNull(result.nodeLayoutsById["Container"])
+        val childGraph = assertNotNull(result.graphLayoutsById["Container"])
+
+        // With zero/default metrics, container is inflated only by child content size.
+        assertEquals(120.0, container.width)
+        assertEquals(80.0, container.height)
+        assertEquals(container.globalX, childGraph.globalOffsetX)
+        assertEquals(container.globalY, childGraph.globalOffsetY)
+    }
+
     private fun segmentIntersectsRectInterior(
         a: Pair<Double, Double>,
         b: Pair<Double, Double>,

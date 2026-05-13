@@ -134,7 +134,7 @@ But all steps must be compound-aware.
 This is the minimum model shape the implementation should aim for.
 
 ```kotlin
-data class GraphLayoutGraphState(
+data class GraphLayoutCompoundGraphState(
     val id: String,
     val routing: EdgeRouting = EdgeRouting.DIRECT,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
@@ -144,14 +144,14 @@ data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
     val childLayout: ChildLayout? = null,
-    val nodes: MutableMap<String, GraphLayoutNode> = mutableMapOf(),
-    val edges: MutableMap<String, GraphLayoutEdge> = mutableMapOf(),
+    val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
+    val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false
 )
 
-data class GraphLayoutNode(
+data class GraphLayoutCompoundNode(
     val id: String,
     val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
@@ -159,7 +159,7 @@ data class GraphLayoutNode(
     val metadata: Map<String, String> = emptyMap()
 )
 
-data class GraphLayoutEdge(
+data class GraphLayoutCompoundEdge(
     val id: String,
     val sourceId: String,
     val targetId: String,
@@ -202,6 +202,8 @@ enum class CollapsePolicy {
 ```
 
 Rendering concerns stay outside the core layout model. Compose-specific content is mapped in the rendering layer using stable node/edge IDs.
+
+Container presentation geometry (child-content origin, header reservation, and content insets) is also outside the core model. The core `GraphLayoutCompoundGraph` must not carry explicit fields such as `childContentOffsetX`, `childContentOffsetY`, `padding`, or `headerHeight`; these are derived by the Compose renderer and provided to layout as measured container metrics.
 
 ### 5.6 Proposed layout result shape
 
@@ -288,7 +290,15 @@ data class GraphLayoutEdgeContent(
 )
 ```
 
-This mirrors the pattern of the flat `GraphLayoutGraphState`, while extending it so both node visuals and edge visuals are externally supplied and remain stable across recomputations. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up node composables and edge rendering entries by the same stable IDs present in the layout result and applies them to the computed node bounds and edge routes. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
+This mirrors the pattern of the earlier flat-state API while extending it so both node visuals and edge visuals are externally supplied and remain stable across recomputations. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up node composables and edge rendering entries by the same stable IDs present in the layout result and applies them to the computed node bounds and edge routes. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
+
+### 5.9.1 Compose-measured container metrics contract
+
+- Child placement origin is defined by where a container composable places its `children` host in Compose, not by explicit model fields.
+- Container inflation for child content is derived from measured Compose geometry (left/top/right/bottom insets between the container node bounds and the child host bounds).
+- The layout flow may use a deterministic fallback inset on the first pass, then automatically re-run once measured insets are available.
+- For identical measured metrics and graph input, output remains deterministic.
+- This integration path is Compose-only; no platform-agnostic metric provider is required in this phase.
 
 Edge rendering contract:
 - the layout result remains responsible for geometry only (`edgeRoutesByEdgeId` and endpoint positions)
@@ -310,7 +320,8 @@ Container visuals are not part of the core layout contract:
 
 - a container does not need to have a distinct visual boundary, although many diagram styles will choose to render one
 - visualization is provided by the Compose-specific rendering layer
-- padding and margins are determined by Compose-facing presentation code and then supplied to layout as sizing constraints when needed
+- child-content origin and insets are determined by Compose measurement of the container's child host
+- these measurements are supplied to layout as container metrics; they are not stored as explicit fields in the core compound graph model
 
 ### 6.2 Child graphs
 A child graph should:
@@ -323,8 +334,8 @@ A child graph should:
 When a container's effective `childLayout` is `TESSELLATE`, the local level should use tessellated placement semantics:
 
 - children are arranged as a deterministic row-major tiling (`left->right`, then `top->bottom`)
-- tiles fill the full available content area inside the container (after header allocation)
-- any padding or margin affecting the tiling area is supplied from Compose-facing presentation configuration rather than hard-coded in core layout
+- tiles fill the full available content area inside the container as defined by measured child-host bounds
+- any visual header/padding/margin treatment remains Compose-facing and influences layout only through measured container metrics
 - region child bounds are normalized to tile bounds before parent-level placement to avoid residual gaps from author-provided hints
 - divider rendering is single-pass at shared boundaries; adjacent regions must not each paint their own border on the same seam
 
@@ -487,7 +498,7 @@ When collapse state changes, the layout should preserve:
 6. Layout visible leaves using the local strategy selected by the effective `childLayout`.
    - `GRAPH` -> graph-oriented local layout pipeline
    - `TESSELLATE` -> deterministic tiling of immediate children
-7. Compute child bounds and inflate by Compose-supplied sizing constraints where applicable.
+7. Compute child bounds and inflate by Compose-measured container metrics (child-host origin/insets) where applicable.
 8. Replace each child graph with an atomic compound node in the parent graph.
 9. For collapsed children, aggregate descendant external connections into container boundary ports.
 10. Run the selected parent-level layout for the container's immediate children.
@@ -550,7 +561,7 @@ These are algorithmic profiles, not domain profiles. They are orthogonal to `Chi
 2. Should cross-boundary edges always use boundary ports?
 3. Should profile selection be static or auto-selected from graph metrics?
 4. Should orthogonal readability always win over compactness?
-5. How should optional container headers affect sizing in a domain-neutral way?
+5. How should first-pass fallback insets be tuned before Compose measurements are available?
 6. Should collapsed containers show summary metadata (for example, descendant count, edge count)?
 
 ## 14. Recommended first implementation scope

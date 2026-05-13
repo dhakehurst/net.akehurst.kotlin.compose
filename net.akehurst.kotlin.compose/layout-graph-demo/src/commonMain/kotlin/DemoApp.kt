@@ -68,7 +68,7 @@ fun DemoApp() {
             }
 
             Text("Debug overlay", style = MaterialTheme.typography.titleMedium)
-            DebugToggle("Bounds", overlay.showBounds) { overlay = overlay.copy(showBounds = it) }
+            DebugToggle("Rendered bounds + endpoints", overlay.showBounds) { overlay = overlay.copy(showBounds = it) }
             DebugToggle("Ports", overlay.showPorts) { overlay = overlay.copy(showPorts = it) }
             DebugToggle("Edge IDs", overlay.showEdgeIds) { overlay = overlay.copy(showEdgeIds = it) }
             DebugToggle("Content origins", overlay.showContentOrigins) { overlay = overlay.copy(showContentOrigins = it) }
@@ -131,8 +131,9 @@ private fun LiveLayoutCanvas(
     collapseVersion: Int,
     overlay: DebugOverlaySettings
 ) {
-    var viewState by remember { mutableStateOf(GraphLayoutViewState()) }
+    var viewState by remember(scenarioId) { mutableStateOf(GraphLayoutViewState()) }
     compoundState.showContentOrigins.value = overlay.showContentOrigins
+    compoundState.showDebugOverlay.value = overlay.showBounds
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -153,7 +154,7 @@ private fun LiveLayoutCanvas(
             updateView = { offset: Offset, zoom: Float ->
                 viewState = GraphLayoutViewState(zoom = zoom, offset = offset)
             },
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).fillMaxSize()
         )
     }
 }

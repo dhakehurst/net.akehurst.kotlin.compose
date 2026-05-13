@@ -12,7 +12,7 @@ class test_CompoundTessellatedLayout {
 
         val machine = GraphLayoutCompoundGraph(
             id = "Machine",
-            layoutAlgorithm = CompoundLayoutAlgorithm.TESSELLATED
+            childLayout = ChildLayout.TESSELLATE
         )
         machine.nodes["RegionA"] = GraphLayoutCompoundNode(id = "RegionA", widthHint = 180.0, heightHint = 240.0)
         machine.nodes["RegionB"] = GraphLayoutCompoundNode(id = "RegionB", widthHint = 300.0, heightHint = 120.0)
@@ -44,7 +44,7 @@ class test_CompoundTessellatedLayout {
 
         val machine = GraphLayoutCompoundGraph(
             id = "Machine",
-            layoutAlgorithm = CompoundLayoutAlgorithm.TESSELLATED
+            childLayout = ChildLayout.TESSELLATE
         )
         machine.nodes["RegionA"] = GraphLayoutCompoundNode(id = "RegionA", widthHint = 280.0, heightHint = 280.0)
         machine.nodes["RegionB"] = GraphLayoutCompoundNode(id = "RegionB", widthHint = 280.0, heightHint = 280.0)
