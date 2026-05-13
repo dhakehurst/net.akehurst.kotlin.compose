@@ -19,11 +19,13 @@
 - Phase mapping now matches `Compound Layout Specification.md` phases 0-7.
 - Step-level acceptance includes: local/global transform contract, stable edge-route IDs, collapse policy semantics, and cross-target parity.
 - Remaining high-risk items: cross-hierarchy edge routing quality, profile tuning trade-offs (compactness vs readability), and incremental recompute boundaries.
-- Region-layout refinements now captured: tessellated region fill behavior, single-divider border rendering, and reduced boundary-hop routing for sibling-region transitions.
+- Region-layout refinements now captured: tessellated region fill behavior, single-divider border rendering, reduced boundary-hop routing for sibling-region transitions, and per-container child-layout inheritance.
 
 ## Research and yFiles-inspired constraints (applies to all steps)
 - Keep core layout domain-agnostic; map UML/statechart/package semantics before entering layout.
 - Treat containment as inclusion-tree structure only; never infer containment from adjacency edges.
+- Let each container optionally choose the layout for its immediate children; inherit the effective child layout from the parent when unspecified.
+- Support at least `GRAPH` (default) and `TESSELLATE` child-layout modes.
 - Preserve hierarchy direction per local level; apply stable tie-breakers by ID in every ordering phase.
 - Use Sugiyama-style per-level flow (`cycle removal -> layering -> dummy insertion -> crossing reduction -> coordinate assignment -> routing`) and keep child graphs atomic at parent levels.
 - Incorporate yFiles-like profile behavior: hierarchical default, orthogonal-biased routing, compact mode, and tree/series-parallel bias where graph metrics indicate suitability.
@@ -35,6 +37,7 @@
 - Keep layout core model in `commonMain` UI-agnostic.
 - Keep route output keyed by stable edge IDs (`edgeRoutesByEdgeId`).
 - Keep caller-supplied rendering content keyed by stable IDs for both nodes and edges, outside the core layout algorithm; edge rendering content includes endpoint symbols and positioned text labels.
+- Treat container visuals, padding, and margins as Compose-facing presentation concerns rather than hard-coded core layout behavior.
 - Ensure deterministic output for identical input.
 - **Every step must update `DemoApp.kt` / `LiveLayoutCanvas` so the live JVM demo reflects the new layout output for the relevant scenarios.**
 - Validate JVM live output after each step by running `./gradlew :layout-graph-demo:run`.
@@ -45,7 +48,7 @@
 | Specification section | Required capability | Plan step(s) |
 | --- | --- | --- |
 | 5.1 Graph model | Compound graph structures + inclusion ownership | Step 1 |
-| 5.2 Recursive layout pipeline | Leaf-first recursion + child-as-atomic parent layout | Step 2, Step 3 |
+| 5.2 Recursive layout pipeline | Leaf-first recursion + child-as-atomic parent layout + inherited child-layout resolution | Step 2, Step 3 |
 | 5.3 Layout strategy per level | Sugiyama-style per-level flow | Step 3 |
 | 5.6 Layout result shape | Stable IDs, local/global coordinates, edge routes by ID | Step 2, Step 4 |
 | 5.7 Coordinate/transform contract | Local-to-global transform accumulation | Step 2 |
@@ -84,6 +87,7 @@ Goal: introduce data model without breaking current callers.
 Deliverables:
 - Compound graph structures in `commonMain`.
 - Containment represented as ownership/inclusion tree (not routable edge kind).
+- Per-container child-layout field with inheritance semantics (`GRAPH` default at root, `TESSELLATE` optional per container).
 - Adapter from existing flat graph API to compound model.
 - Caller-facing compound state preserves Compose rendering content for nodes and edges, keyed by stable IDs; node content may render nested children, and edge content may define start/end symbols plus text labels positioned at the start, middle, or end of a route.
 
@@ -93,6 +97,7 @@ Live demo update:
 Acceptance:
 - Existing flat examples render via adapter with no behavioral regression.
 - Model invariants validated (single parent per node, acyclic containment).
+- Unspecified container child layout inherits from the parent; root defaults to `GRAPH`.
 - Node and edge rendering content remain available after adapting flat scenarios into the compound model.
 - Endpoint symbols and positioned edge text remain bound by stable edge ID.
 
@@ -102,7 +107,8 @@ Goal: place nested graphs with correct bounds and transforms.
 Deliverables:
 - Leaf-first recursive layout orchestration.
 - Inclusion-tree validation (acyclic, single direct parent per node).
-- Parent bounds from child bounds + padding/header rules.
+- Effective child-layout resolution per container.
+- Parent bounds from child bounds + Compose-supplied spacing/header constraints.
 - Local/global coordinate transform contract implemented in result.
 
 Live demo update:
@@ -112,6 +118,7 @@ Live demo update:
 Acceptance:
 - Nested scenarios show children inside container bounds in the live demo.
 - Global coordinates are consistent with local + accumulated transforms.
+- Containers without explicit child-layout selection use the same effective child layout as their parent.
 - Child/global bounds and node placements are stable for identical input.
 
 ### Step 3: Compound-aware per-level layout integration
@@ -120,6 +127,7 @@ Goal: integrate level layout while treating child graphs as atomic nodes.
 Deliverables:
 - Parent-level graph built from atomic child placeholders.
 - Existing Sugiyama-style steps reused per level where possible.
+- `GRAPH` child layout uses the graph-oriented local pipeline; `TESSELLATE` child layout uses deterministic tiling for immediate children.
 - Crossing reduction uses deterministic barycenter/median-style ordering with ID tie-breakers.
 - Long edges are expanded with dummy nodes at each local level.
 - Per-level algorithm/profile selection supported: inherit parent profile by default, allow explicit override for child graphs.
@@ -132,6 +140,7 @@ Live demo update:
 Acceptance:
 - Directional flow and layer order are stable across reruns in the live demo.
 - Crossing count trends improve vs naive placement on target scenarios.
+- Child-layout overrides affect only the container's immediate children and remain deterministic.
 - Child-level profile override works while preserving deterministic output.
 
 ### Step 4: Boundary ports + cross-container routing
@@ -191,7 +200,7 @@ Deliverables:
 - Profile presets wired and tuned: `genericCompound`, `hierarchyBiased`, `orthogonalBiased`, `compact`, `treeLikeSeriesParallel`.
 - Spacing/alignment tuning guided by UML-like and state-like scenarios.
 - Region-based tessellation tuning:
-  - when immediate children are all regions, use deterministic row-major tiling that fills container content area
+  - when a container selects `TESSELLATE`, use deterministic row-major tiling that fills container content area
   - normalize region child bounds to tile bounds (author hints are advisory)
   - render shared region seams as single divider lines
 - Routing refinement discovered during live review:
@@ -209,10 +218,14 @@ Acceptance:
 - Region-crossing transitions avoid unnecessary boundary hops while preserving deterministic output.
 
 ### Region-based layout notes (captured from implementation)
-- Region containers are currently selected for tessellated layout when all direct children have region role.
+- Region containers should be selectable for tessellated layout explicitly via the container's child-layout setting; state-region mappings are the main motivating example.
 - Container header area remains reserved; region tiling fills the remaining content area.
 - To avoid double borders, region node content should not paint per-node outer borders when shared seams are drawn centrally by the view.
 - Boundary routing through intermediate region containers can reduce readability; routing should prioritize enclosure-level clarity for sibling-region transitions.
+
+### Compose/presentation boundary notes
+- A container may or may not render a visible boundary; that decision belongs to Compose-specific node content.
+- Padding and margins are presentation-driven inputs and should be supplied to layout from Compose-facing code rather than fixed in the core model.
 
 ### Step 7: Determinism + performance hardening
 Goal: lock reliability and regression safety.

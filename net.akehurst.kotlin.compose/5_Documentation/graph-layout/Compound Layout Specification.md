@@ -27,8 +27,13 @@ This document defines a better layout plan based on:
 
 ### Primary goals
 - Support graphs nested inside other graphs.
-- support different layout algorithms
-- nested graphs can optionally have a different layout algorithm to the parent, but otherwise use the initial algorithm as default
+- Support different child-layout strategies per container.
+- Each container may optionally specify the layout used for its immediate children.
+- If a container does not specify a child layout, it inherits the effective child layout from its parent.
+- The default child layout for most diagrams is `GRAPH`.
+- Support at least these child layout options:
+  - `GRAPH` for general graph-style layout
+  - `TESSELLATE` for deterministic tiling layouts, for example state regions
 - Layout multiple packages, regions, or statecharts cleanly.
 - For region-based containers, tile regions to fill available content area (top-to-bottom, left-to-right) with no unused gaps.
 - Render region separators as single shared divider lines (no double-stroked adjacent borders).
@@ -138,12 +143,12 @@ data class GraphLayoutGraphState(
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
+    val childLayout: ChildLayout? = null,
     val nodes: MutableMap<String, GraphLayoutNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
-    var isCollapsed: Boolean = false,
-    val padding: Double = 24.0
+    var isCollapsed: Boolean = false
 )
 
 data class GraphLayoutNode(
@@ -169,6 +174,11 @@ enum class CompoundGraphKind {
     GENERIC,
     TREE_LIKE,
     SERIES_PARALLEL
+}
+
+enum class ChildLayout {
+    GRAPH,
+    TESSELLATE
 }
 
 enum class NodeKind {
@@ -210,6 +220,15 @@ data class CompoundLayoutResult(
 ```
 
 This keeps the result API independent of a specific internal algorithm type and allows rendering without recomputing layout.
+
+### 5.6.1 Child-layout selection contract
+
+- Each container may declare `childLayout` to control how its immediate children are arranged.
+- If `childLayout == null`, the container inherits the effective child layout from its parent.
+- The root graph defaults to `ChildLayout.GRAPH` unless explicitly configured otherwise.
+- `ChildLayout.GRAPH` uses the standard graph-oriented local pipeline.
+- `ChildLayout.TESSELLATE` uses deterministic tiling for the container's immediate children and is intended for structures such as state regions.
+- Child-layout selection applies only to direct children of that container; nested containers resolve their own effective child layout independently.
 
 ### 5.7 Coordinate and transform contract
 
@@ -284,9 +303,14 @@ Edge rendering contract:
 ### 6.1 Containers
 A container/package/statechart region should:
 - have its own bounds
-- include padding/margins around children
-- optionally have a header area
-- be rendered as a distinct visual boundary
+- allow the Compose layer to decide whether a distinct visual boundary is rendered
+- optionally have a header area if the Compose presentation requires one
+
+Container visuals are not part of the core layout contract:
+
+- a container does not need to have a distinct visual boundary, although many diagram styles will choose to render one
+- visualization is provided by the Compose-specific rendering layer
+- padding and margins are determined by Compose-facing presentation code and then supplied to layout as sizing constraints when needed
 
 ### 6.2 Child graphs
 A child graph should:
@@ -296,13 +320,15 @@ A child graph should:
 
 ### 6.6 Region-based layout contract
 
-When a container's immediate children are all region nodes, the local level should use tessellated placement semantics:
+When a container's effective `childLayout` is `TESSELLATE`, the local level should use tessellated placement semantics:
 
 - children are arranged as a deterministic row-major tiling (`left->right`, then `top->bottom`)
 - tiles fill the full available content area inside the container (after header allocation)
-- parent padding for the tiling axis is zero unless explicitly configured otherwise
+- any padding or margin affecting the tiling area is supplied from Compose-facing presentation configuration rather than hard-coded in core layout
 - region child bounds are normalized to tile bounds before parent-level placement to avoid residual gaps from author-provided hints
 - divider rendering is single-pass at shared boundaries; adjacent regions must not each paint their own border on the same seam
+
+`TESSELLATE` is typically used for region-like children, but it remains a generic layout option rather than a UML/statechart-specific rule.
 
 This keeps region diagrams visually stable and prevents "double wall" artifacts.
 
@@ -456,15 +482,18 @@ When collapse state changes, the layout should preserve:
 1. Build a compound graph from the semantic model.
 2. Validate the inclusion tree.
 3. Resolve effective collapse state for each container (`collapsePolicy` + runtime override).
-4. Identify visible leaf graphs under the current collapse configuration.
-5. Layout visible leaves with a local Sugiyama/orthogonal pass.
-6. Compute child bounds and inflate by padding.
-7. Replace each child graph with an atomic compound node in the parent graph.
-8. For collapsed children, aggregate descendant external connections into container boundary ports.
-9. Run layered layout on the parent graph.
-10. Route edges that cross graph boundaries using boundary ports.
-11. Lift child coordinates into the parent coordinate system.
-12. Merge all local results into one global result.
+4. Resolve the effective `childLayout` for each container by inheriting from the parent when unspecified.
+5. Identify visible leaf graphs under the current collapse configuration.
+6. Layout visible leaves using the local strategy selected by the effective `childLayout`.
+   - `GRAPH` -> graph-oriented local layout pipeline
+   - `TESSELLATE` -> deterministic tiling of immediate children
+7. Compute child bounds and inflate by Compose-supplied sizing constraints where applicable.
+8. Replace each child graph with an atomic compound node in the parent graph.
+9. For collapsed children, aggregate descendant external connections into container boundary ports.
+10. Run the selected parent-level layout for the container's immediate children.
+11. Route edges that cross graph boundaries using boundary ports.
+12. Lift child coordinates into the parent coordinate system.
+13. Merge all local results into one global result.
 
 ## 11. Proposed testing strategy
 
@@ -513,7 +542,7 @@ When collapse state changes, the layout should preserve:
 - `compact`
 - `treeLikeSeriesParallel`
 
-These are algorithmic profiles, not domain profiles.
+These are algorithmic profiles, not domain profiles. They are orthogonal to `ChildLayout`; for example, a diagram may use the `hierarchyBiased` profile overall while a specific container uses `TESSELLATE` for its immediate children.
 
 ## 13. Open questions
 

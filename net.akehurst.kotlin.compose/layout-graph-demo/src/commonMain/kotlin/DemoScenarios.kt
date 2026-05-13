@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -273,7 +272,7 @@ object DemoScenarios {
         id = "uml_use_case_diagram",
         title = "UML use case diagram",
         nodes = listOf(
-            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> Component("System", children) }),
+            DemoNode("System", x = 180f, y = 60f, width = 420f, height = 300f, childContentOffsetX = 0f, content = { children -> Component("System", children) }),
             DemoNode("User", x = 40f, y = 150f, width = 100f, height = 56f, content = { Actor("User") }),
             DemoNode("Admin", x = 40f, y = 250f, width = 100f, height = 56f, content = { Actor("Admin") }),
             DemoNode("Login", x = 270f, y = 120f, width = 110f, height = 56f, containerId = "System", content = { UseCase("Login") }),
@@ -293,7 +292,7 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> Component("Controller", children) }),
+            DemoNode("Controller", x = 80f, y = 70f, width = 560f, height = 300f, childContentOffsetX = 0f, content = { children -> Component("Controller", children) }),
             DemoNode("InputPort", x = 130f, y = 180f, width = 100f, height = 48f, containerId = "Controller", content = { Interface("InputPort") }),
             DemoNode("Core", x = 280f, y = 130f, width = 140f, height = 56f, containerId = "Controller", content = { Component("Core") }),
             DemoNode("OutputPort", x = 490f, y = 180f, width = 110f, height = 48f, containerId = "Controller", content = { Interface("OutputPort") }),
@@ -312,7 +311,7 @@ object DemoScenarios {
         id = "uml_deployment_diagram",
         title = "UML deployment diagram",
         nodes = listOf(
-            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, childContentOffsetX = 0f, childContentOffsetY = 28f, content = { children -> DeploymentNode("Cloud", children) }),
+            DemoNode("Cloud", x = 60f, y = 40f, width = 620f, height = 340f, childContentOffsetX = 0f, content = { children -> DeploymentNode("Cloud", children) }),
             DemoNode(
                 "WebNode",
                 x = 120f,
@@ -321,7 +320,6 @@ object DemoScenarios {
                 height = 220f,
                 containerId = "Cloud",
                 childContentOffsetX = 0f,
-                childContentOffsetY = 28f,
                 content = { children -> DeploymentNode("WebNode", children) }),
             DemoNode(
                 "DbNode",
@@ -331,7 +329,6 @@ object DemoScenarios {
                 height = 220f,
                 containerId = "Cloud",
                 childContentOffsetX = 0f,
-                childContentOffsetY = 28f,
                 content = { children -> DeploymentNode("DbNode", children) }),
             DemoNode("WebApp", x = 150f, y = 170f, width = 120f, height = 56f, containerId = "WebNode", content = { Component("WebApp") }),
             DemoNode("Database", x = 390f, y = 170f, width = 120f, height = 56f, containerId = "DbNode", content = { Component("Database") }),

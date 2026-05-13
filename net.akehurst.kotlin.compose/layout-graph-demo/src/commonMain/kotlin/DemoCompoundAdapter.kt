@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,7 +50,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
                 ?: when {
                     hasRegionChildren -> REGION_TILING_HEADER_HEIGHT.toDouble() + REGION_TILING_PADDING.toDouble()
                     isRegionContainer -> REGION_CONTENT_OFFSET_Y
-                    else -> DEFAULT_CONTAINER_CONTENT_OFFSET_Y
+                    else -> DEFAULT_CONTAINER_HEADER_HEIGHT
                 }
             graphById[containerId] = GraphLayoutCompoundGraph(
                 id = containerId,
@@ -59,7 +61,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
                 childContentOffsetX = childContentOffsetX,
                 childContentOffsetY = childContentOffsetY,
                 padding = if (hasRegionChildren) REGION_TILING_PADDING.toDouble() else if (isRegionContainer) 12.0 else 32.0,
-                headerHeight = if (hasRegionChildren) REGION_TILING_HEADER_HEIGHT.toDouble() else if (isRegionContainer) 32.0 else null
+                headerHeight = if (hasRegionChildren) REGION_TILING_HEADER_HEIGHT.toDouble() else if (isRegionContainer) 32.0 else DEFAULT_CONTAINER_HEADER_HEIGHT
             )
         }
     }
@@ -111,15 +113,20 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
                                 .fillMaxSize()
                                 .background(Color(0xFFE8F0FE))
                                 .border(1.5.dp, Color(0xFF3F7ACC))
-                                .padding(start = 8.dp, top = 4.dp)
                         ) {
-
-                            Text(
-                                text = node.id,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF3F7ACC)
-                            )
-                            Box{
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(DEFAULT_CONTAINER_HEADER_HEIGHT_DP)
+                                    .padding(start = 8.dp, top = 4.dp)
+                            ) {
+                                Text(
+                                    text = node.id,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF3F7ACC)
+                                )
+                            }
+                            Box(modifier = Modifier.fillMaxSize()) {
                                 children()
                             }
                         }
@@ -153,8 +160,9 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
 private const val REGION_TILING_HEADER_HEIGHT = 28f
 private const val REGION_TILING_PADDING = 12f
 private const val REGION_CONTENT_OFFSET_Y = 20.0
-private const val DEFAULT_CONTAINER_CONTENT_OFFSET_X = 8.0
-private const val DEFAULT_CONTAINER_CONTENT_OFFSET_Y = 4.0
+private const val DEFAULT_CONTAINER_CONTENT_OFFSET_X = 0.0
+private const val DEFAULT_CONTAINER_HEADER_HEIGHT = 28.0
+private val DEFAULT_CONTAINER_HEADER_HEIGHT_DP = 28.dp
 
 private fun normalizeRegionTiles(nodes: List<DemoNode>): List<DemoNode> {
     val nodesById = nodes.associateBy { it.id }
@@ -222,4 +230,3 @@ private fun lowestCommonAncestor(
 
     return rootId
 }
-
