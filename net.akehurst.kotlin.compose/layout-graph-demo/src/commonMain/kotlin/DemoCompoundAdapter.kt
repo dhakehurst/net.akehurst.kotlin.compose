@@ -1,25 +1,6 @@
 package net.akehurst.kotlin.components.layout.graph.demo
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import net.akehurst.kotlin.components.layout.graph.ChildLayout
-import net.akehurst.kotlin.components.layout.graph.CollapsePolicy
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundEdge
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraph
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundNode
+import net.akehurst.kotlin.components.layout.graph.*
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     val normalizedNodes = normalizeRegionTiles(nodes)
@@ -35,7 +16,6 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             val containerNode = nodesById[containerId]
             val collapsed = containerNode?.defaultCollapsed == true
             val childLayout = containerNode?.childLayout
-            val hasRegionChildren = childLayout == ChildLayout.TESSELLATE
             val isRegionContainer = containerNode
                 ?.containerId
                 ?.let { parentId -> nodesById[parentId]?.childLayout == ChildLayout.TESSELLATE }
@@ -88,7 +68,6 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         // Containers get a shaded background + header label; leaf nodes get a centred label.
         // Any node whose content is NOT registered here would show the red ⚠ error indicator.
         normalizedNodes.sortedBy { it.id }.forEach { node ->
-            val isContainer = normalizedNodes.any { it.containerId == node.id }
             node.content.let { state.addNodeContent(node.id, it) }
         }
 
@@ -100,11 +79,6 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         }
     }
 }
-
-private const val REGION_TILING_HEADER_HEIGHT = 28f
-private const val REGION_TILING_PADDING = 12f
-private const val DEFAULT_CONTAINER_HEADER_HEIGHT = 28.0
-private val DEFAULT_CONTAINER_HEADER_HEIGHT_DP = 28.dp
 
 private fun normalizeRegionTiles(nodes: List<DemoNode>): List<DemoNode> {
     val nodesById = nodes.associateBy { it.id }
@@ -124,14 +98,14 @@ private fun normalizeRegionTiles(nodes: List<DemoNode>): List<DemoNode> {
         val cols = kotlin.math.ceil(kotlin.math.sqrt(children.size.toDouble())).toInt().coerceAtLeast(1)
         val rows = kotlin.math.ceil(children.size.toDouble() / cols.toDouble()).toInt().coerceAtLeast(1)
         val tileWidth = container.width / cols.toFloat()
-        val tileHeight = ((container.height - REGION_TILING_HEADER_HEIGHT).coerceAtLeast(1f)) / rows.toFloat()
+        val tileHeight = container.height / rows.toFloat()
 
         children.forEachIndexed { index, child ->
             val row = index / cols
             val col = index % cols
             normalizedById[child.id] = child.copy(
                 x = container.x + (col * tileWidth),
-                y = container.y + REGION_TILING_HEADER_HEIGHT + (row * tileHeight),
+                y = container.y + (row * tileHeight),
                 width = tileWidth,
                 height = tileHeight
             )
@@ -165,3 +139,4 @@ private fun lowestCommonAncestor(
 
     return rootId
 }
+

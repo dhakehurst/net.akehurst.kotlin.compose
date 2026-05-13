@@ -4,9 +4,10 @@ import net.akehurst.kotlin.components.layout.graph.CompoundLayoutEngine
 import net.akehurst.kotlin.components.layout.graph.CompoundNodeLayout
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class CompoundLayoutCrossBoundaryEdgeAnchoringTest {
+class test_CompoundLayoutCrossBoundaryEdgeAnchoring {
 
     private val engine = CompoundLayoutEngine()
 
@@ -29,13 +30,10 @@ class CompoundLayoutCrossBoundaryEdgeAnchoringTest {
     }
 
     @Test
-    fun single_container_edge_exits_through_container_boundary() {
+    fun single_container_direct_edge_uses_only_endpoints() {
         val result = engine.layout(DemoScenarios.singleContainerTwoNodes.toCompoundGraphState())
         val route = result.edgeRoutesByEdgeId.getValue("e_single_2")
-        val container = result.nodeLayoutsById.getValue("Container1")
-        // Route: sourceCenter, boundary-exit, targetCenter  (≥ 3 points)
-        assertTrue(route.size >= 3, "expected ≥ 3 waypoints, got ${route.size}")
-        assertTrue(isOnRectBoundary(route[1], container), "waypoint[1] should be on Container1 boundary, got ${route[1]}")
+        assertEquals(2, route.size, "direct routing should use only source and target endpoints")
     }
 
     // ── sibling containers: L1 → R1 ────────────────────────────────────────
@@ -57,30 +55,27 @@ class CompoundLayoutCrossBoundaryEdgeAnchoringTest {
     }
 
     @Test
-    fun sibling_container_edge_exits_source_container_and_enters_target_container() {
+    fun sibling_container_direct_edge_uses_only_endpoints() {
         val result = engine.layout(DemoScenarios.siblingContainersCrossEdges.toCompoundGraphState())
         val route = result.edgeRoutesByEdgeId.getValue("e_sibling_1")
-        val containerL = result.nodeLayoutsById.getValue("ContainerL")
-        val containerR = result.nodeLayoutsById.getValue("ContainerR")
-        // Route: sourceCenter, exit ContainerL, enter ContainerR, targetCenter  (≥ 4 points)
-        assertTrue(route.size >= 4, "expected ≥ 4 waypoints, got ${route.size}")
-        assertTrue(isOnRectBoundary(route[1], containerL), "waypoint[1] should be on ContainerL boundary, got ${route[1]}")
-        assertTrue(isOnRectBoundary(route[2], containerR), "waypoint[2] should be on ContainerR boundary, got ${route[2]}")
+        val source = result.nodeLayoutsById.getValue("L1")
+        val target = result.nodeLayoutsById.getValue("R1")
+        assertEquals(2, route.size, "direct routing should use only source and target endpoints")
+        assertTrue(isOnRectBoundary(route.first(), source), "route start should be on source boundary")
+        assertTrue(isOnRectBoundary(route.last(), target), "route end should be on target boundary")
     }
 
     // ── deep nesting: LeafB → External (one level up) ──────────────────────
 
     @Test
-    fun deep_nesting_cross_level_edge_exits_inner_container() {
+    fun deep_nesting_direct_edge_uses_only_endpoints() {
         val result = engine.layout(DemoScenarios.deepNesting.toCompoundGraphState())
         val route = result.edgeRoutesByEdgeId.getValue("e_deep_2")
         val source = result.nodeLayoutsById.getValue("LeafB")
         val target = result.nodeLayoutsById.getValue("External")
-        val level2Container = result.nodeLayoutsById.getValue("Level2")
-        assertTrue(route.size >= 3, "expected ≥ 3 waypoints, got ${route.size}")
+        assertEquals(2, route.size, "direct routing should use only source and target endpoints")
         assertTrue(isOnRectBoundary(route.first(), source), "source endpoint must be on source boundary")
         assertTrue(isOnRectBoundary(route.last(), target), "target endpoint must be on target boundary")
-        assertTrue(isOnRectBoundary(route[1], level2Container), "waypoint[1] should be on Level2 boundary, got ${route[1]}")
     }
 
     @Test

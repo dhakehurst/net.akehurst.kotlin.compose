@@ -521,6 +521,10 @@ class CompoundLayoutEngine(
             EdgeRouting.RECTILINEAR -> rectilinearAnchor(targetRect, targetCenter, sourceCenter, parallelSlot)
         }
 
+        if (routing == EdgeRouting.DIRECT) {
+            return collapseConsecutiveDuplicates(listOf(sourceEndpoint, targetEndpoint)).map(::normalizePoint)
+        }
+
         val lcaGraphId = findLca(sourceNode.ownerGraphId, targetNode.ownerGraphId, graphLayouts)
 
         // Container nodes the edge must EXIT (innermost → outermost, going from source to LCA)
