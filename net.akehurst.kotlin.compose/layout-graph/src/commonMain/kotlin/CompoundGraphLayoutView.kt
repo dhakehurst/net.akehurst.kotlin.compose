@@ -37,6 +37,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.absoluteValue
 import androidx.compose.foundation.Canvas
 
 // ── Error indicator defaults ────────────────────────────────────────────────
@@ -234,6 +235,79 @@ private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float): 
 
         EdgeContentPosition.MIDDLE -> Offset.Zero
     }
+}
+
+private fun lineRectIntersection(
+    from: Pair<Double, Double>,
+    to: Pair<Double, Double>,
+    rectLeft: Double,
+    rectTop: Double,
+    rectRight: Double,
+    rectBottom: Double
+): Pair<Double, Double> {
+    // Clip a line segment to a rectangle boundary.
+    // Returns the first boundary intersection point going from 'from' towards 'to'.
+    if (from == to) return from
+
+    val dx = to.first - from.first
+    val dy = to.second - from.second
+
+    // Parametric line: p(t) = from + t * (to - from), where t in [0, 1]
+    var tEnter = 0.0
+
+    // Check intersection with vertical lines (left, right)
+    if (dx.absoluteValue > 1e-9) {
+        val tLeft = (rectLeft - from.first) / dx
+        val tRight = (rectRight - from.first) / dx
+        val tMin = minOf(tLeft, tRight)
+        tEnter = maxOf(tEnter, tMin)
+    }
+
+    // Check intersection with horizontal lines (top, bottom)
+    if (dy.absoluteValue > 1e-9) {
+        val tTop = (rectTop - from.second) / dy
+        val tBottom = (rectBottom - from.second) / dy
+        val tMin = minOf(tTop, tBottom)
+        tEnter = maxOf(tEnter, tMin)
+    }
+
+    // Use tEnter to find boundary intersection in direction of 'to'
+    val t = tEnter.coerceIn(0.0, 1.0)
+    return (from.first + t * dx) to (from.second + t * dy)
+}
+
+/**
+ * Finds the point where a ray from [center] (which is inside the rectangle) exits
+ * the rectangle, going in the direction of [toward].
+ *
+ * Returns [center] if no exit is found (degenerate case).
+ */
+private fun rectExitPoint(
+    center: Pair<Double, Double>,
+    toward: Pair<Double, Double>,
+    rectLeft: Double,
+    rectTop: Double,
+    rectRight: Double,
+    rectBottom: Double
+): Pair<Double, Double> {
+    val dx = toward.first - center.first
+    val dy = toward.second - center.second
+    if (dx.absoluteValue < 1e-9 && dy.absoluteValue < 1e-9) return center
+
+    var tExit = Double.MAX_VALUE
+
+    // For each boundary side, find t where the ray crosses it (must be positive = forward)
+    if (dx.absoluteValue > 1e-9) {
+        val t = if (dx > 0) (rectRight - center.first) / dx else (rectLeft - center.first) / dx
+        if (t > 0) tExit = minOf(tExit, t)
+    }
+    if (dy.absoluteValue > 1e-9) {
+        val t = if (dy > 0) (rectBottom - center.second) / dy else (rectTop - center.second) / dy
+        if (t > 0) tExit = minOf(tExit, t)
+    }
+
+    if (tExit == Double.MAX_VALUE) return center
+    return (center.first + tExit * dx) to (center.second + tExit * dy)
 }
 
 private fun drawEdgeSymbol(
@@ -619,10 +693,77 @@ fun CompoundGraphLayoutView(
 
                 sortedEdgeIds.forEach { edgeId ->
                     val route = layoutResult.edgeRoutesByEdgeId[edgeId] ?: return@forEach
-                    if (route.size >= 2) {
+
+                    // Get the actual rendered node positions to properly attach edge endpoints
+                    val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
+                    val drawRoute = if (endpoints != null && graphLayerCoordinates != null) {
+                        val (sourceNodeId, targetNodeId) = endpoints
+                        val sourceCoords = nodeCoordinatesById[sourceNodeId]
+                        val targetCoords = nodeCoordinatesById[targetNodeId]
+
+                        if (sourceCoords != null && targetCoords != null) {
+                            // nodeBoundsInLayer returns bounds in canvas/viewport space.
+                            // Route points are in layout global space.
+                            // viewport = global + globalToViewportOffset  =>  global = viewport - globalToViewportOffset
+                            val sourceBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, sourceCoords)
+                            val targetBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, targetCoords)
+
+                            when {
+                                sourceBoundsViewport == null || targetBoundsViewport == null -> route
+                                route.size < 2 -> route
+                                else -> {
+                                    // Convert measured viewport bounds to layout global space so they
+                                    // are in the same coordinate space as the stored route points.
+                                    val srcLeft   = (sourceBoundsViewport.left   - globalToViewportOffsetX).toDouble()
+                                    val srcTop    = (sourceBoundsViewport.top    - globalToViewportOffsetY).toDouble()
+                                    val srcRight  = (sourceBoundsViewport.right  - globalToViewportOffsetX).toDouble()
+                                    val srcBottom = (sourceBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
+
+                                    val dstLeft   = (targetBoundsViewport.left   - globalToViewportOffsetX).toDouble()
+                                    val dstTop    = (targetBoundsViewport.top    - globalToViewportOffsetY).toDouble()
+                                    val dstRight  = (targetBoundsViewport.right  - globalToViewportOffsetX).toDouble()
+                                    val dstBottom = (targetBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
+
+                                    // Use the actual measured node centers as the origin of each endpoint ray.
+                                    // This ensures the edge exits/enters the correct boundary regardless of
+                                    // any difference between layout-predicted and Compose-rendered positions.
+                                    val srcCenter = (srcLeft + srcRight) / 2.0 to (srcTop + srcBottom) / 2.0
+                                    val dstCenter = (dstLeft + dstRight) / 2.0 to (dstTop + dstBottom) / 2.0
+
+                                    // Direction for start: from source center toward first waypoint (or target)
+                                    val startToward = if (route.size > 2) route[1] else dstCenter
+                                    // Direction for end: from target center toward last waypoint (or source)
+                                    val endToward   = if (route.size > 2) route[route.size - 2] else srcCenter
+
+                                    val adjustedStart = rectExitPoint(
+                                        center = srcCenter, toward = startToward,
+                                        rectLeft = srcLeft, rectTop = srcTop,
+                                        rectRight = srcRight, rectBottom = srcBottom
+                                    )
+                                    val adjustedEnd = rectExitPoint(
+                                        center = dstCenter, toward = endToward,
+                                        rectLeft = dstLeft, rectTop = dstTop,
+                                        rectRight = dstRight, rectBottom = dstBottom
+                                    )
+
+                                    // Preserve intermediate waypoints; only replace endpoints
+                                    when {
+                                        route.size == 2 -> listOf(adjustedStart, adjustedEnd)
+                                        else -> listOf(adjustedStart) + route.drop(1).dropLast(1) + listOf(adjustedEnd)
+                                    }
+                                }
+                            }
+                        } else {
+                            route
+                        }
+                    } else {
+                        route
+                    }
+
+                    if (drawRoute.size >= 2) {
                         drawPath(
                             path = Path().apply {
-                                route.forEachIndexed { index, point ->
+                                drawRoute.forEachIndexed { index, point ->
                                     val x = (point.first + globalToViewportOffsetX).toFloat()
                                     val y = (point.second + globalToViewportOffsetY).toFloat()
                                     if (0 == index) moveTo(x, y) else lineTo(x, y)
@@ -634,16 +775,16 @@ fun CompoundGraphLayoutView(
                     }
 
                     // Draw debug endpoint circles if enabled
-                    if (state.showDebugOverlay.value && route.size >= 2) {
+                    if (state.showDebugOverlay.value && drawRoute.size >= 2) {
                         val debugBlue = Color(0xFF2196F3)
                         val debugRed = Color(0xFFD32F2F)
                         // Draw circle at start endpoint
-                        val startX = (route[0].first + globalToViewportOffsetX).toFloat()
-                        val startY = (route[0].second + globalToViewportOffsetY).toFloat()
+                        val startX = (drawRoute[0].first + globalToViewportOffsetX).toFloat()
+                        val startY = (drawRoute[0].second + globalToViewportOffsetY).toFloat()
                         drawCircle(color = debugBlue, radius = 4f, center = Offset(startX, startY))
                         // Draw circle at end endpoint
-                        val endX = (route[route.lastIndex].first + globalToViewportOffsetX).toFloat()
-                        val endY = (route[route.lastIndex].second + globalToViewportOffsetY).toFloat()
+                        val endX = (drawRoute[drawRoute.lastIndex].first + globalToViewportOffsetX).toFloat()
+                        val endY = (drawRoute[drawRoute.lastIndex].second + globalToViewportOffsetY).toFloat()
                         drawCircle(color = debugRed, radius = 4f, center = Offset(endX, endY))
                     }
 
@@ -652,7 +793,7 @@ fun CompoundGraphLayoutView(
                         edgeContent.startSymbol?.let { symbol ->
                             drawEdgeSymbol(
                                 symbol = symbol,
-                                anchor = routeAnchor(route, EdgeContentPosition.START),
+                                anchor = routeAnchor(drawRoute, EdgeContentPosition.START),
                                 globalToViewportOffsetX = globalToViewportOffsetX,
                                 globalToViewportOffsetY = globalToViewportOffsetY
                             ) { path, color, stroke ->
@@ -666,7 +807,7 @@ fun CompoundGraphLayoutView(
                         edgeContent.endSymbol?.let { symbol ->
                             drawEdgeSymbol(
                                 symbol = symbol,
-                                anchor = routeAnchor(route, EdgeContentPosition.END),
+                                anchor = routeAnchor(drawRoute, EdgeContentPosition.END),
                                 globalToViewportOffsetX = globalToViewportOffsetX,
                                 globalToViewportOffsetY = globalToViewportOffsetY
                             ) { path, color, stroke ->
