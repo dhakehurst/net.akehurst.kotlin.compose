@@ -26,6 +26,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +41,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.absoluteValue
 import androidx.compose.foundation.Canvas
+import kotlin.math.min
 
 // ── Error indicator defaults ────────────────────────────────────────────────
 
@@ -344,6 +346,59 @@ private fun drawEdgeSymbol(
 // ── Compound layout view ────────────────────────────────────────────────────
 
 /**
+ * This function is a custom compose-layout for the childnodes.
+ * A child node should have a min size of the maximum  of:
+ *   - as computed by layout algorithm
+ *   - childs own constraints min
+ *
+ */
+private fun composeLayout(
+    nodeId:String,
+    childNodes: List<CompoundNodeLayout>,
+    contentOriginX: Double,
+    contentOriginY: Double
+): MeasurePolicy = MeasurePolicy { measurables, constraints ->
+    println("composeLayout: $nodeId")
+    val requiredChildWidth = requiredChildHostWidth(childNodes, contentOriginX)
+    val requiredChildHeight = requiredChildHostHeight(childNodes, contentOriginY)
+    val placeables = childNodes.mapIndexed { i, childNode ->
+        val measurable = measurables[i]
+        val contentWidth = measurable.maxIntrinsicWidth(constraints.maxWidth)
+        val contentHeight = measurable.maxIntrinsicHeight(constraints.maxHeight)
+        println("measure child ${childNode.nodeId}: alg-w=${childNode.width}, alg-h=${childNode.height}")
+        println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
+        measurable.measure(
+            Constraints(
+                minWidth = min(contentWidth,childNode.width.roundToInt()),
+                maxWidth = max(contentWidth,childNode.width.roundToInt()),
+                minHeight = min(contentHeight,childNode.height.roundToInt()),
+                maxHeight = max(contentHeight,childNode.height.roundToInt()),
+            )
+        )
+    }
+
+
+    val layoutWidth = requiredChildWidth.roundToInt()
+        .coerceAtLeast(constraints.minWidth)
+        .coerceAtMost(constraints.maxWidth)
+    val layoutHeight = requiredChildHeight.roundToInt()
+        .coerceAtLeast(constraints.minHeight)
+        .coerceAtMost(constraints.maxHeight)
+    println("${nodeId}: constraints = $constraints")
+    println("${nodeId}: requiredChildWidth = $requiredChildWidth, requiredChildHeight = $requiredChildHeight")
+    println("${nodeId}: layoutWidth = $layoutWidth, layoutHeight = $layoutHeight")
+
+    layout(layoutWidth, layoutHeight) {
+        childNodes.forEachIndexed { i, childNode ->
+            placeables[i].placeRelative(
+                (childNode.globalX - contentOriginX).roundToInt(),
+                (childNode.globalY - contentOriginY).roundToInt()
+            )
+        }
+    }
+}
+
+/**
  * Renders one node recursively. If the node is a container, its node-content lambda receives
  * a children composable that places direct child nodes (containers first, then leaves)
  * at their layout-computed local positions.
@@ -428,35 +483,9 @@ private fun NodeContent(
                                     onChildHostMeasured = onChildHostMeasured
                                 )
                             }
-                        }
-                    ) { measurables, constraints ->
-                        val requiredChildWidth = requiredChildHostWidth(childNodes, contentOriginX)
-                        val requiredChildHeight = requiredChildHostHeight(childNodes, contentOriginY)
-                        val placeables = childNodes.mapIndexed { i, childNode ->
-                            measurables[i].measure(
-                                Constraints(
-                                    minWidth = 0,
-                                    maxWidth = childNode.width.roundToInt().coerceAtLeast(1),
-                                    minHeight = 0,
-                                    maxHeight = childNode.height.roundToInt().coerceAtLeast(1)
-                                )
-                            )
-                        }
-                        val layoutWidth = requiredChildWidth.roundToInt()
-                            .coerceAtLeast(constraints.minWidth)
-                            .coerceAtMost(constraints.maxWidth)
-                        val layoutHeight = requiredChildHeight.roundToInt()
-                            .coerceAtLeast(constraints.minHeight)
-                            .coerceAtMost(constraints.maxHeight)
-                        layout(layoutWidth, layoutHeight) {
-                            childNodes.forEachIndexed { i, childNode ->
-                                placeables[i].placeRelative(
-                                    (childNode.globalX - contentOriginX).roundToInt(),
-                                    (childNode.globalY - contentOriginY).roundToInt()
-                                )
-                            }
-                        }
-                    }
+                        },
+                        measurePolicy = composeLayout(node.nodeId,childNodes, contentOriginX, contentOriginY)
+                    )
                 }
             }
         }
@@ -659,6 +688,7 @@ fun CompoundGraphLayoutView(
     Box(modifier = modifier.clip(RectangleShape)) {
         Box(
             modifier = Modifier
+                .fillMaxSize()
                 .onGloballyPositioned { coordinates ->
                     graphLayerCoordinates = coordinates
                 }
@@ -697,34 +727,26 @@ fun CompoundGraphLayoutView(
                             onChildHostMeasured = onChildHostMeasured
                         )
                     }
-                }
-            ) { measurables, _ ->
-                val placeables = rootNodes.mapIndexed { index, node ->
-                    measurables[index].measure(
-                        Constraints(
-                            minWidth = 0,
-                            maxWidth = node.width.roundToInt().coerceAtLeast(1),
-                            minHeight = 0,
-                            maxHeight = node.height.roundToInt().coerceAtLeast(1)
-                        )
-                    )
-                }
-                layout(totalWidth.roundToInt(), totalHeight.roundToInt()) {
-                    rootNodes.forEachIndexed { index, node ->
-                        placeables[index].placeRelative(
-                            x = (node.globalX + globalToViewportOffsetX).roundToInt(),
-                            y = (node.globalY + globalToViewportOffsetY).roundToInt()
-                        )
-                    }
-                }
-            }
+                },
+                measurePolicy = composeLayout("root",rootNodes, globalToViewportOffsetX, globalToViewportOffsetY)
+            )
 
             // ── Layer 2: Edge route lines ────────────────────────────────────
             Canvas(
                 modifier = Modifier
                     .layout { measurable, constraints ->
+                        val viewportWidth = if (constraints.hasBoundedWidth) {
+                            constraints.maxWidth
+                        } else {
+                            totalWidth.roundToInt().coerceAtLeast(constraints.minWidth)
+                        }
+                        val viewportHeight = if (constraints.hasBoundedHeight) {
+                            constraints.maxHeight
+                        } else {
+                            totalHeight.roundToInt().coerceAtLeast(constraints.minHeight)
+                        }
                         val placeable = measurable.measure(constraints)
-                        layout(totalWidth.roundToInt(), totalHeight.roundToInt()) {
+                        layout(viewportWidth, viewportHeight) {
                             placeable.placeRelative(0, 0)
                         }
                     }
@@ -960,11 +982,21 @@ fun CompoundGraphLayoutView(
                             }
                         }
                     }
-                ) { measurables, _ ->
+                ) { measurables, constraints ->
+                    val viewportWidth = if (constraints.hasBoundedWidth) {
+                        constraints.maxWidth
+                    } else {
+                        totalWidth.roundToInt().coerceAtLeast(constraints.minWidth)
+                    }
+                    val viewportHeight = if (constraints.hasBoundedHeight) {
+                        constraints.maxHeight
+                    } else {
+                        totalHeight.roundToInt().coerceAtLeast(constraints.minHeight)
+                    }
                     val placeables = measurables.map { m ->
                         m.measure(Constraints(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0, maxHeight = Constraints.Infinity))
                     }
-                    layout(totalWidth.roundToInt(), totalHeight.roundToInt()) {
+                    layout(viewportWidth, viewportHeight) {
                         edgeTextPlacements.forEachIndexed { index, placement ->
                             val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
                             val anchor = routeAnchor(route, placement.position)

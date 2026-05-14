@@ -37,6 +37,7 @@ object DemoScenarios {
 
     private val umlFill = Color.White
     private val umlStroke = Color.Black
+    private val umlPadding = 5.dp
     private const val compoundStateCornerRadiusDp = 12
 
     private fun edgeLabel(text: String, position: EdgeContentPosition = EdgeContentPosition.MIDDLE) =
@@ -424,7 +425,7 @@ object DemoScenarios {
         Text(text = name, style = MaterialTheme.typography.labelSmall, color = Color.Black, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .background(Color(0xccb4c0FE))
                 .weight(1f)
         ) {
@@ -437,7 +438,9 @@ object DemoScenarios {
      */
     @Composable
     fun Package(name: String, children: @Composable () -> Unit) = Column(
-        modifier = Modifier.containerNodeFrame(30.dp)
+        modifier = Modifier
+            .fillMaxSize()//.containerNodeFrame(30.dp)
+            .padding(umlPadding)
     ) {
         Box(
             modifier = Modifier
@@ -466,9 +469,10 @@ object DemoScenarios {
     @Composable
     fun Class(name: String) = Column(
         modifier = Modifier
-            .minWidthToContent(30.dp)
+            .fillMaxSize()//.minWidthToContent(30.dp)
             .background(umlFill)
             .border(1.5.dp, umlStroke)
+            .padding(umlPadding)
     ) {
         Text(
             text = name,
@@ -493,11 +497,12 @@ object DemoScenarios {
      */
     @Composable
     fun SimpleState(name: String) = Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()//.minWidthToContent(30.dp)
             .background(umlFill, RoundedCornerShape(12.dp))
-            .border(1.5.dp, umlStroke, RoundedCornerShape(5.dp)),
-        contentAlignment = Alignment.Center
+            .border(1.5.dp, umlStroke, RoundedCornerShape(5.dp))
+            .padding(umlPadding)
     ) {
         Text(
             text = name,
@@ -518,6 +523,7 @@ object DemoScenarios {
             .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(umlFill, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
             .border(1.5.dp, umlStroke, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
+            .padding(umlPadding)
     ) {
         Text(
             text = name,
@@ -697,8 +703,9 @@ object DemoScenarios {
     @Composable
     fun Region(name: String, children: @Composable () -> Unit) = Column(
         modifier = Modifier
-            .containerNodeFrame(30.dp)
+            .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(umlFill)
+            .padding(umlPadding)
     ) {
         // Label on top
         Text(
