@@ -256,14 +256,18 @@ class CompoundLayoutEngine(
         val nodeSizesById = nodes.associate { node ->
             val childPlan = childPlansById[node.id]
             val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
+            val paddingHintWidth = node.containerPaddingHint?.let { it.left+it.right } ?: 0.0
+            val paddingHintHeight = node.containerPaddingHint?.let { it.bottom+it.top+it.bottom } ?: 0.0
+            val widthHint = (node.widthHint ?:config.defaultNodeWidth)
+            val heightHint = (node.heightHint ?:config.defaultNodeHeight)
             val width = max(
-                node.widthHint ?: config.defaultNodeWidth,
+                widthHint,
                 (childPlan?.contentWidth ?: 0.0) + metrics.originX + metrics.insetRight
-            )
+            ) + paddingHintWidth
             val height = max(
-                node.heightHint ?: config.defaultNodeHeight,
+                heightHint,
                 (childPlan?.contentHeight ?: 0.0) + metrics.originY + metrics.insetBottom
-            )
+            ) + paddingHintHeight
             node.id to (width to height)
         }
 

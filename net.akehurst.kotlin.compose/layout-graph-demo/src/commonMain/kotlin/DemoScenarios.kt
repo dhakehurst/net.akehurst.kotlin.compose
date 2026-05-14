@@ -32,6 +32,7 @@ import net.akehurst.kotlin.components.layout.graph.EdgeContentPosition
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeSymbol
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeText
+import net.akehurst.kotlin.components.layout.graph.PaddingHint
 
 object DemoScenarios {
 
@@ -121,7 +122,7 @@ object DemoScenarios {
         id = "single_container_two_nodes_withPadding",
         title = "Single container two nodes with padding",
         nodes = listOf(
-            DemoNode("Container1", content = { children -> SimpleBoxContainer("Container1", 20.dp,children) }),
+            DemoNode("Container1", paddingHint= PaddingHint(20.0,20.0,20.0,20.0), content = { children -> SimpleBoxContainer("Container1", 20.dp,children) }),
             DemoNode("InsideA", containerId = "Container1", content = { SimpleBox("InsideA") }),
             DemoNode("InsideB", containerId = "Container1", content = { SimpleBox("InsideB") }),
             DemoNode("Outside", content = { SimpleBox("Outside") }),
@@ -136,8 +137,8 @@ object DemoScenarios {
         id = "sibling_containers_cross_edges",
         title = "Sibling containers cross edges",
         nodes = listOf(
-            DemoNode("ContainerL", content = { children -> SimpleBoxContainer("ContainerL", 0.dp,children) }),
-            DemoNode("ContainerR", content = { children -> SimpleBoxContainer("ContainerR", 0.dp,children) }),
+            DemoNode("ContainerL", content = { children -> SimpleBoxContainer("ContainerL", 5.dp,children) }),
+            DemoNode("ContainerR", content = { children -> SimpleBoxContainer("ContainerR", 5.dp,children) }),
             DemoNode("L1", containerId = "ContainerL", content = { SimpleBox("L1") }),
             DemoNode("L2", containerId = "ContainerL", content = { SimpleBox("L2") }),
             DemoNode("R1", containerId = "ContainerR", content = { SimpleBox("R1") }),
@@ -154,16 +155,16 @@ object DemoScenarios {
         id = "deep_nesting",
         title = "Deep nesting",
         nodes = listOf(
-            DemoNode("RootContainer", content = { children -> SimpleBoxContainer("RootContainer", 0.dp,children) }),
-            DemoNode("Level1", containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", 0.dp,children) }),
-            DemoNode("Level2", containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", 0.dp,children) }),
+            DemoNode("RootContainer", content = { children -> SimpleBoxContainer("RootContainer", 5.dp,children) }),
+            DemoNode("Level1", containerId = "RootContainer", content = { children -> SimpleBoxContainer("Level1", 5.dp,children) }),
+            DemoNode("Level2", containerId = "Level1", content = { children -> SimpleBoxContainer("Level2", 5.dp,children) }),
             DemoNode("LeafA", containerId = "Level2", content = { SimpleBox("LeafA") }),
             DemoNode("LeafB", containerId = "Level2", content = { SimpleBox("LeafB") }),
-            DemoNode("External", containerId = "Level1", content = { SimpleBox("External") }),
+            DemoNode("In Level1", containerId = "Level1", content = { SimpleBox("In Level1") }),
         ),
         edges = listOf(
             DemoEdge("e_deep_1", "LeafA", "LeafB"),
-            DemoEdge("e_deep_2", "LeafB", "External")
+            DemoEdge("e_deep_2", "LeafB", "In Level1")
         )
     )
 
@@ -188,7 +189,7 @@ object DemoScenarios {
         id = "mixed_collapsed_expanded_siblings",
         title = "Mixed collapsed/expanded siblings",
         nodes = listOf(
-            DemoNode("CollapsedSib", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", 0.dp,children) }),
+            DemoNode("CollapsedSib", defaultCollapsed = true, content = { children -> SimpleBoxContainer("CollapsedSib", 5.dp,children) }),
             DemoNode("C1", containerId = "CollapsedSib", content = { SimpleBox("C1") }),
             DemoNode("C2", containerId = "CollapsedSib", content = { SimpleBox("C2") }),
             DemoNode("ExpandedSib", content = { children -> SimpleBoxContainer("ExpandedSib", 0.dp,children) }),
@@ -440,7 +441,6 @@ object DemoScenarios {
     fun Package(name: String, children: @Composable () -> Unit) = Column(
         modifier = Modifier
             .fillMaxSize()//.containerNodeFrame(30.dp)
-            .padding(umlPadding)
     ) {
         Box(
             modifier = Modifier
@@ -458,6 +458,7 @@ object DemoScenarios {
                 .fillMaxSize()
                 .background(umlFill)
                 .border(1.5.dp, umlStroke)
+                .padding(umlPadding)
         ) {
             children()
         }
@@ -523,7 +524,7 @@ object DemoScenarios {
             .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(umlFill, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
             .border(1.5.dp, umlStroke, RoundedCornerShape(compoundStateCornerRadiusDp.dp))
-            .padding(umlPadding)
+
     ) {
         Text(
             text = name,
@@ -542,6 +543,7 @@ object DemoScenarios {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(umlPadding)
                 .padding(bottom = compoundStateCornerRadiusDp.dp)
         ) {
             children()
@@ -668,7 +670,10 @@ object DemoScenarios {
                     .border(1.dp, umlStroke)
             )
         }
-        Box {
+        Box(
+            modifier = Modifier
+                .padding(umlPadding)
+        ) {
             children()
         }
     }
@@ -705,7 +710,7 @@ object DemoScenarios {
         modifier = Modifier
             .fillMaxSize()//.containerNodeFrame(30.dp)
             .background(umlFill)
-            .padding(umlPadding)
+
     ) {
         // Label on top
         Text(
@@ -721,6 +726,7 @@ object DemoScenarios {
             modifier = Modifier
                 .fillMaxSize()
                 .align(Alignment.CenterHorizontally)
+                .padding(umlPadding)
         ) {
             children()
         }

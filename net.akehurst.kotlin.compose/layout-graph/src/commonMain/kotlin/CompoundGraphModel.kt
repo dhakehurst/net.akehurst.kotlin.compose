@@ -1,9 +1,10 @@
 package net.akehurst.kotlin.components.layout.graph
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -115,11 +116,19 @@ enum class ChildLayout {
     TESSELLATE
 }
 
+data class PaddingHint(
+    val top: Double = 0.0,
+    val right: Double = 0.0,
+    val bottom: Double = 0.0,
+    val left: Double = 0.0,
+)
+
 data class GraphLayoutCompoundNode(
     val id: String,
     val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
     val heightHint: Double? = null,
+    val containerPaddingHint: PaddingHint? = null,
     val metadata: Map<String, String> = emptyMap()
 )
 

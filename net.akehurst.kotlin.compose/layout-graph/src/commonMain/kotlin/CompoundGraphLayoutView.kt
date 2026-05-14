@@ -348,10 +348,9 @@ private fun drawEdgeSymbol(
 
 /**
  * This function is a custom compose-layout for the childnodes.
- * A child node should have a min size of the maximum  of:
- *   - as computed by layout algorithm
- *   - childs own constraints min
+ * children size should be constrained to the max of the layed out or measures size
  *
+ * this node size should be big enough for measured size/position of all children
  */
 private fun composeLayout(
     nodeId:String,
@@ -359,13 +358,13 @@ private fun composeLayout(
     contentOriginX: Double,
     contentOriginY: Double
 ): MeasurePolicy = MeasurePolicy { measurables, constraints ->
-    println("composeLayout: $nodeId")
+    // println("composeLayout: $nodeId")
     val placeables = childNodes.mapIndexed { i, childNode ->
         val measurable = measurables[i]
         val contentWidth = measurable.maxIntrinsicWidth(constraints.maxWidth)
         val contentHeight = measurable.maxIntrinsicHeight(constraints.maxHeight)
-        println("measure child ${childNode.nodeId}: alg-w=${childNode.width}, alg-h=${childNode.height}")
-        println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
+       // println("measure child ${childNode.nodeId}: alg-w=${childNode.width}, alg-h=${childNode.height}")
+       // println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
         measurable.measure(
             Constraints(
                 minWidth = max(contentWidth,childNode.width.roundToInt()),
@@ -386,9 +385,9 @@ private fun composeLayout(
         constraints.hasBoundedHeight -> max(requiredChildHeight.roundToInt(), constraints.maxHeight)
         else -> requiredChildHeight.roundToInt()
     }
-    println("${nodeId}: constraints = $constraints")
-    println("${nodeId}: requiredChildWidth = $requiredChildWidth, requiredChildHeight = $requiredChildHeight")
-    println("${nodeId}: layoutWidth = $layoutWidth, layoutHeight = $layoutHeight")
+   // println("${nodeId}: constraints = $constraints")
+   // println("${nodeId}: requiredChildWidth = $requiredChildWidth, requiredChildHeight = $requiredChildHeight")
+   // println("${nodeId}: layoutWidth = $layoutWidth, layoutHeight = $layoutHeight")
 
     layout(layoutWidth, layoutHeight) {
         childNodes.forEachIndexed { i, childNode ->

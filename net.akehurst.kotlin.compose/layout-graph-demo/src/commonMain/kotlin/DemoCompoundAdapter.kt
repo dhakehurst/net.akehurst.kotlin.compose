@@ -36,7 +36,8 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         owner.nodes[node.id] = GraphLayoutCompoundNode(
             id = node.id,
             widthHint = node.widthHint?.toDouble(),
-            heightHint = node.heightHint?.toDouble()
+            heightHint = node.heightHint?.toDouble(),
+            containerPaddingHint = node.paddingHint
         )
         ownerGraphByNodeId[node.id] = ownerGraphId
     }

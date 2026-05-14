@@ -3,6 +3,7 @@ package net.akehurst.kotlin.components.layout.graph.demo
 import androidx.compose.runtime.Composable
 import net.akehurst.kotlin.components.layout.graph.ChildLayout
 import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
+import net.akehurst.kotlin.components.layout.graph.PaddingHint
 
 /**
  * Deterministic IDs are required so visual comparisons stay stable between runs.
@@ -20,6 +21,7 @@ data class DemoNode(
     val widthHint: Float? = null,
     /** Optional first-pass height hint passed to the layout engine. When null the engine uses its default. */
     val heightHint: Float? = null,
+    val paddingHint: PaddingHint? = null,
     val containerId: String? = null,
     /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
