@@ -41,6 +41,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.absoluteValue
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.layout.Placeable
 import kotlin.math.min
 
 // ── Error indicator defaults ────────────────────────────────────────────────
@@ -359,8 +360,6 @@ private fun composeLayout(
     contentOriginY: Double
 ): MeasurePolicy = MeasurePolicy { measurables, constraints ->
     println("composeLayout: $nodeId")
-    val requiredChildWidth = requiredChildHostWidth(childNodes, contentOriginX)
-    val requiredChildHeight = requiredChildHostHeight(childNodes, contentOriginY)
     val placeables = childNodes.mapIndexed { i, childNode ->
         val measurable = measurables[i]
         val contentWidth = measurable.maxIntrinsicWidth(constraints.maxWidth)
@@ -369,21 +368,24 @@ private fun composeLayout(
         println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
         measurable.measure(
             Constraints(
-                minWidth = min(contentWidth,childNode.width.roundToInt()),
+                minWidth = max(contentWidth,childNode.width.roundToInt()),
                 maxWidth = max(contentWidth,childNode.width.roundToInt()),
-                minHeight = min(contentHeight,childNode.height.roundToInt()),
+                minHeight = max(contentHeight,childNode.height.roundToInt()),
                 maxHeight = max(contentHeight,childNode.height.roundToInt()),
             )
         )
     }
+    val requiredChildWidth = requiredChildHostWidth(placeables, childNodes, contentOriginX)
+    val requiredChildHeight = requiredChildHostHeight(placeables,childNodes, contentOriginY)
 
-
-    val layoutWidth = requiredChildWidth.roundToInt()
-        .coerceAtLeast(constraints.minWidth)
-        .coerceAtMost(constraints.maxWidth)
-    val layoutHeight = requiredChildHeight.roundToInt()
-        .coerceAtLeast(constraints.minHeight)
-        .coerceAtMost(constraints.maxHeight)
+    val layoutWidth = when {
+        constraints.hasBoundedWidth -> max(requiredChildWidth.roundToInt(), constraints.maxWidth)
+         else -> requiredChildWidth.roundToInt()
+    }
+    val layoutHeight = when {
+        constraints.hasBoundedHeight -> max(requiredChildHeight.roundToInt(), constraints.maxHeight)
+        else -> requiredChildHeight.roundToInt()
+    }
     println("${nodeId}: constraints = $constraints")
     println("${nodeId}: requiredChildWidth = $requiredChildWidth, requiredChildHeight = $requiredChildHeight")
     println("${nodeId}: layoutWidth = $layoutWidth, layoutHeight = $layoutHeight")
@@ -542,18 +544,20 @@ internal fun resolveContainerChildHostMetrics(
 }
 
 internal fun requiredChildHostWidth(
+    placeables:List<Placeable>,
     childNodes: List<CompoundNodeLayout>,
     contentOriginX: Double
-): Double = childNodes.maxOfOrNull { childNode ->
-    max(0.0, childNode.globalX - contentOriginX) + childNode.width
-} ?: 0.0
+): Double = childNodes.mapIndexed { index, childNode ->
+    max(0.0, childNode.globalX - contentOriginX) + placeables[index].width.toDouble()
+}.maxOrNull() ?: 0.0
 
 internal fun requiredChildHostHeight(
+    placeables:List<Placeable>,
     childNodes: List<CompoundNodeLayout>,
     contentOriginY: Double
-): Double = childNodes.maxOfOrNull { childNode ->
-    max(0.0, childNode.globalY - contentOriginY) + childNode.height
-} ?: 0.0
+): Double = childNodes.mapIndexed { index, childNode ->
+    max(0.0, childNode.globalY - contentOriginY) + placeables[index].height.toDouble()
+}.maxOrNull() ?: 0.0
 
 /**
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].
