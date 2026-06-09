@@ -48,8 +48,7 @@ object DemoScenarios {
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFF222222),
                 modifier = Modifier
-                    .background(Color.White.copy(alpha = 0.92f))
-                    .border(1.dp, Color(0x55444444))
+                    .background(Color.White.copy(alpha = 0.6f))
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             )
         }
