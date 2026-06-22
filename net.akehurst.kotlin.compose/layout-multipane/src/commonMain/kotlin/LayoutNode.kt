@@ -12,7 +12,7 @@ import net.akehurst.kotlinx.utils.UniqueIdentityGenerator
  * @param content The Composable content to display inside the pane.
  */
 class Pane(
-    val id: String = UniqueIdentityGenerator.generate("pane"),
+    val id: String = UniqueIdentityGenerator.GLOBAL.generate("pane"),
     val title: String,
     val update: () -> Unit = {},
     val content: @Composable () -> Unit
@@ -78,7 +78,7 @@ sealed class LayoutNode {
      * @param weights The proportional sizes of the children. Must match the size of `children`.
      */
     data class Split(
-        override val id: String = UniqueIdentityGenerator.generate("split"),
+        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("split"),
         val orientation: SplitOrientation,
         val children: List<LayoutNode>,
         val weights: List<Float>
@@ -216,7 +216,7 @@ sealed class LayoutNode {
     }
 
     data class Tabbed(
-        override val id: String = UniqueIdentityGenerator.generate("tabbed"),
+        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("tabbed"),
         val children: List<Pane>,
         val selectedTabIndex: Int = 0
     ) : LayoutNode() {

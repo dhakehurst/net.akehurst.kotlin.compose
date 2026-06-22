@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// do not publish
+tasks.withType<AbstractPublishToMaven> { onlyIf { false } }
+
 kotlin {
     sourceSets {
         commonMain {

@@ -16,7 +16,7 @@ class test_TableView {
     @Test
     fun main() {
         singleWindowApplication(
-            title = "Demo MultiPaneLayout",
+            title = "Demo TableView",
         ) {
             val state = remember { TableState() }
             TableView(

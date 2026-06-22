@@ -32,8 +32,8 @@ class test_CompoundGraphLayoutViewMetrics {
             )
         )
 
-        assertEquals(100.0, requiredChildHostWidth(childNodes, contentOriginX = 24.0))
-        assertEquals(212.0, requiredChildHostHeight(childNodes, contentOriginY = 40.0))
+        assertEquals(100.0, requiredChildHostWidth(emptyList(),childNodes=childNodes, contentOriginX = 24.0))
+        assertEquals(212.0, requiredChildHostHeight(emptyList(),childNodes=childNodes, contentOriginY = 40.0))
     }
 
     @Test
@@ -119,7 +119,7 @@ class test_CompoundGraphLayoutViewMetrics {
         assertEquals(10.0, metrics.insetRight)
         assertEquals(10.0, metrics.insetBottom)
 
-        val requiredContainerWidth = requiredChildHostWidth(childNodes, contentOriginX = 24.0) + metrics.originX + metrics.insetRight
+        val requiredContainerWidth = requiredChildHostWidth(emptyList(),childNodes, contentOriginX = 24.0) + metrics.originX + metrics.insetRight
         assertEquals(160.0, requiredContainerWidth)
     }
 }
