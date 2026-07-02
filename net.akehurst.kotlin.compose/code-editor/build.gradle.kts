@@ -9,11 +9,11 @@ kotlin {
         commonMain {
             dependencies {
                 api(project(":code-editor-api"))
-                implementation(project(":components")) //for mutableStateFlowHolder
-                implementation(compose.ui)
-                implementation(compose.foundation)
-                implementation(compose.material3)
-                implementation(libs.material.icons.core)
+                api(project(":components")) //for mutableStateFlowHolder
+                api(libs.compose.ui)
+                api(libs.compose.foundation)
+                api(libs.compose.material3)
+                api(libs.material.icons.core)
             }
         }
         jvmMain {

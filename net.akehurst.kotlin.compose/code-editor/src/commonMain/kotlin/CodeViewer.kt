@@ -229,14 +229,7 @@ fun CodeViewerView(
         BasicCodeViewer(
             state = state,
             outputTransformation = {
-                ComposeEditorUtils.annotateTextFieldBuffer(
-                    this,
-                    state.viewFirstLine,
-                    state.viewLastLine,
-                    state.lineTokens,
-                    state.textMarkersVisible,
-                    { editorState.lastAnnotatedText = it }
-                )
+                ComposeEditorUtils.annotateTextFieldBuffer(this, state, null,{ editorState.lastAnnotatedText = it })
             },
             textStyle = textStyle,
             onTextLayout = { r ->

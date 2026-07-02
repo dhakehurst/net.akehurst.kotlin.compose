@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -893,14 +894,22 @@ private fun LayoutNodeRenderer(
             ) {
                 if (node.children.isNotEmpty()) {
                     val selectedTabIndex = node.selectedTabIndex.coerceIn(0, node.children.size - 1)
-                    ScrollableTabRow(
+                    SecondaryScrollableTabRow(
                         edgePadding = 0.dp,
                         selectedTabIndex = selectedTabIndex,
-                        indicator = @Composable { tabPositions ->
+                        indicator = {
                             TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex.coerceIn(0,tabPositions.size-1)])
+                                modifier = Modifier.tabIndicatorOffset(
+                                    selectedTabIndex = selectedTabIndex,
+                                    matchContentSize = false // Set to true if you want the indicator to match text width instead of tab width
+                                )
                             )
                         },
+//                        indicator = @Composable { tabPositions ->
+//                            TabRowDefaults.SecondaryIndicator(
+//                                Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex.coerceIn(0,tabPositions.size-1)])
+//                            )
+//                        },
                         modifier = Modifier
                             //.border(width = Dp.Hairline, color = Color.Red)
                             .height(30.dp)
@@ -917,7 +926,7 @@ private fun LayoutNodeRenderer(
                                     content = {
                                         Row {
                                             TooltipBox(
-                                                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
                                                 tooltip = {
                                                     PlainTooltip { Text(pane.id) }
                                                 },

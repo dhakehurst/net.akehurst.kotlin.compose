@@ -31,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.singleWindowApplication
 import net.akehurst.kotlin.compose.editor.CodeEditorView
 import net.akehurst.kotlin.compose.editor.CodeEditorStateHolder
+import net.akehurst.kotlin.compose.editor.GhostTextState
 import net.akehurst.kotlin.compose.editor.api.*
+import net.akehurst.kotlin.compose.editor.api.simple.EditorSegmentStyleSimple
 import kotlin.test.Test
 
 data class AcItem(
@@ -124,7 +126,22 @@ class test_CodeEditor {
                     error
                 """.trimIndent()
         val editorState = CodeEditorStateHolder(initialText)
+        var ghostAccepted = false
         editorState.requestAutocompleteSuggestions = { request, result -> requestAutocompleteSuggestions(request, result) }
+        editorState.onGhostTextAccepted = { ghostAccepted = true }
+        editorState.ghostText = { txt, cus ->
+            if (ghostAccepted) {
+                null
+            } else {
+                GhostTextState(
+                    "Ghost Text",
+                    ghostTokens = mapOf(0 to listOf(EditorSegmentStyleSimple(0, 10, SpanStyle(color = Color.Gray)))),
+                    ghostPosition = cus,
+                    isGhostVisible = true,
+                    replaceWholeText = true
+                )
+            }
+        }
         val info = Regex("info")
         val err = Regex("error")
         //val wavyStyle = PlatformSpanStyle(textDecorationLineStyle = TextDecorationLineStyle.Wavy)

@@ -26,7 +26,9 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.insert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
@@ -53,6 +56,7 @@ import me.saket.extendedspans.ExtendedSpans
 import me.saket.extendedspans.drawBehind
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 import net.akehurst.kotlin.compose.editor.api.*
+import net.akehurst.kotlin.compose.viewer.CodeViewerState
 import kotlin.comparisons.minOf
 import kotlin.math.roundToInt
 import kotlin.ranges.coerceIn
@@ -88,23 +92,18 @@ data class CursorDetails(
     }
 }
 
+data class GhostTextState(
+    val ghostText: String?,
+    val ghostTokens: Map<Int, List<EditorSegmentStyle>>,
+    val ghostPosition: Int,
+    val isGhostVisible: Boolean,
+    val replaceWholeText: Boolean
+)
+
 data class CodeEditorState(
-    val inputTextFieldState: State<TextFieldState>,
-    val extendedSpans: ExtendedSpans,
-    val inputScrollState: ScrollState,
-//    val annotatedText: AnnotatedString,
+    val viewerState: CodeViewerState,
+    val ghostTextState: GhostTextState?,
     val giveFocus: Boolean,
-    val lastTextLayoutResult: TextLayoutResult?,
-    val viewFirstLine: Int,
-    val viewLastLine: Int,
-    val lineScrollOffset:Float,
-    val lineTokens: Map<Int, List<EditorSegmentStyle>>,
-//    val viewFirstLineStartTextPosition: Int,
-//    val viewLastLineFinishTextPosition: Int,
-//    val cursorDetails: CursorDetails,
-//    val marginItemsVisible: List<MarginItem>,
-//    val marginItemHovered: List<MarginItem>,
-    val textMarkersVisible: List<TextMarkerDefault>,
 )
 
 class CodeEditorStateHolder(
@@ -132,6 +131,7 @@ class CodeEditorStateHolder(
         }
 
     }
+
     private val INDENT = "    " // 4 spaces TODO: make this configurable
 
     private val MARGIN_WIDTH = 20.dp
@@ -205,24 +205,31 @@ class CodeEditorStateHolder(
     // val underlineAnimator = rememberSquigglyUnderlineAnimator()
     private val _extendedSpans = ExtendedSpans(ComposeEditorUtils.STRAIGHT, ComposeEditorUtils.SQUIGGLY)
 
+
     @Composable
     fun collectAsState(): CodeEditorState {
+        val currentTextFieldState = this._inputTextFieldState.collectAsState().value
+        val currentText = currentTextFieldState.text.toString()
+        val currentCursor = currentTextFieldState.selection.max
         return CodeEditorState(
-            inputTextFieldState = this._inputTextFieldState.collectAsState(),
-            extendedSpans = this._extendedSpans,
-            inputScrollState = this._inputScrollState,
+            viewerState = CodeViewerState(
+                inputTextFieldState = this._inputTextFieldState.collectAsState(),
+                extendedSpans = this._extendedSpans,
+                inputScrollState = this._inputScrollState,
+                lastTextLayoutResult = this._lastTextLayoutResult,
+                viewFirstLine = this._viewFirstLine,
+                viewLastLine = this._viewLastLine,
+                lineScrollOffset = _lineScrollOffset,
+                lineTokens = lineStyles,
+                textMarkersVisible = _textMarkersVisible,
+            ),
             giveFocus = this._giveFocus,
-            lastTextLayoutResult = this._lastTextLayoutResult,
-            viewFirstLine = this._viewFirstLine,
-            viewLastLine = this._viewLastLine,
-            lineScrollOffset = _lineScrollOffset,
-            lineTokens = lineStyles,
-            textMarkersVisible = _textMarkersVisible
+            ghostTextState = ghostText.invoke(currentText, currentCursor),
         )
     }
 
     @Composable
-    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine:Int, lineScrollOffset:Float, textLayoutResult: TextLayoutResult?): MarginItemListState {
+    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemListState {
         val visibleItems = _marginItemsStateHolder.stateFlow.collectAsState()
         return MarginItemListState(
             marginWidth = MARGIN_WIDTH,
@@ -235,13 +242,52 @@ class CodeEditorStateHolder(
         )
     }
 
+    var onGhostTextAccepted: ((GhostTextState) -> Unit)? = null
+
+    fun acceptGhostText(ghostState: GhostTextState) {
+        val txt = ghostState.ghostText ?: return
+        _inputTextFieldState.value.edit {
+            if (ghostState.replaceWholeText) {
+                // Overwrite the entire file content
+                replace(0, length, txt)
+            } else {
+                // Insert standard context inline right at the target offset
+                replace(ghostState.ghostPosition, ghostState.ghostPosition, txt)
+            }
+        }
+        onGhostTextAccepted?.invoke(ghostState)
+    }
+
     fun handlePreviewKeyEvent(ev: KeyEvent): Boolean {
-        //println("$ev ${ev.key} ${ev.key.keyCode}")
+        val tfs = _inputTextFieldState.value
+        val currentText = tfs.text.toString()
+        val currentCursor = tfs.selection.max
+
+        val currentGhostState = ghostText.invoke(currentText, currentCursor)
+        val isGhostActive = currentGhostState != null &&
+                currentGhostState.isGhostVisible &&
+                !currentGhostState.ghostText.isNullOrEmpty()
+
         var handled = true
         when (ev.type) {
             KeyEventType.KeyDown -> when {
                 this._findReplaceState.isVisible && ev.isEscape -> _findReplaceState.close()
                 this._autocompleteState.isVisible -> this._autocompleteState.handlePreviewKeyEvent(ev)
+
+                // --- NEW: Intercept Tab to ACCEPT completion ---
+                isGhostActive && ev.isCtrlEnter -> {
+                    acceptGhostText(currentGhostState!!)
+                    handled = true
+                }
+
+                // Intercept Right Arrow to skip affinity bounds
+                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState!!.replaceWholeText && currentCursor == currentGhostState.ghostPosition -> {
+                    if (currentCursor < tfs.text.length) {
+                        tfs.edit { this.selection = androidx.compose.ui.text.TextRange(currentCursor + 1) }
+                    }
+                    handled = true
+                }
+
                 ev.isShiftTab -> indentOrOutdentSelection(outdent = true)
                 ev.isTab -> indentOrOutdentSelection(outdent = false)
                 else -> when {
@@ -251,13 +297,14 @@ class CodeEditorStateHolder(
                         ev.isCtrlR -> _findReplaceState.open(showReplace = true)
                         else -> handled = false
                     }
-
                     else -> handled = false
                 }
             }
 
-            // KeyUp | KeyPressed
+            // KeyUp / KeyPressed
             else -> when {
+                isGhostActive && ev.isCtrlEnter -> handled = true // Swallow release event
+                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState!!.replaceWholeText && currentCursor == currentGhostState?.ghostPosition -> handled = true
                 ev.isCtrlSpace -> handled = true
                 ev.isCtrlF || ev.isCtrlR -> handled = true
                 ev.isEscape && _findReplaceState.isVisible -> handled = true
@@ -370,7 +417,7 @@ class CodeEditorStateHolder(
         val st = _inputScrollState.value.toFloat()
         val len = _inputScrollState.viewportSize
         _viewFirstLine = textLayoutResult.getLineForVerticalPosition(st)
-        _viewLastLine = textLayoutResult.getLineForVerticalPosition(st + len-1)
+        _viewLastLine = textLayoutResult.getLineForVerticalPosition(st + len - 1)
         _viewFirstLineStartTextPosition = textLayoutResult.getLineStart(_viewFirstLine)
         _viewLastLineFinishTextPosition = textLayoutResult.getLineEnd(_viewLastLine)
         val topOfFirstLine = textLayoutResult.getLineTop(_viewFirstLine)
@@ -405,6 +452,39 @@ class CodeEditorStateHolder(
         _lineStyles[lineNumber] = styles
     }
 
+    fun performOutputTransformation(buffer: TextFieldBuffer, state: CodeEditorState) {
+        val ghostState = state.ghostTextState
+        val shouldShowGhost = ghostState != null && ghostState.isGhostVisible && !ghostState.ghostText.isNullOrEmpty()
+
+        if (shouldShowGhost) {
+            val textToInject = ghostState!!.ghostText!!
+
+            if (ghostState.replaceWholeText) {
+                // 1. DO NOT erase. Append the replacement text to the very end of the buffer
+                val appendPosition = buffer.length
+                buffer.insert(appendPosition, "\n$textToInject")
+            } else {
+                // Standard inline ghost text injection
+                buffer.insert(ghostState.ghostPosition, textToInject)
+            }
+
+            // 2. Pass to the styling engine
+            ComposeEditorUtils.annotateTextFieldBuffer(
+                buffer = buffer,
+                viewerState = state.viewerState,
+                ghostState = ghostState,
+                annotatedTextChange = { /* Keep empty during ghost previews */ }
+            )
+        } else {
+            // Baseline styling pass
+            ComposeEditorUtils.annotateTextFieldBuffer(
+                buffer = buffer,
+                viewerState = state.viewerState,
+                ghostState = null,
+                annotatedTextChange = { this.lastAnnotatedText = it }
+            )
+        }
+    }
     // --- ComposeCodeEditor ---
 
     override var rawText: String
@@ -437,6 +517,9 @@ class CodeEditorStateHolder(
         set(value) {
             _autocompleteState.requestAutocompleteSuggestions = value
         }
+
+    var ghostText: (text: String, cursorPosition: Int) -> GhostTextState? = { _, _ -> null }
+
 
     override fun focus() {
         this._giveFocus = true
@@ -474,31 +557,38 @@ fun CodeEditorView(
 ) {
     val state: CodeEditorState = editorState.collectAsState()
     editorState._composableScope = rememberCoroutineScope()
+
+    // Asynchronously update lastAnnotatedText outside the layout pass ---
+    LaunchedEffect(
+        state.viewerState.inputTextFieldState.value.text,
+        state.viewerState.lineTokens,
+        state.viewerState.textMarkersVisible
+    ) {
+        val cleanText = state.viewerState.inputTextFieldState.value.text.toString()
+        val cleanAnnotatedString = ComposeEditorUtils.annotateText(
+            rawText = cleanText,
+            viewFirstLine = state.viewerState.viewFirstLine,
+            viewLastLine = state.viewerState.viewLastLine,
+            lineTokens = state.viewerState.lineTokens,
+            markers = state.viewerState.textMarkersVisible
+        )
+        editorState.lastAnnotatedText = cleanAnnotatedString
+    }
+
     val marginItemsState = editorState.collectVisibleMarginItemsAsState(
-        state.viewFirstLine,
-        state.viewLastLine,
-        state.lineScrollOffset,
-        state.lastTextLayoutResult
+        state.viewerState.viewFirstLine,
+        state.viewerState.viewLastLine,
+        state.viewerState.lineScrollOffset,
+        state.viewerState.lastTextLayoutResult
     )
 
-    Row(
-        modifier = modifier
-    ) {
+    Row(modifier = modifier) {
         annotationMargin(marginItemsState, marginItemHoverModifier)
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             textEditor(
                 state = state,
                 textStyle = textStyle,
-                outputTransformation = {
-                    ComposeEditorUtils.annotateTextFieldBuffer(
-                        this,
-                        state.viewFirstLine,
-                        state.viewLastLine,
-                        state.lineTokens,
-                        state.textMarkersVisible,
-                        { editorState.lastAnnotatedText = it}
-                    )
-                },
+                outputTransformation = { editorState.performOutputTransformation(this, state) },
                 onTextLayout = { r ->
                     r.invoke()?.let { editorState.onInputTextLayout(it) }
                 },
@@ -541,7 +631,7 @@ fun annotationMargin(state: MarginItemListState, marginItemHoverModifier: Modifi
                 contentDescription = item.item.text,
                 tint = item.item.color,
                 modifier = Modifier.width(state.marginWidth)
-                    .offset(y = with(LocalDensity.current) {item.offsetFromTopOfViewport.toDp()})
+                    .offset(y = with(LocalDensity.current) { item.offsetFromTopOfViewport.toDp() })
                     .hoverable(interactionSource)
             )
             val isHovered = interactionSource.collectIsHoveredAsState().value
@@ -550,7 +640,7 @@ fun annotationMargin(state: MarginItemListState, marginItemHoverModifier: Modifi
                     text = item.item.text,
                     modifier = marginItemHoverModifier
                         .offset(
-                            y = with(LocalDensity.current) {item.detailOffsetFromTopOfViewport.toDp()},
+                            y = with(LocalDensity.current) { item.detailOffsetFromTopOfViewport.toDp() },
                             x = state.marginWidth / 2
                         )
                         .background(color = MaterialTheme.colorScheme.surfaceVariant)
@@ -586,26 +676,26 @@ fun textEditor(
         BasicTextField(
             cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
             textStyle = textStyle,
-            state = state.inputTextFieldState.value,
+            state = state.viewerState.inputTextFieldState.value,
             modifier = Modifier
                 .fillMaxSize()
                 .onPreviewKeyEvent { ev -> handlePreviewKeyEvent(ev) }
                 .onKeyEvent { ev -> handleKeyEvent(ev) }
                 .focusRequester(focusRequester)
-                .drawBehind(state.extendedSpans, state.inputScrollState.value.toFloat()),
+                .drawBehind(state.viewerState.extendedSpans, state.viewerState.inputScrollState.value.toFloat()),
             onTextLayout = onTextLayout,
-            scrollState = state.inputScrollState,
+            scrollState = state.viewerState.inputScrollState,
             interactionSource = interactionSource,
             outputTransformation = outputTransformation,
         )
 
         // to invoke the 'onTextChange' callback when text changes
-        LaunchedEffect(state.inputTextFieldState.value.text) {
-            snapshotFlow { state.inputTextFieldState.value.text }.collect { scope.launch { onTextChange(it) } }
+        LaunchedEffect(state.viewerState.inputTextFieldState.value.text) {
+            snapshotFlow { state.viewerState.inputTextFieldState.value.text }.collect { scope.launch { onTextChange(it) } }
         }
 
-        LaunchedEffect(state.inputScrollState.value) {
-            snapshotFlow { state.inputScrollState }.collect { onInputScroll(it) }
+        LaunchedEffect(state.viewerState.inputScrollState.value) {
+            snapshotFlow { state.viewerState.inputScrollState }.collect { onInputScroll(it) }
         }
 
         val isFocused by interactionSource.collectIsFocusedAsState()

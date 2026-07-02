@@ -1,24 +1,31 @@
 [versions]
-project = "2.2.21"
+project = "2.3.21-SNAPSHOT"
 
-kotlin = "2.2.21"
+kotlin = "2.3.21"
 dokka = "2.1.0"
-buildconfig = "5.7.1"
-vanniktech = "0.34.0"
+buildconfig = "6.0.10"
+vanniktech = "0.37.0"
 
-compose = "1.9.3"
+compose = "1.11.1"
+compose-material3 = "1.11.0-alpha07"
 material-icons = "1.7.3"
 
-nak-kotlinx = "2.2.21"
-kotlinx-coroutines = "1.10.2"
+nak-kotlinx = "2.3.21-SNAPSHOT"
+kotlinx-coroutines = "1.11.0"
 
 [libraries]
+#TODO compose-material-symbols
 material-icons-core = { module="org.jetbrains.compose.material:material-icons-core", version.ref="material-icons"}
 material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "material-icons" }
 nak-kotlinx-collections = { module = "net.akehurst.kotlinx:kotlinx-collections", version.ref = "nak-kotlinx" }
 nak-kotlinx-utils = { module = "net.akehurst.kotlinx:kotlinx-utils", version.ref = "nak-kotlinx" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
 
 [plugins]
 kotlin = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

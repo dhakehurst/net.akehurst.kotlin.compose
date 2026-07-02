@@ -14,22 +14,13 @@
  * limitations under the License.
  */
 
-// suppress these so we can access TextFieldScrollerPosition
-@file:Suppress("UNUSED", "INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
-
 package net.akehurst.kotlin.compose.editor
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.tokens.ListTokens
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-
-//import androidx.compose.ui.unit.dp
 
 @Composable
 fun MyDropdownMenuItem(
@@ -68,66 +59,15 @@ fun MyDropdownMenuItemContent(
     contentPadding: PaddingValues,
     interactionSource: MutableInteractionSource?
 ) {
-    Row(
-        modifier =
-            modifier
-                .clickable(
-                    enabled = enabled,
-                    onClick = onClick,
-                    interactionSource = interactionSource,
-                    indication = ripple(true)
-                )
-                .fillMaxWidth()
-                // Preferred min and max width used during the intrinsic measurement.
-//                .sizeIn(
-//                    minWidth = DropdownMenuItemDefaultMinWidth,
-//                    maxWidth = DropdownMenuItemDefaultMaxWidth,
-//                    minHeight = MenuListItemContainerHeight
-//                )
-                .padding(contentPadding),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // TODO(b/271818892): Align menu list item style with general list item style.
-        ProvideTextStyle(MaterialTheme.typography.labelLarge) {
-            if (leadingIcon != null) {
-                CompositionLocalProvider(
-                    LocalContentColor provides colors.leadingIconColor(enabled),
-                ) {
-                    Box(Modifier.defaultMinSize(minWidth = ListTokens.ListItemLeadingIconSize)) {
-                        leadingIcon()
-                    }
-                }
-            }
-            CompositionLocalProvider(LocalContentColor provides colors.textColor(enabled)) {
-                Box(
-                    Modifier.weight(1f)
-//                        .padding(
-//                            start =
-//                                if (leadingIcon != null) {
-//                                    DropdownMenuItemHorizontalPadding
-//                                } else {
-//                                    0.dp
-//                                },
-//                            end =
-//                                if (trailingIcon != null) {
-//                                    DropdownMenuItemHorizontalPadding
-//                                } else {
-//                                    0.dp
-//                                }
-//                        )
-                ) {
-                    text()
-                }
-            }
-            if (trailingIcon != null) {
-                CompositionLocalProvider(
-                    LocalContentColor provides colors.trailingIconColor(enabled)
-                ) {
-                    Box(Modifier.defaultMinSize(minWidth = ListTokens.ListItemTrailingIconSize)) {
-                        trailingIcon()
-                    }
-                }
-            }
-        }
-    }
+    DropdownMenuItem(
+        text = text,
+        onClick = onClick,
+        modifier = modifier,
+        leadingIcon = leadingIcon,
+        trailingIcon = trailingIcon,
+        enabled = enabled,
+        colors = colors,
+        contentPadding = contentPadding,
+        interactionSource = interactionSource,
+    )
 }
