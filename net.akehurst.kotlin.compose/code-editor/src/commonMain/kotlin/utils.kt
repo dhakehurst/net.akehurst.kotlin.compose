@@ -15,6 +15,7 @@
  */
 
 @file:Suppress("UNUSED", "INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package net.akehurst.kotlin.compose.editor
 
 import androidx.compose.foundation.text.input.TextFieldBuffer
@@ -25,6 +26,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.sp
 import me.saket.extendedspans.SquigglyUnderlineSpanPainter
+import net.akehurst.kotlin.compose.editor.ComposeEditorUtils.SQUIGGLY
+import net.akehurst.kotlin.compose.editor.ComposeEditorUtils.STRAIGHT
 import net.akehurst.kotlin.compose.editor.api.EditorSegmentStyle
 import net.akehurst.kotlin.compose.editor.api.TextDecorationStyle
 import net.akehurst.kotlin.compose.viewer.CodeViewerState
@@ -100,48 +103,85 @@ object ComposeEditorUtils {
     ) {
         val rawText = buffer.asCharSequence()
         if (rawText.isNotEmpty()) {
-            val isGhostActive = ghostState != null && ghostState.isGhostVisible && !ghostState.ghostText.isNullOrEmpty()
-            val replaceWholeText = isGhostActive && ghostState!!.replaceWholeText
+            val annotatedText = if (ghostState?.show == true) {
+                val replaceWholeText = ghostState.replaceWholeText
+                val ghostTextStr = ghostState.ghostText
 
-            val ghostTextStr = if (isGhostActive) ghostState!!.ghostText else null
+                // Account for the extra newline '\n' we added when appending the block
+                val finalGhostText = if (replaceWholeText) "\n$ghostTextStr" else ghostTextStr
+                val ghostLength = finalGhostText?.length ?: 0
+                val ghostNewLines = finalGhostText?.count { it == '\n' } ?: 0
 
-            // Account for the extra newline '\n' we added when appending the block
-            val finalGhostText = if (replaceWholeText) "\n$ghostTextStr" else ghostTextStr
-            val ghostLength = finalGhostText?.length ?: 0
-            val ghostNewLines = finalGhostText?.count { it == '\n' } ?: 0
+                val originalLength = (rawText.length - ghostLength).coerceAtLeast(0)
 
-            val originalLength = if (isGhostActive) (rawText.length - ghostLength).coerceAtLeast(0) else rawText.length
-
-            // If replacing whole text, the ghost text starts exactly where the old text ends
-            val actualGhostPosition = if (isGhostActive) {
-                if (replaceWholeText) originalLength else ghostState!!.ghostPosition.coerceIn(0, originalLength)
+                // If replacing whole text, the ghost text starts exactly where the old text ends
+                val actualGhostPosition =  if (replaceWholeText) originalLength else ghostState.ghostPosition.coerceIn(0, originalLength)
+                annotateTextWithGhost(
+                    rawText = rawText,
+                    viewFirstLine = viewerState.viewFirstLine,
+                    viewLastLine = viewerState.viewLastLine + ghostNewLines,
+                    lineTokens = viewerState.lineTokens,
+                    markers = viewerState.textMarkersVisible,
+                    ghostPosition = actualGhostPosition,
+                    ghostLength = ghostLength,
+                    ghostText = ghostTextStr, // Pass clean text without the extra layout newline
+                    ghostTokens = ghostState.ghostTokens,
+                    replaceWholeText = replaceWholeText
+                )
             } else {
-                -1
+                annotateText(
+                    rawText = rawText,
+                    viewFirstLine = viewerState.viewFirstLine,
+                    viewLastLine = viewerState.viewLastLine,
+                    lineTokens = viewerState.lineTokens,
+                    markers = viewerState.textMarkersVisible
+                )
             }
 
-            val annotatedText = annotateText(
-                rawText = rawText,
-                viewFirstLine = viewerState.viewFirstLine,
-                viewLastLine = viewerState.viewLastLine + ghostNewLines,
-                lineTokens = viewerState.lineTokens,
-                markers = viewerState.textMarkersVisible,
-                ghostPosition = actualGhostPosition,
-                ghostLength = ghostLength,
-                ghostText = ghostTextStr, // Pass clean text without the extra layout newline
-                ghostTokens = ghostState?.ghostTokens ?: emptyMap(),
-                replaceWholeText = replaceWholeText
-            )
-
-            buffer.setComposition(
-                0,
-                rawText.length,
-                annotatedText.annotations?.map { AnnotatedString.Range(it.item, it.start, it.end) }
-            )
-            annotatedTextChange.invoke(annotatedText)
+            buffer.setComposition(0, rawText.length, annotatedText.annotations?.map { AnnotatedString.Range(it.item, it.start, it.end) })
+            buffer.changeTracker.trackChange(0, rawText.length, annotatedText.length)
+            //annotatedTextChange.invoke(annotatedText)
         }
     }
 
-    fun annotateText(
+    fun annotateText(rawText: CharSequence, viewFirstLine: Int, viewLastLine: Int, lineTokens: Map<Int, List<EditorSegmentStyle>>, markers: List<TextMarkerDefault>): AnnotatedString {
+        return if (rawText.isEmpty()) {
+            AnnotatedString(rawText.toString())
+        } else {
+            // lines from textLayoutResult are possible different to actual ines in text defined by EOL.
+            //  eg if lines are wrapped by the layout, thus have to compute own lineMetrics
+            val lineMetrics = LineMetrics(rawText)
+            buildAnnotatedString {
+                append(rawText)
+                // annotate from tokens
+                for (lineNum in viewFirstLine..viewLastLine) {
+                    val (lineStartPos, lineFinishPos) = lineMetrics.lineEnds(lineNum)
+                    val toks = lineTokens.getOrElse(lineNum) { emptyList() }
+                    for (tk in toks) {
+                        val offsetStart = (lineStartPos + tk.start).coerceIn(lineStartPos, lineFinishPos)
+                        val offsetFinish = (lineStartPos + tk.finish).coerceIn(lineStartPos, lineFinishPos)
+                        addStyle(tk.style, offsetStart, offsetFinish)
+                    }
+                }
+
+                // annotate from markers
+                for (marker in markers) {
+                    // println("Marker at: ${marker.position} length ${marker.length} line $lineNum")
+                    val offsetStart = (marker.position).coerceIn(0, rawText.length)
+                    val offsetFinish = (marker.position + marker.length).coerceIn(0, rawText.length)
+                    //println("Style at: ${offsetStart} .. ${offsetFinish}")
+                    val ss = when (marker.decoration) {
+                        TextDecorationStyle.NONE -> null
+                        TextDecorationStyle.STRAIGHT -> STRAIGHT.decorate(marker.style, offsetStart, offsetFinish, builder = this)
+                        TextDecorationStyle.SQUIGGLY -> SQUIGGLY.decorate(marker.style, offsetStart, offsetFinish, builder = this)
+                    }
+                    ss?.let { addStyle(it, offsetStart, offsetFinish) }
+                }
+            }
+        }
+    }
+
+    fun annotateTextWithGhost(
         rawText: CharSequence,
         viewFirstLine: Int,
         viewLastLine: Int,
@@ -156,7 +196,9 @@ object ComposeEditorUtils {
         return if (rawText.isEmpty()) {
             AnnotatedString("")
         } else {
-            // Recover clean text string limits
+            val rawLineMetrics = LineMetrics(rawText.toString())
+
+            // Recover clean text string limits for reference
             val originalText = if (ghostPosition != -1 && ghostLength > 0 && (ghostPosition + ghostLength) <= rawText.length) {
                 StringBuilder(rawText).deleteRange(ghostPosition, ghostPosition + ghostLength).toString()
             } else {
@@ -170,7 +212,11 @@ object ComposeEditorUtils {
                 // 1. Process base code layers normally
                 for (lineNum in viewFirstLine..viewLastLine) {
                     val (lineStartPos, lineFinishPos) = try {
-                        originalLineMetrics.lineEnds(lineNum)
+                        if (ghostPosition == -1) {
+                            rawLineMetrics.lineEnds(lineNum)
+                        } else {
+                            originalLineMetrics.lineEnds(lineNum)
+                        }
                     } catch (e: Exception) {
                         continue
                     }
@@ -205,6 +251,7 @@ object ComposeEditorUtils {
                             val ss = STRAIGHT.decorate(marker.style, clampedStart, clampedFinish, builder = this)
                             ss?.let { addStyle(it, clampedStart, clampedFinish) }
                         }
+
                         TextDecorationStyle.SQUIGGLY -> {
                             val ss = SQUIGGLY.decorate(marker.style, clampedStart, clampedFinish, builder = this)
                             ss?.let { addStyle(it, clampedStart, clampedFinish) }

@@ -34,6 +34,8 @@ import net.akehurst.kotlin.compose.editor.CodeEditorStateHolder
 import net.akehurst.kotlin.compose.editor.GhostTextState
 import net.akehurst.kotlin.compose.editor.api.*
 import net.akehurst.kotlin.compose.editor.api.simple.EditorSegmentStyleSimple
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.test.Test
 
 data class AcItem(
@@ -116,7 +118,7 @@ class test_CodeEditor {
         }
     */
 
-    @OptIn(ExperimentalTextApi::class)
+    @OptIn(ExperimentalTextApi::class, ExperimentalAtomicApi::class)
     @Test
     fun main() {
         val initialText = """
@@ -126,20 +128,26 @@ class test_CodeEditor {
                     error
                 """.trimIndent()
         val editorState = CodeEditorStateHolder(initialText)
-        var ghostAccepted = false
+        val ghostAccepted = AtomicBoolean(false)
         editorState.requestAutocompleteSuggestions = { request, result -> requestAutocompleteSuggestions(request, result) }
-        editorState.onGhostTextAccepted = { ghostAccepted = true }
+        editorState.onGhostTextAccepted = {
+            println("accepted")
+            ghostAccepted.store(true)
+        }
         editorState.ghostText = { txt, cus ->
-            if (ghostAccepted) {
+            if (ghostAccepted.load()) {
+                println("ghostText = null")
                 null
             } else {
                 GhostTextState(
-                    "Ghost Text",
+                    "\\red{Hello}",
                     ghostTokens = mapOf(0 to listOf(EditorSegmentStyleSimple(0, 10, SpanStyle(color = Color.Gray)))),
                     ghostPosition = cus,
                     isGhostVisible = true,
-                    replaceWholeText = true
-                )
+                    replaceWholeText = false
+                ).also {
+                    println("ghostText = $it")
+                }
             }
         }
         val info = Regex("info")
@@ -148,6 +156,9 @@ class test_CodeEditor {
         editorState.onTextChange = {
             val lines = it.split("\n")
             editorState.lineStyles = lines.mapIndexed { idx, ln -> Pair(idx, getLineTokens(ln)) }.toMap()
+
+            println(editorState.lineStyles.toMap())
+
             editorState.clearMarginItems()
             editorState.clearTextMarkers()
             lines.forEachIndexed { idx, ln ->
@@ -236,38 +247,30 @@ class test_CodeEditor {
         }
     }
 
+    data class EditorSegmentStyleTest(
+        override val start: Int,
+        override val finish: Int,
+        override val style: SpanStyle
+    ) : EditorSegmentStyle {
+        override fun toString(): String = "Seg($start-$finish ${style.color.red.toInt()}-${style.color.green.toInt()}-${style.color.blue.toInt()})"
+    }
+
     fun getLineTokens(lineText: String): List<EditorSegmentStyle> {
         val t1 = Regex("[\\\\]red[{](.*)[}]").findAll(lineText).map {
             it.range.first
-            object : EditorSegmentStyle {
-                override val start: Int get() = it.range.first
-                override val finish: Int get() = it.range.last + 1
-                override val style: SpanStyle get() = SpanStyle(color = Color.Red)
-            }
+            EditorSegmentStyleTest(it.range.first, it.range.last + 1, SpanStyle(color = Color.Red))
         }
         val t2 = Regex("[\\\\]blue[{](.*)[}]").findAll(lineText).map {
             it.range.first
-            object : EditorSegmentStyle {
-                override val start: Int get() = it.range.first
-                override val finish: Int get() = it.range.last + 1
-                override val style: SpanStyle get() = SpanStyle(color = Color.Blue, textDecoration = TextDecoration.None)
-            }
+            EditorSegmentStyleTest(it.range.first, it.range.last + 1, SpanStyle(color = Color.Blue, textDecoration = TextDecoration.None))
         }
         val t3 = Regex("else|if|[{]|[}]").findAll(lineText).map {
             it.range.first
-            object : EditorSegmentStyle {
-                override val start: Int get() = it.range.first
-                override val finish: Int get() = it.range.last + 1
-                override val style: SpanStyle get() = SpanStyle(color = Color.Magenta)
-            }
+            EditorSegmentStyleTest(it.range.first, it.range.last + 1, SpanStyle(color = Color.Magenta))
         }
         val t4 = Regex("error|green").findAll(lineText).map {
             it.range.first
-            object : EditorSegmentStyle {
-                override val start: Int get() = it.range.first
-                override val finish: Int get() = it.range.last + 1
-                override val style: SpanStyle get() = SpanStyle(color = Color(0f, 0.7f, 0f), textDecoration = TextDecoration.Underline)
-            }
+            EditorSegmentStyleTest(it.range.first, it.range.last + 1, SpanStyle(color = Color(0f, 0.7f, 0f), textDecoration = TextDecoration.Underline))
         }
         return (t1 + t2 + t3 + t4).toList()
     }

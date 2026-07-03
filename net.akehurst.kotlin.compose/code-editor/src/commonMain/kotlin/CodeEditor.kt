@@ -98,7 +98,9 @@ data class GhostTextState(
     val ghostPosition: Int,
     val isGhostVisible: Boolean,
     val replaceWholeText: Boolean
-)
+) {
+    val show get() = isGhostVisible && ghostText.isNullOrEmpty().not()
+}
 
 data class CodeEditorState(
     val viewerState: CodeViewerState,
@@ -168,7 +170,7 @@ class CodeEditorStateHolder(
 //                val s = minOf(start,end)
 //                val e = maxOf(start,end)
                 this._inputTextFieldState.value.edit {
-                    this.replace(start - offset, end, txt)
+                    replace(start - offset, end, txt)
                 }
             }
         )
@@ -371,7 +373,6 @@ class CodeEditorStateHolder(
 
     @OptIn(ExperimentalFoundationApi::class)
     fun handleKeyEvent(ev: KeyEvent): Boolean {
-        //println("$ev ${ev.key} ${ev.key.keyCode}")
         return when (ev.type) {
             // KeyDown | KeyUp | KeyPressed
             else -> when {
@@ -397,7 +398,6 @@ class CodeEditorStateHolder(
         this._inputTextFieldState.update {
             TextFieldState(text, it.selection)
         }
-        //this.inputTextFieldState.setTextAndPlaceCursorAtEnd(text)
     }
 
     fun onInputScroll(i: ScrollState) {
@@ -436,8 +436,7 @@ class CodeEditorStateHolder(
             val lineEnd = tlr.getLineEnd(currentLine, true)
             val cursOffset = tlr.getHorizontalPosition(minOf(selStart, lineEnd), true).roundToInt()
             val scrollOffset = _inputScrollState.value
-            //println("currentLine=${currentLine}, lineBot=${lineBot}, cursOffset=$cursOffset,  scrollOffset=$scrollOffset")
-            return IntOffset(cursOffset, lineBot - scrollOffset)
+            IntOffset(cursOffset, lineBot - scrollOffset)
         } else {
             IntOffset(0, 0)
         }
@@ -454,13 +453,11 @@ class CodeEditorStateHolder(
 
     fun performOutputTransformation(buffer: TextFieldBuffer, state: CodeEditorState) {
         val ghostState = state.ghostTextState
-        val shouldShowGhost = ghostState != null && ghostState.isGhostVisible && !ghostState.ghostText.isNullOrEmpty()
 
-        if (shouldShowGhost) {
-            val textToInject = ghostState!!.ghostText!!
-
+        if (ghostState?.show == true) {
+            val textToInject = ghostState.ghostText!!
             if (ghostState.replaceWholeText) {
-                // 1. DO NOT erase. Append the replacement text to the very end of the buffer
+                // Append the replacement text to the very end of the buffer
                 val appendPosition = buffer.length
                 buffer.insert(appendPosition, "\n$textToInject")
             } else {
@@ -468,12 +465,12 @@ class CodeEditorStateHolder(
                 buffer.insert(ghostState.ghostPosition, textToInject)
             }
 
-            // 2. Pass to the styling engine
+            // Pass to the styling engine
             ComposeEditorUtils.annotateTextFieldBuffer(
                 buffer = buffer,
                 viewerState = state.viewerState,
                 ghostState = ghostState,
-                annotatedTextChange = { /* Keep empty during ghost previews */ }
+                annotatedTextChange = { this.lastAnnotatedText = it }
             )
         } else {
             // Baseline styling pass
@@ -559,11 +556,7 @@ fun CodeEditorView(
     editorState._composableScope = rememberCoroutineScope()
 
     // Asynchronously update lastAnnotatedText outside the layout pass ---
-    LaunchedEffect(
-        state.viewerState.inputTextFieldState.value.text,
-        state.viewerState.lineTokens,
-        state.viewerState.textMarkersVisible
-    ) {
+    LaunchedEffect(state.viewerState.inputTextFieldState.value.text) {
         val cleanText = state.viewerState.inputTextFieldState.value.text.toString()
         val cleanAnnotatedString = ComposeEditorUtils.annotateText(
             rawText = cleanText,
