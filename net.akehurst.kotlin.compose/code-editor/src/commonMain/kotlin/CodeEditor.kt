@@ -24,6 +24,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
@@ -211,8 +212,22 @@ class CodeEditorStateHolder(
     @Composable
     fun collectAsState(): CodeEditorState {
         val currentTextFieldState = this._inputTextFieldState.collectAsState().value
-        val currentText = currentTextFieldState.text.toString()
-        val currentCursor = currentTextFieldState.selection.max
+        val selection = currentTextFieldState.selection
+
+        // Detect if the user is currently dragging to select a range of text
+        val isSelectingRange = selection.min != selection.max
+
+        val ghostTextState = if (isSelectingRange) {
+            //  If selecting text, skip reading selection coordinates dynamically.
+            // This stops the recomposition cascade and allows mouse drag selection to function naturally.
+            null
+        } else {
+            // Only track cursor changes and evaluate ghost code when the caret is resting at a single point
+            val currentText = currentTextFieldState.text.toString()
+            val currentCursor = selection.max
+            ghostText.invoke(currentText, currentCursor)
+        }
+
         return CodeEditorState(
             viewerState = CodeViewerState(
                 inputTextFieldState = this._inputTextFieldState.collectAsState(),
@@ -226,7 +241,7 @@ class CodeEditorStateHolder(
                 textMarkersVisible = _textMarkersVisible,
             ),
             giveFocus = this._giveFocus,
-            ghostTextState = ghostText.invoke(currentText, currentCursor),
+            ghostTextState = ghostTextState
         )
     }
 
@@ -567,6 +582,7 @@ fun CodeEditorView(
         )
         editorState.lastAnnotatedText = cleanAnnotatedString
     }
+
 
     val marginItemsState = editorState.collectVisibleMarginItemsAsState(
         state.viewerState.viewFirstLine,

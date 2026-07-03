@@ -20,6 +20,7 @@ package net.akehurst.kotlin.compose.editor
 
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -115,7 +116,7 @@ object ComposeEditorUtils {
                 val originalLength = (rawText.length - ghostLength).coerceAtLeast(0)
 
                 // If replacing whole text, the ghost text starts exactly where the old text ends
-                val actualGhostPosition =  if (replaceWholeText) originalLength else ghostState.ghostPosition.coerceIn(0, originalLength)
+                val actualGhostPosition = if (replaceWholeText) originalLength else ghostState.ghostPosition.coerceIn(0, originalLength)
                 annotateTextWithGhost(
                     rawText = rawText,
                     viewFirstLine = viewerState.viewFirstLine,
@@ -138,8 +139,16 @@ object ComposeEditorUtils {
                 )
             }
 
-            buffer.setComposition(0, rawText.length, annotatedText.annotations?.map { AnnotatedString.Range(it.item, it.start, it.end) })
-            buffer.changeTracker.trackChange(0, rawText.length, annotatedText.length)
+            //buffer.setComposition(0, rawText.length, annotatedText.annotations?.map { AnnotatedString.Range(it.item, it.start, it.end) })
+            //buffer.changeTracker.trackChange(0, rawText.length, annotatedText.length)
+
+            annotatedText.spanStyles.forEach { range ->
+                buffer.addStyle(range.item, range.start, range.end)
+            }
+            annotatedText.paragraphStyles.forEach { range ->
+                buffer.addStyle(range.item, range.start, range.end)
+            }
+
             //annotatedTextChange.invoke(annotatedText)
         }
     }
@@ -209,7 +218,16 @@ object ComposeEditorUtils {
             buildAnnotatedString {
                 append(rawText)
 
-                // 1. Process base code layers normally
+                // Tint original block background red if it's going to be replaced, have to do this first due to compose color blending rules
+                if (replaceWholeText && ghostPosition != -1) {
+                    addStyle(
+                        style = SpanStyle(background = Color.Red.copy(alpha = 0.15f)),
+                        start = 0,
+                        end = ghostPosition
+                    )
+                }
+
+                // Process base code layers normally
                 for (lineNum in viewFirstLine..viewLastLine) {
                     val (lineStartPos, lineFinishPos) = try {
                         if (ghostPosition == -1) {
@@ -230,7 +248,19 @@ object ComposeEditorUtils {
                         val offsetStart = if (ghostPosition != -1 && !replaceWholeText && origStart >= ghostPosition) origStart + ghostLength else origStart
                         val offsetFinish = if (ghostPosition != -1 && !replaceWholeText && origFinish > ghostPosition) origFinish + ghostLength else origFinish
 
-                        addStyle(tk.style, offsetStart.coerceIn(0, rawText.length), offsetFinish.coerceIn(0, rawText.length))
+                        val finalStart = offsetStart.coerceIn(0, rawText.length)
+
+                        // Blend the red tint over existing token backgrounds ---
+                        var styleToApply = tk.style
+                        if (replaceWholeText && ghostPosition != -1 && finalStart < ghostPosition) {
+                            if (tk.style.background != Color.Unspecified) {
+                                val redOverlay = Color.Red.copy(alpha = 0.15f)
+                                // compositeOver layers the source color cleanly ON TOP OF the destination color
+                                styleToApply = tk.style.copy(background = redOverlay.compositeOver(tk.style.background))
+                            }
+                        }
+
+                        addStyle(styleToApply, finalStart, offsetFinish.coerceIn(0, rawText.length))
                     }
                 }
 
@@ -257,15 +287,6 @@ object ComposeEditorUtils {
                             ss?.let { addStyle(it, clampedStart, clampedFinish) }
                         }
                     }
-                }
-
-                // 3. NEW DIFF HIGHLIGHT: Tint original block background red if it's going to be replaced
-                if (replaceWholeText && ghostPosition != -1) {
-                    addStyle(
-                        style = SpanStyle(background = Color.Red.copy(alpha = 0.15f)),
-                        start = 0,
-                        end = ghostPosition
-                    )
                 }
 
                 // 4. Map the granular Ghost Text tokens onto the appended space
