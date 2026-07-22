@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
 
 /**
  * Compound graph root state used by the recursive layout pipeline.
@@ -19,6 +20,7 @@ data class GraphLayoutCompoundGraphState(
     val routing: EdgeRouting = EdgeRouting.DIRECT,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
 ) {
+
     /** Optional debug overlay toggle used by the demo renderer. */
     val showContentOrigins = mutableStateOf(false)
     /** Temporary visual diagnostics: measured node bounds + adjusted edge endpoints. */

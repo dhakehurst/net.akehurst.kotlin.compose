@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -40,6 +41,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.absoluteValue
+import kotlin.math.exp
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.layout.Placeable
 import kotlin.math.min
@@ -113,6 +115,9 @@ private data class EdgeTextPlacement(
 )
 
 private const val boundaryEpsilon = 1e-6
+private const val minViewZoom = 0.5f
+private const val maxViewZoom = 5f
+private const val scrollZoomSensitivity = 0.06f
 
 private fun clipRayToRectBoundary(from: Offset, to: Offset, rect: Rect): Offset {
     val dx = to.x - from.x
@@ -558,6 +563,35 @@ internal fun requiredChildHostHeight(
     max(0.0, childNode.globalY - contentOriginY) + placeables[index].height.toDouble()
 }.maxOrNull() ?: 0.0
 
+internal fun zoomAboutPointer(
+    state: GraphLayoutViewState,
+    pointer: Offset,
+    targetZoom: Float
+): GraphLayoutViewState {
+    val clampedZoom = targetZoom.coerceIn(minViewZoom, maxViewZoom)
+    if (clampedZoom == state.zoom) return state
+
+    val zoomFactor = clampedZoom / state.zoom
+    val offsetAfterZoom = pointer - ((pointer - state.offset) * zoomFactor)
+    return GraphLayoutViewState(zoom = clampedZoom, offset = offsetAfterZoom)
+}
+
+internal fun applyPanAndZoomGesture(
+    state: GraphLayoutViewState,
+    centroid: Offset,
+    pan: Offset,
+    zoomChange: Float
+): GraphLayoutViewState {
+    val zoomed = zoomAboutPointer(state, centroid, state.zoom * zoomChange)
+    return zoomed.copy(offset = zoomed.offset + pan)
+}
+
+internal fun zoomFactorFromScrollDelta(deltaY: Float, density: Float): Float {
+    val safeDensity = density.coerceAtLeast(0.0001f)
+    val boundedDelta = (deltaY / safeDensity).coerceIn(-10f, 10f)
+    return exp(-boundedDelta * scrollZoomSensitivity)
+}
+
 /**
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].
  *
@@ -673,8 +707,8 @@ fun CompoundGraphLayoutView(
         }
     }
 
-    val density = LocalDensity.current
     val stateForGestures by rememberUpdatedState(viewState)
+    val density = LocalDensity.current.density
 
     val edgeContentById = state.edgeContentById.toMap()
     val edgeTextPlacements = sortedEdgeIds.flatMap { edgeId ->
@@ -688,7 +722,39 @@ fun CompoundGraphLayoutView(
         }
     }
 
-    Box(modifier = modifier.clip(RectangleShape)) {
+    Box(
+        modifier = modifier
+            .clip(RectangleShape)
+            .pointerInput(Unit) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val sg = stateForGestures
+                    val next = applyPanAndZoomGesture(
+                        state = sg,
+                        centroid = centroid,
+                        pan = pan,
+                        zoomChange = zoom
+                    )
+                    if (next != sg) {
+                        updateView(next.offset, next.zoom)
+                    }
+                }
+            }
+            .onPointerEvent(PointerEventType.Scroll) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                val scale = zoomFactorFromScrollDelta(
+                    deltaY = change.scrollDelta.y,
+                    density = density
+                )
+                val next = zoomAboutPointer(
+                    state = stateForGestures,
+                    pointer = change.position,
+                    targetZoom = stateForGestures.zoom * scale
+                )
+                if (next != stateForGestures) {
+                    updateView(next.offset, next.zoom)
+                }
+            }
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -696,25 +762,12 @@ fun CompoundGraphLayoutView(
                     graphLayerCoordinates = coordinates
                 }
                 .graphicsLayer(
+                    transformOrigin = TransformOrigin(0f, 0f),
                     scaleX = viewState.zoom,
                     scaleY = viewState.zoom,
                     translationX = viewState.offset.x,
                     translationY = viewState.offset.y,
                 )
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        val sg = stateForGestures
-                        val panPixels = pan * density.density
-                        val newZoom = (sg.zoom * zoom).coerceIn(0.5f, 5f)
-                        val newOffset = sg.offset + (panPixels * newZoom)
-                        updateView(newOffset, newZoom)
-                    }
-                }
-                .onPointerEvent(PointerEventType.Scroll) { event ->
-                    val delta = event.changes.first().scrollDelta.y
-                    val newZoom = (viewState.zoom - delta * 0.1f).coerceIn(0.5f, 5f)
-                    updateView(viewState.offset, newZoom)
-                }
         ) {
             // ── Layer 1: Node content (recursive) ───────────────────────────
             // Container composables receive their children as a composable argument,
@@ -1017,4 +1070,3 @@ fun CompoundGraphLayoutView(
         }
     }
 }
-
