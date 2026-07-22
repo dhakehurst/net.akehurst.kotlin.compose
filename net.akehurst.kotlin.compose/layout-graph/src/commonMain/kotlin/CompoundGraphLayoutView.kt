@@ -23,7 +23,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.Layout
@@ -74,7 +73,6 @@ private fun MissingNodeContent(nodeId: String) {
         )
     }
 }
-
 /**
  * Shown when an edge has no entry in [GraphLayoutCompoundGraphState.edgeContentById].
  * Appears as a small label at the edge route midpoint.
@@ -144,7 +142,6 @@ private fun clipRayToRectBoundary(from: Offset, to: Offset, rect: Rect): Offset 
             }
         }
     }
-
     if (kotlin.math.abs(dy) >= boundaryEpsilon) {
         val tBottom = (rect.bottom - from.y) / dy
         if (tBottom > boundaryEpsilon) {
@@ -228,7 +225,6 @@ private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContent
         }
     }
 }
-
 private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float): Offset {
     val distance = 18f
     return when (position) {
@@ -739,19 +735,26 @@ fun CompoundGraphLayoutView(
                     }
                 }
             }
-            .onPointerEvent(PointerEventType.Scroll) { event ->
-                val change = event.changes.firstOrNull() ?: return@onPointerEvent
-                val scale = zoomFactorFromScrollDelta(
-                    deltaY = change.scrollDelta.y,
-                    density = density
-                )
-                val next = zoomAboutPointer(
-                    state = stateForGestures,
-                    pointer = change.position,
-                    targetZoom = stateForGestures.zoom * scale
-                )
-                if (next != stateForGestures) {
-                    updateView(next.offset, next.zoom)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Scroll) {
+                            val change = event.changes.firstOrNull() ?: continue
+                            val scale = zoomFactorFromScrollDelta(
+                                deltaY = change.scrollDelta.y,
+                                density = density
+                            )
+                            val next = zoomAboutPointer(
+                                state = stateForGestures,
+                                pointer = change.position,
+                                targetZoom = stateForGestures.zoom * scale
+                            )
+                            if (next != stateForGestures) {
+                                updateView(next.offset, next.zoom)
+                            }
+                        }
+                    }
                 }
             }
     ) {
@@ -762,35 +765,288 @@ fun CompoundGraphLayoutView(
                     graphLayerCoordinates = coordinates
                 }
                 .graphicsLayer(
-                    transformOrigin = TransformOrigin(0f, 0f),
-                    scaleX = viewState.zoom,
-                    scaleY = viewState.zoom,
                     translationX = viewState.offset.x,
                     translationY = viewState.offset.y,
                 )
         ) {
-            // ── Layer 1: Node content (recursive) ───────────────────────────
-            // Container composables receive their children as a composable argument,
-            // giving them full z-order control (e.g. overlays drawn after children).
-            Layout(
-                content = {
-                    rootNodes.forEach { node ->
-                        NodeContent(
-                            node = node,
-                            state = state,
-                            layoutResult = layoutResult,
-                            nodeCoordinatesById = nodeCoordinatesById,
-                            onChildHostMeasured = onChildHostMeasured
-                        )
-                    }
-                },
-                measurePolicy = composeLayout("root",rootNodes, globalToViewportOffsetX, globalToViewportOffsetY)
-            )
-
-            // ── Layer 2: Edge route lines ────────────────────────────────────
-            Canvas(
+            Box(
                 modifier = Modifier
-                    .layout { measurable, constraints ->
+                    .fillMaxSize()
+                    .graphicsLayer(
+                    transformOrigin = TransformOrigin(0f, 0f),
+                    scaleX = viewState.zoom,
+                    scaleY = viewState.zoom,
+                )
+            ) {
+                // ── Layer 1: Node content (recursive) ───────────────────────────
+                // Container composables receive their children as a composable argument,
+                // giving them full z-order control (e.g. overlays drawn after children).
+                Layout(
+                    content = {
+                        rootNodes.forEach { node ->
+                            NodeContent(
+                                node = node,
+                                state = state,
+                                layoutResult = layoutResult,
+                                nodeCoordinatesById = nodeCoordinatesById,
+                                onChildHostMeasured = onChildHostMeasured
+                            )
+                        }
+                    },
+                    measurePolicy = composeLayout("root", rootNodes, globalToViewportOffsetX, globalToViewportOffsetY)
+                )
+
+                // ── Layer 2: Edge route lines ────────────────────────────────────
+                Canvas(
+                    modifier = Modifier
+                        .layout { measurable, constraints ->
+                            val viewportWidth = if (constraints.hasBoundedWidth) {
+                                constraints.maxWidth
+                            } else {
+                                totalWidth.roundToInt().coerceAtLeast(constraints.minWidth)
+                            }
+                            val viewportHeight = if (constraints.hasBoundedHeight) {
+                                constraints.maxHeight
+                            } else {
+                                totalHeight.roundToInt().coerceAtLeast(constraints.minHeight)
+                            }
+                            val placeable = measurable.measure(constraints)
+                            layout(viewportWidth, viewportHeight) {
+                                placeable.placeRelative(0, 0)
+                            }
+                        }
+                ) {
+                    // Draw tessellation separators once per tessellated graph to avoid doubled region borders.
+                    tessellatedGraphIds.forEach { graphId ->
+                        val nodesInGraph = layoutResult.nodeLayoutsById.values
+                            .filter { it.ownerGraphId == graphId }
+                        if (nodesInGraph.size >= 2) {
+                            val minGraphX = nodesInGraph.minOf { it.globalX }
+                            val maxGraphX = nodesInGraph.maxOf { it.globalX + it.width }
+                            val minGraphY = nodesInGraph.minOf { it.globalY }
+                            val maxGraphY = nodesInGraph.maxOf { it.globalY + it.height }
+
+                            val xDividers = nodesInGraph
+                                .map { it.globalX + it.width }
+                                .distinct()
+                                .sorted()
+                                .filter { it > minGraphX && it < maxGraphX }
+                            val yDividers = nodesInGraph
+                                .map { it.globalY + it.height }
+                                .distinct()
+                                .sorted()
+                                .filter { it > minGraphY && it < maxGraphY }
+
+                            xDividers.forEach { x ->
+                                val px = (x + globalToViewportOffsetX).toFloat()
+                                drawLine(
+                                    color = tessellationBorderColor,
+                                    start = Offset(px, (minGraphY + globalToViewportOffsetY).toFloat()),
+                                    end = Offset(px, (maxGraphY + globalToViewportOffsetY).toFloat()),
+                                    strokeWidth = 1.5f
+                                )
+                            }
+                            yDividers.forEach { y ->
+                                val py = (y + globalToViewportOffsetY).toFloat()
+                                drawLine(
+                                    color = tessellationBorderColor,
+                                    start = Offset((minGraphX + globalToViewportOffsetX).toFloat(), py),
+                                    end = Offset((maxGraphX + globalToViewportOffsetX).toFloat(), py),
+                                    strokeWidth = 1.5f
+                                )
+                            }
+                        }
+                    }
+
+                    sortedEdgeIds.forEach { edgeId ->
+                        val route = layoutResult.edgeRoutesByEdgeId[edgeId] ?: return@forEach
+
+                        // Get the actual rendered node positions to properly attach edge endpoints
+                        val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
+                        val drawRoute = if (endpoints != null && graphLayerCoordinates != null) {
+                            val (sourceNodeId, targetNodeId) = endpoints
+                            val sourceCoords = nodeCoordinatesById[sourceNodeId]
+                            val targetCoords = nodeCoordinatesById[targetNodeId]
+
+                            if (sourceCoords != null && targetCoords != null) {
+                                // nodeBoundsInLayer returns bounds in canvas/viewport space.
+                                // Route points are in layout global space.
+                                // viewport = global + globalToViewportOffset  =>  global = viewport - globalToViewportOffset
+                                val sourceBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, sourceCoords)
+                                val targetBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, targetCoords)
+
+                                when {
+                                    sourceBoundsViewport == null || targetBoundsViewport == null -> route
+                                    route.size < 2 -> route
+                                    else -> {
+                                        // Convert measured viewport bounds to layout global space so they
+                                        // are in the same coordinate space as the stored route points.
+                                        val srcLeft = (sourceBoundsViewport.left - globalToViewportOffsetX).toDouble()
+                                        val srcTop = (sourceBoundsViewport.top - globalToViewportOffsetY).toDouble()
+                                        val srcRight = (sourceBoundsViewport.right - globalToViewportOffsetX).toDouble()
+                                        val srcBottom = (sourceBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
+
+                                        val dstLeft = (targetBoundsViewport.left - globalToViewportOffsetX).toDouble()
+                                        val dstTop = (targetBoundsViewport.top - globalToViewportOffsetY).toDouble()
+                                        val dstRight = (targetBoundsViewport.right - globalToViewportOffsetX).toDouble()
+                                        val dstBottom = (targetBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
+
+                                        // Use the actual measured node centers as the origin of each endpoint ray.
+                                        // This ensures the edge exits/enters the correct boundary regardless of
+                                        // any difference between layout-predicted and Compose-rendered positions.
+                                        val srcCenter = (srcLeft + srcRight) / 2.0 to (srcTop + srcBottom) / 2.0
+                                        val dstCenter = (dstLeft + dstRight) / 2.0 to (dstTop + dstBottom) / 2.0
+
+                                        // Direction for start: from source center toward first waypoint (or target)
+                                        val startToward = if (route.size > 2) route[1] else dstCenter
+                                        // Direction for end: from target center toward last waypoint (or source)
+                                        val endToward = if (route.size > 2) route[route.size - 2] else srcCenter
+
+                                        val adjustedStart = rectExitPoint(
+                                            center = srcCenter, toward = startToward,
+                                            rectLeft = srcLeft, rectTop = srcTop,
+                                            rectRight = srcRight, rectBottom = srcBottom
+                                        )
+                                        val adjustedEnd = rectExitPoint(
+                                            center = dstCenter, toward = endToward,
+                                            rectLeft = dstLeft, rectTop = dstTop,
+                                            rectRight = dstRight, rectBottom = dstBottom
+                                        )
+
+                                        // Preserve intermediate waypoints; only replace endpoints
+                                        when {
+                                            route.size == 2 -> listOf(adjustedStart, adjustedEnd)
+                                            else -> listOf(adjustedStart) + route.drop(1).dropLast(1) + listOf(adjustedEnd)
+                                        }
+                                    }
+                                }
+                            } else {
+                                route
+                            }
+                        } else {
+                            route
+                        }
+
+                        if (drawRoute.size >= 2) {
+                            drawPath(
+                                path = Path().apply {
+                                    drawRoute.forEachIndexed { index, point ->
+                                        val x = (point.first + globalToViewportOffsetX).toFloat()
+                                        val y = (point.second + globalToViewportOffsetY).toFloat()
+                                        if (0 == index) moveTo(x, y) else lineTo(x, y)
+                                    }
+                                },
+                                color = Color(0xFF444444),
+                                style = Stroke(width = 2f)
+                            )
+                        }
+
+                        // Draw debug endpoint circles if enabled
+                        if (state.showDebugOverlay.value && drawRoute.size >= 2) {
+                            val debugBlue = Color(0xFF2196F3)
+                            val debugRed = Color(0xFFD32F2F)
+                            // Draw circle at start endpoint
+                            val startX = (drawRoute[0].first + globalToViewportOffsetX).toFloat()
+                            val startY = (drawRoute[0].second + globalToViewportOffsetY).toFloat()
+                            drawCircle(color = debugBlue, radius = 4f, center = Offset(startX, startY))
+                            // Draw circle at end endpoint
+                            val endX = (drawRoute[drawRoute.lastIndex].first + globalToViewportOffsetX).toFloat()
+                            val endY = (drawRoute[drawRoute.lastIndex].second + globalToViewportOffsetY).toFloat()
+                            drawCircle(color = debugRed, radius = 4f, center = Offset(endX, endY))
+                        }
+
+                        val edgeContent = edgeContentById[edgeId]
+                        if (edgeContent != null) {
+                            edgeContent.startSymbol?.let { symbol ->
+                                drawEdgeSymbol(
+                                    symbol = symbol,
+                                    anchor = routeAnchor(drawRoute, EdgeContentPosition.START),
+                                    globalToViewportOffsetX = globalToViewportOffsetX,
+                                    globalToViewportOffsetY = globalToViewportOffsetY
+                                ) { path, color, stroke ->
+                                    if (stroke == null) {
+                                        drawPath(path = path, color = color ?: Color.Transparent)
+                                    } else {
+                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                    }
+                                }
+                            }
+                            edgeContent.endSymbol?.let { symbol ->
+                                drawEdgeSymbol(
+                                    symbol = symbol,
+                                    anchor = routeAnchor(drawRoute, EdgeContentPosition.END),
+                                    globalToViewportOffsetX = globalToViewportOffsetX,
+                                    globalToViewportOffsetY = globalToViewportOffsetY
+                                ) { path, color, stroke ->
+                                    if (stroke == null) {
+                                        drawPath(path = path, color = color ?: Color.Transparent)
+                                    } else {
+                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (state.showContentOrigins.value) {
+                            contentOrigins.forEach { origin ->
+                                val ox = (origin.first + globalToViewportOffsetX).toFloat()
+                                val oy = (origin.second + globalToViewportOffsetY).toFloat()
+                                val r = 6f
+                                drawLine(
+                                    color = Color(0xFFD32F2F),
+                                    start = Offset(ox - r, oy),
+                                    end = Offset(ox + r, oy),
+                                    strokeWidth = 1.5f
+                                )
+                                drawLine(
+                                    color = Color(0xFFD32F2F),
+                                    start = Offset(ox, oy - r),
+                                    end = Offset(ox, oy + r),
+                                    strokeWidth = 1.5f
+                                )
+                            }
+                        }
+
+                        if (state.showDebugOverlay.value) {
+                            // ── DEBUG: Draw measured node bounds ────────────────────────
+                            val debugColors = listOf(
+                                Color(0xB36200EE),
+                                Color(0xB303DAC6),
+                                Color(0xB3FF6D00),
+                                Color(0xB32196F3),
+                                Color(0xB3D32F2F),
+                                Color(0xB34CAF50),
+                            )
+                            nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
+                                val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
+                                val color = debugColors[index % debugColors.size]
+                                drawRect(
+                                    color = color,
+                                    topLeft = Offset(rect.left, rect.top),
+                                    size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
+                                    style = Stroke(width = 2f)
+                                )
+                            }
+                        }
+                    }
+                }
+                // ── Layer 3: Edge text overlays ───────────────────────────────────
+                if (edgeTextPlacements.isNotEmpty()) {
+                    Layout(
+                        content = {
+                            edgeTextPlacements.forEach { placement ->
+                                if (placement.isMissing) {
+                                    MissingEdgeContent(placement.edgeId)
+                                } else {
+                                    Column {
+                                        placement.texts.forEach { text ->
+                                            EdgeTextBubble(text)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ) { measurables, constraints ->
                         val viewportWidth = if (constraints.hasBoundedWidth) {
                             constraints.maxWidth
                         } else {
@@ -801,268 +1057,21 @@ fun CompoundGraphLayoutView(
                         } else {
                             totalHeight.roundToInt().coerceAtLeast(constraints.minHeight)
                         }
-                        val placeable = measurable.measure(constraints)
+                        val placeables = measurables.map { m ->
+                            m.measure(Constraints(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0, maxHeight = Constraints.Infinity))
+                        }
                         layout(viewportWidth, viewportHeight) {
-                            placeable.placeRelative(0, 0)
-                        }
-                    }
-            ) {
-                // Draw tessellation separators once per tessellated graph to avoid doubled region borders.
-                tessellatedGraphIds.forEach { graphId ->
-                    val nodesInGraph = layoutResult.nodeLayoutsById.values
-                        .filter { it.ownerGraphId == graphId }
-                    if (nodesInGraph.size >= 2) {
-                        val minGraphX = nodesInGraph.minOf { it.globalX }
-                        val maxGraphX = nodesInGraph.maxOf { it.globalX + it.width }
-                        val minGraphY = nodesInGraph.minOf { it.globalY }
-                        val maxGraphY = nodesInGraph.maxOf { it.globalY + it.height }
-
-                        val xDividers = nodesInGraph
-                            .map { it.globalX + it.width }
-                            .distinct()
-                            .sorted()
-                            .filter { it > minGraphX && it < maxGraphX }
-                        val yDividers = nodesInGraph
-                            .map { it.globalY + it.height }
-                            .distinct()
-                            .sorted()
-                            .filter { it > minGraphY && it < maxGraphY }
-
-                        xDividers.forEach { x ->
-                            val px = (x + globalToViewportOffsetX).toFloat()
-                            drawLine(
-                                color = tessellationBorderColor,
-                                start = Offset(px, (minGraphY + globalToViewportOffsetY).toFloat()),
-                                end = Offset(px, (maxGraphY + globalToViewportOffsetY).toFloat()),
-                                strokeWidth = 1.5f
-                            )
-                        }
-                        yDividers.forEach { y ->
-                            val py = (y + globalToViewportOffsetY).toFloat()
-                            drawLine(
-                                color = tessellationBorderColor,
-                                start = Offset((minGraphX + globalToViewportOffsetX).toFloat(), py),
-                                end = Offset((maxGraphX + globalToViewportOffsetX).toFloat(), py),
-                                strokeWidth = 1.5f
-                            )
-                        }
-                    }
-                }
-
-                sortedEdgeIds.forEach { edgeId ->
-                    val route = layoutResult.edgeRoutesByEdgeId[edgeId] ?: return@forEach
-
-                    // Get the actual rendered node positions to properly attach edge endpoints
-                    val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
-                    val drawRoute = if (endpoints != null && graphLayerCoordinates != null) {
-                        val (sourceNodeId, targetNodeId) = endpoints
-                        val sourceCoords = nodeCoordinatesById[sourceNodeId]
-                        val targetCoords = nodeCoordinatesById[targetNodeId]
-
-                        if (sourceCoords != null && targetCoords != null) {
-                            // nodeBoundsInLayer returns bounds in canvas/viewport space.
-                            // Route points are in layout global space.
-                            // viewport = global + globalToViewportOffset  =>  global = viewport - globalToViewportOffset
-                            val sourceBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, sourceCoords)
-                            val targetBoundsViewport = nodeBoundsInLayer(graphLayerCoordinates, targetCoords)
-
-                            when {
-                                sourceBoundsViewport == null || targetBoundsViewport == null -> route
-                                route.size < 2 -> route
-                                else -> {
-                                    // Convert measured viewport bounds to layout global space so they
-                                    // are in the same coordinate space as the stored route points.
-                                    val srcLeft   = (sourceBoundsViewport.left   - globalToViewportOffsetX).toDouble()
-                                    val srcTop    = (sourceBoundsViewport.top    - globalToViewportOffsetY).toDouble()
-                                    val srcRight  = (sourceBoundsViewport.right  - globalToViewportOffsetX).toDouble()
-                                    val srcBottom = (sourceBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
-
-                                    val dstLeft   = (targetBoundsViewport.left   - globalToViewportOffsetX).toDouble()
-                                    val dstTop    = (targetBoundsViewport.top    - globalToViewportOffsetY).toDouble()
-                                    val dstRight  = (targetBoundsViewport.right  - globalToViewportOffsetX).toDouble()
-                                    val dstBottom = (targetBoundsViewport.bottom - globalToViewportOffsetY).toDouble()
-
-                                    // Use the actual measured node centers as the origin of each endpoint ray.
-                                    // This ensures the edge exits/enters the correct boundary regardless of
-                                    // any difference between layout-predicted and Compose-rendered positions.
-                                    val srcCenter = (srcLeft + srcRight) / 2.0 to (srcTop + srcBottom) / 2.0
-                                    val dstCenter = (dstLeft + dstRight) / 2.0 to (dstTop + dstBottom) / 2.0
-
-                                    // Direction for start: from source center toward first waypoint (or target)
-                                    val startToward = if (route.size > 2) route[1] else dstCenter
-                                    // Direction for end: from target center toward last waypoint (or source)
-                                    val endToward   = if (route.size > 2) route[route.size - 2] else srcCenter
-
-                                    val adjustedStart = rectExitPoint(
-                                        center = srcCenter, toward = startToward,
-                                        rectLeft = srcLeft, rectTop = srcTop,
-                                        rectRight = srcRight, rectBottom = srcBottom
-                                    )
-                                    val adjustedEnd = rectExitPoint(
-                                        center = dstCenter, toward = endToward,
-                                        rectLeft = dstLeft, rectTop = dstTop,
-                                        rectRight = dstRight, rectBottom = dstBottom
-                                    )
-
-                                    // Preserve intermediate waypoints; only replace endpoints
-                                    when {
-                                        route.size == 2 -> listOf(adjustedStart, adjustedEnd)
-                                        else -> listOf(adjustedStart) + route.drop(1).dropLast(1) + listOf(adjustedEnd)
-                                    }
-                                }
+                            edgeTextPlacements.forEachIndexed { index, placement ->
+                                val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
+                                val anchor = routeAnchor(route, placement.position)
+                                val textOffset = edgeTextOffset(placement.position, anchor.angleRadians)
+                                val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat() + textOffset.x
+                                val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat() + textOffset.y
+                                placeables[index].placeRelative(
+                                    x = (anchorX - (placeables[index].width / 2f)).roundToInt(),
+                                    y = (anchorY - (placeables[index].height / 2f)).roundToInt()
+                                )
                             }
-                        } else {
-                            route
-                        }
-                    } else {
-                        route
-                    }
-
-                    if (drawRoute.size >= 2) {
-                        drawPath(
-                            path = Path().apply {
-                                drawRoute.forEachIndexed { index, point ->
-                                    val x = (point.first + globalToViewportOffsetX).toFloat()
-                                    val y = (point.second + globalToViewportOffsetY).toFloat()
-                                    if (0 == index) moveTo(x, y) else lineTo(x, y)
-                                }
-                            },
-                            color = Color(0xFF444444),
-                            style = Stroke(width = 2f)
-                        )
-                    }
-
-                    // Draw debug endpoint circles if enabled
-                    if (state.showDebugOverlay.value && drawRoute.size >= 2) {
-                        val debugBlue = Color(0xFF2196F3)
-                        val debugRed = Color(0xFFD32F2F)
-                        // Draw circle at start endpoint
-                        val startX = (drawRoute[0].first + globalToViewportOffsetX).toFloat()
-                        val startY = (drawRoute[0].second + globalToViewportOffsetY).toFloat()
-                        drawCircle(color = debugBlue, radius = 4f, center = Offset(startX, startY))
-                        // Draw circle at end endpoint
-                        val endX = (drawRoute[drawRoute.lastIndex].first + globalToViewportOffsetX).toFloat()
-                        val endY = (drawRoute[drawRoute.lastIndex].second + globalToViewportOffsetY).toFloat()
-                        drawCircle(color = debugRed, radius = 4f, center = Offset(endX, endY))
-                    }
-
-                    val edgeContent = edgeContentById[edgeId]
-                    if (edgeContent != null) {
-                        edgeContent.startSymbol?.let { symbol ->
-                            drawEdgeSymbol(
-                                symbol = symbol,
-                                anchor = routeAnchor(drawRoute, EdgeContentPosition.START),
-                                globalToViewportOffsetX = globalToViewportOffsetX,
-                                globalToViewportOffsetY = globalToViewportOffsetY
-                            ) { path, color, stroke ->
-                                if (stroke == null) {
-                                    drawPath(path = path, color = color ?: Color.Transparent)
-                                } else {
-                                    drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
-                                }
-                            }
-                        }
-                        edgeContent.endSymbol?.let { symbol ->
-                            drawEdgeSymbol(
-                                symbol = symbol,
-                                anchor = routeAnchor(drawRoute, EdgeContentPosition.END),
-                                globalToViewportOffsetX = globalToViewportOffsetX,
-                                globalToViewportOffsetY = globalToViewportOffsetY
-                            ) { path, color, stroke ->
-                                if (stroke == null) {
-                                    drawPath(path = path, color = color ?: Color.Transparent)
-                                } else {
-                                    drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (state.showContentOrigins.value) {
-                    contentOrigins.forEach { origin ->
-                        val ox = (origin.first + globalToViewportOffsetX).toFloat()
-                        val oy = (origin.second + globalToViewportOffsetY).toFloat()
-                        val r = 6f
-                        drawLine(
-                            color = Color(0xFFD32F2F),
-                            start = Offset(ox - r, oy),
-                            end = Offset(ox + r, oy),
-                            strokeWidth = 1.5f
-                        )
-                        drawLine(
-                            color = Color(0xFFD32F2F),
-                            start = Offset(ox, oy - r),
-                            end = Offset(ox, oy + r),
-                            strokeWidth = 1.5f
-                        )
-                    }
-                }
-
-                if (state.showDebugOverlay.value) {
-                    // ── DEBUG: Draw measured node bounds ────────────────────────
-                    val debugColors = listOf(
-                        Color(0xB36200EE),
-                        Color(0xB303DAC6),
-                        Color(0xB3FF6D00),
-                        Color(0xB32196F3),
-                        Color(0xB3D32F2F),
-                        Color(0xB34CAF50),
-                    )
-                    nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
-                        val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
-                        val color = debugColors[index % debugColors.size]
-                        drawRect(
-                            color = color,
-                            topLeft = Offset(rect.left, rect.top),
-                            size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
-                            style = Stroke(width = 2f)
-                        )
-                    }
-                }
-            }
-
-            // ── Layer 3: Edge text overlays ───────────────────────────────────
-            if (edgeTextPlacements.isNotEmpty()) {
-                Layout(
-                    content = {
-                        edgeTextPlacements.forEach { placement ->
-                            if (placement.isMissing) {
-                                MissingEdgeContent(placement.edgeId)
-                            } else {
-                                Column {
-                                    placement.texts.forEach { text ->
-                                        EdgeTextBubble(text)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ) { measurables, constraints ->
-                    val viewportWidth = if (constraints.hasBoundedWidth) {
-                        constraints.maxWidth
-                    } else {
-                        totalWidth.roundToInt().coerceAtLeast(constraints.minWidth)
-                    }
-                    val viewportHeight = if (constraints.hasBoundedHeight) {
-                        constraints.maxHeight
-                    } else {
-                        totalHeight.roundToInt().coerceAtLeast(constraints.minHeight)
-                    }
-                    val placeables = measurables.map { m ->
-                        m.measure(Constraints(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0, maxHeight = Constraints.Infinity))
-                    }
-                    layout(viewportWidth, viewportHeight) {
-                        edgeTextPlacements.forEachIndexed { index, placement ->
-                            val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
-                            val anchor = routeAnchor(route, placement.position)
-                            val textOffset = edgeTextOffset(placement.position, anchor.angleRadians)
-                            val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat() + textOffset.x
-                            val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat() + textOffset.y
-                            placeables[index].placeRelative(
-                                x = (anchorX - (placeables[index].width / 2f)).roundToInt(),
-                                y = (anchorY - (placeables[index].height / 2f)).roundToInt()
-                            )
                         }
                     }
                 }
