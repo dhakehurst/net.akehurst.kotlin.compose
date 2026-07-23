@@ -132,7 +132,7 @@ data class GraphLayoutCompoundNode(
     val heightHint: Double? = null,
     val containerPaddingHint: PaddingHint? = null
 ) {
-    val metadata: Map<String, String> = mutableMapOf()
+    val metadata: MutableMap<String, String> = mutableMapOf()
 }
 
 data class GraphLayoutCompoundEdge(
@@ -141,7 +141,7 @@ data class GraphLayoutCompoundEdge(
     val targetId: String,
     val kind: EdgeKind = EdgeKind.ADJACENCY
 ) {
-    val metadata: Map<String, String> = mutableMapOf()
+    val metadata: MutableMap<String, String> = mutableMapOf()
 }
 
 enum class CompoundGraphKind {
