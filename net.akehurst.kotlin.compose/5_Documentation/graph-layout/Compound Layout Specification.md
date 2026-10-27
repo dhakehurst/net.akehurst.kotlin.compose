@@ -30,10 +30,11 @@ This document defines a better layout plan based on:
 - Support different child-layout strategies per container.
 - Each container may optionally specify the layout used for its immediate children.
 - If a container does not specify a child layout, it inherits the effective child layout from its parent.
-- The default child layout for most diagrams is `GRAPH`.
-- Support at least these child layout options:
-  - `GRAPH` for general graph-style layout
-  - `TESSELLATE` for deterministic tiling layouts, for example state regions
+- The child layout is an algorithm passed in by the caller (a `ChildLayoutAlgorithm`), not a value chosen from an enum. Callers can supply their own.
+- The default child layout for most diagrams is `SugiyamaChildLayout.DEFAULT`.
+- Provide at least these built-in child layout algorithms:
+  - `SugiyamaChildLayout` for general graph-style (layered) layout
+  - `TessellateChildLayout` for deterministic tiling layouts, for example state regions
 - Layout multiple packages, regions, or statecharts cleanly.
 - For region-based containers, tile regions to fill available content area (top-to-bottom, left-to-right) with no unused gaps.
 - Render region separators as single shared divider lines (no double-stroked adjacent borders).
@@ -143,7 +144,7 @@ data class GraphLayoutCompoundGraphState(
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
-    val childLayout: ChildLayout? = null,
+    val childLayout: ChildLayoutAlgorithm? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
@@ -188,11 +189,6 @@ enum class CompoundGraphKind {
     SERIES_PARALLEL
 }
 
-enum class ChildLayout {
-    GRAPH,
-    TESSELLATE
-}
-
 enum class NodeKind {
     NORMAL,
     CONTAINER,
@@ -212,6 +208,40 @@ enum class CollapsePolicy {
     COLLAPSED_BY_DEFAULT
 }
 ```
+
+### 5.5.1 Child layout algorithm
+
+The layout of one graph level's direct children is pluggable:
+
+```kotlin
+fun interface ChildLayoutAlgorithm {
+    fun layout(input: ChildLayoutInput): ChildLayoutResult
+}
+
+data class ChildLayoutEdge(val id: String, val sourceId: String, val targetId: String)
+
+data class ChildLayoutInput(
+    val graphId: String,
+    val nodes: List<GraphLayoutCompoundNode>,
+    val nodeSizesById: Map<String, Pair<Double, Double>>,
+    val edges: List<ChildLayoutEdge>          // already projected onto this level's nodes
+)
+
+data class ChildLayoutResult(
+    val nodeSizesById: Map<String, Pair<Double, Double>>,   // may differ from the input sizes
+    val nodeTopLeftById: Map<String, Pair<Double, Double>>, // local coordinates
+    val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>, // missing edges are routed by the engine
+    val contentWidth: Double,
+    val contentHeight: Double
+)
+```
+
+Built-in implementations:
+
+- `SugiyamaChildLayout(layerSpacing, nodeSpacing, edgeRouting)`, with the presets `DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT` and `CHANNEL_BIASED` in its companion object. These presets replace the former `CompoundLayoutProfile` enum.
+- `TessellateChildLayout`, which tiles the children and ignores edges.
+
+The engine-wide default is `CompoundLayoutConfig.defaultChildLayout`.
 
 Rendering concerns stay outside the core layout model. Compose-specific content is mapped in the rendering layer using stable node/edge IDs.
 
@@ -239,9 +269,10 @@ This keeps the result API independent of a specific internal algorithm type and 
 
 - Each container may declare `childLayout` to control how its immediate children are arranged.
 - If `childLayout == null`, the container inherits the effective child layout from its parent.
-- The root graph defaults to `ChildLayout.GRAPH` unless explicitly configured otherwise.
-- `ChildLayout.GRAPH` uses the standard graph-oriented local pipeline.
-- `ChildLayout.TESSELLATE` uses deterministic tiling for the container's immediate children and is intended for structures such as state regions.
+- The root graph defaults to `CompoundLayoutConfig.defaultChildLayout` (`SugiyamaChildLayout.DEFAULT`) unless explicitly configured otherwise.
+- `SugiyamaChildLayout` uses the standard graph-oriented (layered) local pipeline.
+- `TessellateChildLayout` uses deterministic tiling for the container's immediate children and is intended for structures such as state regions.
+- Any other `ChildLayoutAlgorithm` implementation, including a lambda, can be used in the same way.
 - Child-layout selection applies only to direct children of that container; nested containers resolve their own effective child layout independently.
 
 ### 5.7 Coordinate and transform contract
@@ -343,7 +374,7 @@ A child graph should:
 
 ### 6.6 Region-based layout contract
 
-When a container's effective `childLayout` is `TESSELLATE`, the local level should use tessellated placement semantics:
+When a container's effective `childLayout` is `TessellateChildLayout`, the local level should use tessellated placement semantics:
 
 - children are arranged as a deterministic row-major tiling (`left->right`, then `top->bottom`)
 - tiles fill the full available content area inside the container as defined by measured child-host bounds
@@ -351,7 +382,7 @@ When a container's effective `childLayout` is `TESSELLATE`, the local level shou
 - region child bounds are normalized to tile bounds before parent-level placement to avoid residual gaps from author-provided hints
 - divider rendering is single-pass at shared boundaries; adjacent regions must not each paint their own border on the same seam
 
-`TESSELLATE` is typically used for region-like children, but it remains a generic layout option rather than a UML/statechart-specific rule.
+`TessellateChildLayout` is typically used for region-like children, but it remains a generic layout option rather than a UML/statechart-specific rule.
 
 This keeps region diagrams visually stable and prevents "double wall" artifacts.
 
@@ -430,7 +461,7 @@ To keep endpoint clipping deterministic across JVM/JS/Wasm, use the following ru
 - **Parallel-edge separation**: apply deterministic slot offsets indexed by stable edge ID ordering to avoid stacked endpoints.
 - **Output normalization**: snap values with absolute magnitude `< epsilon` to `0.0` to reduce floating-point drift in snapshots.
 
-### 7.4 Routing preferences by generic profile
+### 7.4 Routing preferences by `SugiyamaChildLayout` preset
 
 - `DEFAULT`: balanced crossing and bend minimization.
 - `HIERARCHY_BIASED`: stronger directional alignment and layer stability.
@@ -507,9 +538,9 @@ When collapse state changes, the layout should preserve:
 3. Resolve effective collapse state for each container (`collapsePolicy` + runtime override).
 4. Resolve the effective `childLayout` for each container by inheriting from the parent when unspecified.
 5. Identify visible leaf graphs under the current collapse configuration.
-6. Layout visible leaves using the local strategy selected by the effective `childLayout`.
-   - `GRAPH` -> graph-oriented local layout pipeline
-   - `TESSELLATE` -> deterministic tiling of immediate children
+6. Layout visible leaves by calling the effective `childLayout` algorithm.
+   - `SugiyamaChildLayout` -> graph-oriented local layout pipeline
+   - `TessellateChildLayout` -> deterministic tiling of immediate children
 7. Compute child bounds and inflate by Compose-measured container metrics (child-host origin/insets) where applicable.
 8. Replace each child graph with an atomic compound node in the parent graph.
 9. For collapsed children, aggregate descendant external connections into container boundary ports.
@@ -565,7 +596,7 @@ When collapse state changes, the layout should preserve:
 - `compact`
 - `treeLikeSeriesParallel`
 
-These are algorithmic profiles, not domain profiles. They are orthogonal to `ChildLayout`; for example, a diagram may use the `hierarchyBiased` profile overall while a specific container uses `TESSELLATE` for its immediate children.
+These are algorithmic profiles, not domain profiles. The implemented ones are the `SugiyamaChildLayout` presets (see §5.5.1). Because each container sets its own `childLayout`, a diagram may use `SugiyamaChildLayout.HIERARCHY_BIASED` overall while a specific container uses `TessellateChildLayout` for its immediate children.
 
 ## 13. Open questions
 

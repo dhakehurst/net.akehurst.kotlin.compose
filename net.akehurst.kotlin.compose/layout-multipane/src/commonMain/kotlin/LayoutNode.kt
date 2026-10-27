@@ -12,7 +12,7 @@ import net.akehurst.kotlinx.utils.UniqueIdentityGenerator
  * @param content The Composable content to display inside the pane.
  */
 class Pane(
-    val id: String = UniqueIdentityGenerator.GLOBAL.generate("pane"),
+    val id: String = LayoutNode.idGenerator.generate("pane"),
     val title: String,
     val update: () -> Unit = {},
     val content: @Composable () -> Unit
@@ -38,6 +38,14 @@ class Pane(
  * Represents a node in the layout tree. It can be either a Pane or a Split.
  */
 sealed class LayoutNode {
+
+    companion object {
+        /**
+         * Generates the ids of new nodes and panes that are not given an id.
+         * Tests can set a fresh generator so the ids don't depend on which tests ran before.
+         */
+        var idGenerator: UniqueIdentityGenerator = UniqueIdentityGenerator.GLOBAL
+    }
     /**
      * only the root should ever be empty, otherwise layout nodes are collapsed away
      */
@@ -78,7 +86,7 @@ sealed class LayoutNode {
      * @param weights The proportional sizes of the children. Must match the size of `children`.
      */
     data class Split(
-        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("split"),
+        override val id: String = LayoutNode.idGenerator.generate("split"),
         val orientation: SplitOrientation,
         val children: List<LayoutNode>,
         val weights: List<Float>
@@ -111,6 +119,7 @@ sealed class LayoutNode {
         }
 
         internal fun insertPaneViaNewSplit(newPane: Pane, dropTarget: DropTarget.Split): Split {
+            require(children.any { it.id == dropTarget.otherId }) { "Drop target ${dropTarget.otherId} is not a child of split $id" }
             val newChildren = mutableListOf<LayoutNode>()
             val newWeights = mutableListOf<Float>()
             val newTabbed = LayoutNode.Tabbed(children = listOf(newPane))
@@ -173,6 +182,7 @@ sealed class LayoutNode {
         }
 
         internal fun insertPaneViaReorder(newPane: Pane, dropTarget: DropTarget.Reorder): Split {
+            require(children.any { it.id == dropTarget.otherId }) { "Drop target ${dropTarget.otherId} is not a child of split $id" }
             val newChildren = mutableListOf<LayoutNode>()
             val newWeights = mutableListOf<Float>()
             val newTabbed = LayoutNode.Tabbed(children = listOf(newPane))
@@ -216,7 +226,7 @@ sealed class LayoutNode {
     }
 
     data class Tabbed(
-        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("tabbed"),
+        override val id: String = LayoutNode.idGenerator.generate("tabbed"),
         val children: List<Pane>,
         val selectedTabIndex: Int = 0
     ) : LayoutNode() {
@@ -230,6 +240,15 @@ sealed class LayoutNode {
         }
 
         internal fun insertPaneViaAddTab(newPane: Pane, dropTarget: DropTarget.Tabbed): Tabbed {
+            if (null == dropTarget.otherId) {
+                // no reference tab: BEFORE puts it first, AFTER puts it last
+                val newChildren = when (dropTarget.type) {
+                    DropTarget.Tabbed.Kind.BEFORE -> listOf(newPane) + children
+                    DropTarget.Tabbed.Kind.AFTER -> children + newPane
+                }
+                return copy(children = newChildren, selectedTabIndex = newChildren.indexOf(newPane))
+            }
+            require(children.any { it.id == dropTarget.otherId }) { "Drop target ${dropTarget.otherId} is not a tab of $id" }
             val newChildren = mutableListOf<Pane>()
             children.forEachIndexed { index, child ->
                 if (child.id == dropTarget.otherId) {
@@ -248,7 +267,8 @@ sealed class LayoutNode {
                     newChildren.add(child)
                 }
             }
-            return copy(children = newChildren, selectedTabIndex = newChildren.size - 1)
+            // select the inserted tab
+            return copy(children = newChildren, selectedTabIndex = newChildren.indexOf(newPane))
         }
 
         internal fun insertPaneViaNewSplit(newPane: Pane, dropTarget: DropTarget.Split): Split {
@@ -343,12 +363,13 @@ sealed class LayoutNode {
         return if (this is LayoutNode.Empty) {
             LayoutNode.Tabbed(children = listOf(newPane))
         } else {
-            val lastTabbed = this.findTabbedOrNull { true } ?: error("There should be something found!")
+            // adds the pane as the last tab of the first tabbed container
+            val firstTabbed = this.findTabbedOrNull { true } ?: error("There should be something found!")
             val dropTarget = DropTarget.Tabbed(
                 rect = RectInWindow(Rect.Zero),
                 type = DropTarget.Tabbed.Kind.AFTER,
-                targetNodeId = lastTabbed.id,
-                otherId = lastTabbed.children.last().id,
+                targetNodeId = firstTabbed.id,
+                otherId = firstTabbed.children.last().id,
             )
             insertPaneIntoLayout(newPane, dropTarget)
         }

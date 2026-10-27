@@ -12,9 +12,9 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(project(":layout-graph"))
-                implementation(compose.ui)
-                implementation(compose.foundation)
-                implementation(compose.material3)
+                implementation(libs.compose.ui)
+                implementation(libs.compose.foundation)
+                implementation(libs.compose.material3)
             }
         }
         jvmMain {
@@ -27,6 +27,6 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "net.akehurst.kotlin.components.layout.graph.demo.MainKt"
+        mainClass = "net.akehurst.kotlin.compose.layout.graph.demo.MainKt"
     }
 }

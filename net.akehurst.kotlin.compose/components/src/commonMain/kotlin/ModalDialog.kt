@@ -34,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +68,7 @@ fun AlertDialogWithIssues(
                     if (alertInfo.issues.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         TableView(
-                            state = TableState(),
+                            state = remember { TableState() },
                             tableModifier = Modifier
                                 .fillMaxWidth()
                                 .widthIn(max = windowWith * 0.6f)

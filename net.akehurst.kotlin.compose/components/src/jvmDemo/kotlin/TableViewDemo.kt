@@ -9,11 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.singleWindowApplication
-import kotlin.test.Test
 
 
-class test_TableView {
-    @Test
+class TableViewDemo {
     fun main() {
         singleWindowApplication(
             title = "Demo TableView",
@@ -59,3 +57,5 @@ class test_TableView {
         }
     }
 }
+
+fun main() = TableViewDemo().main()

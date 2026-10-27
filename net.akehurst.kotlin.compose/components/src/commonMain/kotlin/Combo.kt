@@ -32,16 +32,19 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun <T> Combo(initValue: String, values: ()->Map<String, T>, onValueChange: (T) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf(initValue) }
-    var filteredValues by remember { mutableStateOf(values.invoke()) }
+    var text by remember(initValue) { mutableStateOf(initValue) }
+    // null until the user types, so the list initially shows all values
+    var filter by remember { mutableStateOf<String?>(null) }
+    val allValues = values.invoke()
+    val filteredValues = filter?.let { f -> allValues.filter { (key, _) -> key.contains(f, ignoreCase = true) } } ?: allValues
 
         TextField(
             value = text,
             onValueChange = {
                 text = it
-                filteredValues = values.invoke().filter { (key, _) -> key.contains(it, ignoreCase = true) }
-                if (filteredValues.containsKey(text)) {
-                    onValueChange(filteredValues[text]!!)
+                filter = it
+                if (allValues.containsKey(it)) {
+                    onValueChange(allValues.getValue(it))
                 }
                 expanded = true
             },

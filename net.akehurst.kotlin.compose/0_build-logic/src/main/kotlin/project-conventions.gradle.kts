@@ -25,8 +25,8 @@ plugins {
     signing
     alias(libs.plugins.vanniktech.maven.publish)
 }
-val kotlin_languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_3
-val kotlin_apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_3
+val kotlin_languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_4
+val kotlin_apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_4
 val jvmTargetVersion = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
 
 repositories {
@@ -43,7 +43,7 @@ repositories {
     gradlePluginPortal()
 }
 
-group = rootProject.name
+group = "net.akehurst.kotlin.compose"
 version = libs.versions.project.get()
 project.layout.buildDirectory = File(rootProject.projectDir, ".gradle-build/${project.name}")
 
@@ -53,7 +53,9 @@ buildConfig {
     useKotlinOutput {
         this.internalVisibility = false
     }
-    val now = Instant.now()
+    // a real timestamp only when publishing, so normal builds stay up to date / cacheable
+    val isPublishing = gradle.startParameter.taskNames.any { it.contains("publish", ignoreCase = true) }
+    val now = if (isPublishing) Instant.now() else Instant.EPOCH
     fun fBbuildStamp(): String = DateTimeFormatter.ISO_DATE_TIME.withZone(ZoneId.of("UTC")).format(now)
     fun fBuildDate(): String = DateTimeFormatter.ofPattern("yyyy-MMM-dd").withZone(ZoneId.of("UTC")).format(now)
     fun fBuildTime(): String = DateTimeFormatter.ofPattern("HH:mm:ss z").withZone(ZoneId.of("UTC")).format(now)
@@ -89,6 +91,20 @@ kotlin {
                 }
             }
         }
+        // Window demos live in src/jvmDemo/kotlin: not in main (so not published) and not tests.
+        // Each module registers its own run<Name>Demo tasks.
+        if (project.file("src/jvmDemo").exists()) {
+            compilations.create("demo") {
+                associateWith(main)
+                compileTaskProvider.configure {
+                    compilerOptions {
+                        languageVersion.set(kotlin_languageVersion)
+                        apiVersion.set(kotlin_apiVersion)
+                        jvmTarget.set(jvmTargetVersion)
+                    }
+                }
+            }
+        }
     }
     js {
         binaries.library()
@@ -121,11 +137,6 @@ kotlin {
     }
 }
 
-val javadocJar: TaskProvider<Jar> by tasks.registering(Jar::class) {
-    archiveClassifier.set("javadoc")
-}
-tasks.named("publish").get().dependsOn("javadocJar")
-
 tasks.named<Test>("jvmTest") {
     useJUnitPlatform()
     filter {
@@ -142,19 +153,9 @@ tasks.named<Test>("jvmTest") {
     }
 }
 
+// publications, signing and the javadoc jar are configured by the vanniktech plugin (signAllPublications below)
 signing {
-    setRequired( {  gradle.taskGraph.hasTask("uploadArchives") })
     useGpgCmd()
-    val publishing = project.properties["publishing"] as PublishingExtension
-    sign(publishing.publications)
-}
-val signTasks = tasks.matching { it.name.matches(Regex("sign(.)+")) }.toTypedArray()
-tasks.forEach {
-    when {
-        it.name.matches(Regex("publish(.)+")) -> {
-            it.mustRunAfter(*signTasks)
-        }
-    }
 }
 
 mavenPublishing {

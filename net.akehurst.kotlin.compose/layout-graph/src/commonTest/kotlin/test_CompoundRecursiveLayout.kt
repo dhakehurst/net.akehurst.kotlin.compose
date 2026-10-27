@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph
+package net.akehurst.kotlin.compose.layout.graph
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -103,28 +103,28 @@ class test_CompoundRecursiveLayout {
     }
 
     @Test
-    fun child_layout_profile_override_changes_local_level_spacing() {
-        fun createState(childProfile: CompoundLayoutProfile?): GraphLayoutCompoundGraphState {
+    fun child_layout_override_changes_local_level_spacing() {
+        fun createState(childLayout: SugiyamaChildLayout?): GraphLayoutCompoundGraphState {
             val root = GraphLayoutCompoundGraph(
                 id = "root",
-                layoutProfile = CompoundLayoutProfile.HIERARCHY_BIASED
+                childLayout = SugiyamaChildLayout.HIERARCHY_BIASED
             )
             root.nodes["Container"] = GraphLayoutCompoundNode(id = "Container", widthHint = 260.0, heightHint = 170.0)
 
             val child = GraphLayoutCompoundGraph(
                 id = "Container",
-                layoutProfile = childProfile
+                childLayout = childLayout
             )
             child.nodes["A"] = GraphLayoutCompoundNode(id = "A", widthHint = 90.0, heightHint = 48.0)
             child.nodes["B"] = GraphLayoutCompoundNode(id = "B", widthHint = 90.0, heightHint = 48.0)
             child.edges["e_ab"] = GraphLayoutCompoundEdge(id = "e_ab", sourceId = "A", targetId = "B")
             root.children[child.id] = child
 
-            return GraphLayoutCompoundGraphState(id = "profile_$childProfile", root = root)
+            return GraphLayoutCompoundGraphState(id = "profile_$childLayout", root = root)
         }
 
-        val inherited = CompoundLayoutEngine().layout(createState(childProfile = null))
-        val compact = CompoundLayoutEngine().layout(createState(childProfile = CompoundLayoutProfile.COMPACT))
+        val inherited = CompoundLayoutEngine().layout(createState(childLayout = null))
+        val compact = CompoundLayoutEngine().layout(createState(childLayout = SugiyamaChildLayout.COMPACT))
 
         val inheritedA = assertNotNull(inherited.nodeLayoutsById["A"])
         val inheritedB = assertNotNull(inherited.nodeLayoutsById["B"])
@@ -136,7 +136,7 @@ class test_CompoundRecursiveLayout {
         assertTrue(compactDeltaY < inheritedDeltaY)
 
         val childGraphLayout = assertNotNull(compact.graphLayoutsById["Container"])
-        assertEquals(CompoundLayoutProfile.COMPACT, childGraphLayout.profile)
+        assertEquals(SugiyamaChildLayout.COMPACT, childGraphLayout.childLayout)
     }
 
     @Test

@@ -1,6 +1,6 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
-import net.akehurst.kotlin.components.layout.graph.CompoundLayoutEngine
+import net.akehurst.kotlin.compose.layout.graph.CompoundLayoutEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

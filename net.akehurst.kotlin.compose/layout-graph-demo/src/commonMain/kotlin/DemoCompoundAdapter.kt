@@ -1,6 +1,6 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
-import net.akehurst.kotlin.components.layout.graph.*
+import net.akehurst.kotlin.compose.layout.graph.*
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     val root = GraphLayoutCompoundGraph(id = "root")
@@ -17,7 +17,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             val childLayout = containerNode?.childLayout
             val isRegionContainer = containerNode
                 ?.containerId
-                ?.let { parentId -> nodesById[parentId]?.childLayout == ChildLayout.TESSELLATE }
+                ?.let { parentId -> nodesById[parentId]?.childLayout == TessellateChildLayout }
                 ?: false
             graphById[containerId] = GraphLayoutCompoundGraph(
                 id = containerId,

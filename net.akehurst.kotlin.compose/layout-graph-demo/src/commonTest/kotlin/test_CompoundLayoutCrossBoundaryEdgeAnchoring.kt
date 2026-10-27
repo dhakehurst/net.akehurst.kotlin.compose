@@ -1,7 +1,7 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
-import net.akehurst.kotlin.components.layout.graph.CompoundLayoutEngine
-import net.akehurst.kotlin.components.layout.graph.CompoundNodeLayout
+import net.akehurst.kotlin.compose.layout.graph.CompoundLayoutEngine
+import net.akehurst.kotlin.compose.layout.graph.CompoundNodeLayout
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -76,14 +76,14 @@ class test_CompoundLayoutCrossBoundaryEdgeAnchoring {
         assertTrue(isOnRectBoundary(route.last(), target), "route end should be on target boundary")
     }
 
-    // ── deep nesting: LeafB → External (one level up) ──────────────────────
+    // ── deep nesting: LeafB → "In Level1" (one level up) ──────────────────────
 
     @Test
     fun deep_nesting_direct_edge_uses_only_endpoints() {
         val result = engine.layout(DemoScenarios.deepNesting.toCompoundGraphState())
         val route = result.edgeRoutesByEdgeId.getValue("e_deep_2")
         val source = result.nodeLayoutsById.getValue("LeafB")
-        val target = result.nodeLayoutsById.getValue("External")
+        val target = result.nodeLayoutsById.getValue("In Level1")
         assertEquals(2, route.size, "direct routing should use only source and target endpoints")
         assertTrue(isOnRectBoundary(route.first(), source), "source endpoint must be on source boundary")
         assertTrue(isOnRectBoundary(route.last(), target), "target endpoint must be on target boundary")

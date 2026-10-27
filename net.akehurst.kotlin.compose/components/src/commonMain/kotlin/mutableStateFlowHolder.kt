@@ -30,9 +30,35 @@ import kotlin.coroutines.EmptyCoroutineContext
 
 interface MutableStateFlowHolderComposite {
     /**
-     * Flow of Pair( path, value )
+     * Flow of Pair( path, value ).
+     * When collected, it first emits the current values, then each change.
      */
     val contentFlow: Flow<CompositeEvent>
+
+    /**
+     * Like [contentFlow], but without the events for the values that are current
+     * when this property is read. Used by [OnUpdatedStart.CHANGES_ONLY].
+     *
+     * The default can't tell current values from changes, so it returns [contentFlow].
+     * Override it to skip the current values.
+     */
+    val changesFlow: Flow<CompositeEvent> get() = contentFlow
+}
+
+/**
+ * What `onUpdated` reports when it starts.
+ */
+enum class OnUpdatedStart {
+    /** First report the current values, then each later change. */
+    CURRENT_VALUES_FIRST,
+
+    /** Report only the changes made after `onUpdated` is called. */
+    CHANGES_ONLY,
+}
+
+private fun MutableStateFlowHolderComposite.flowFor(start: OnUpdatedStart) = when (start) {
+    OnUpdatedStart.CURRENT_VALUES_FIRST -> contentFlow
+    OnUpdatedStart.CHANGES_ONLY -> changesFlow
 }
 
 data class CompositeEvent(
@@ -48,16 +74,25 @@ class MutableStateFlowHolder<T : Any?>(initialValue: T): MutableStateFlowHolderC
 
     val stateFlow = _mutableStateFlow.asStateFlow()
     val value get() = _mutableStateFlow.value
-    override val contentFlow get() = stateFlow.flatMapMerge { fel ->
-        when (fel) {
-            is MutableStateFlowHolderComposite -> fel.contentFlow.map { (ck, cv) ->
-                CompositeEvent( ck, cv)
-            }
+    override val contentFlow get() = stateFlow.flatMapLatest { fel -> eventsFor(fel) }
 
-            else -> flowOf(
-                CompositeEvent(listOf(), fel)
-            )
+    override val changesFlow: Flow<CompositeEvent>
+        get() {
+            // Read the current state now, so changes made before collection starts are still reported.
+            val initial = stateFlow.value
+            val initialChanges = (initial as? MutableStateFlowHolderComposite)?.changesFlow
+            return stateFlow.withIndex().flatMapLatest { (idx, fel) ->
+                when {
+                    idx == 0 && fel is MutableStateFlowHolderComposite && fel === initial -> initialChanges!!
+                    idx == 0 && fel !is MutableStateFlowHolderComposite && fel == initial -> emptyFlow()
+                    else -> eventsFor(fel)
+                }
+            }
         }
+
+    private fun eventsFor(fel: T): Flow<CompositeEvent> = when (fel) {
+        is MutableStateFlowHolderComposite -> fel.contentFlow
+        else -> flowOf(CompositeEvent(listOf(), fel))
     }
 
     fun update(provider: (T) -> T) {
@@ -69,13 +104,16 @@ class MutableStateFlowHolder<T : Any?>(initialValue: T): MutableStateFlowHolderC
     @Composable
     fun collectAsState() = stateFlow.collectAsState()
 
-    fun onUpdated(scope: CoroutineScope, action: suspend (CompositeEvent) -> Unit) {
+    /**
+     * Calls [action] for each update. [start] says whether the current values are reported first,
+     * or only the changes made after this call.
+     */
+    fun onUpdated(scope: CoroutineScope, start: OnUpdatedStart = OnUpdatedStart.CHANGES_ONLY, action: suspend (CompositeEvent) -> Unit) {
+        val flow = flowFor(start)
         scope.launch {
-            contentFlow
-                .shareIn(scope, SharingStarted.Eagerly, 0)
-                .collect {
-                    action.invoke(it)
-                }
+            flow.collect {
+                action.invoke(it)
+            }
         }
     }
 }
@@ -90,26 +128,27 @@ class MutableStateFlowHolderList<E : Any?>(initialValue: List<E>) : MutableState
     val value get() = _listFlow.value.map { v -> v.value }
     val listStateFlow = _listFlow.stateFlow
     override val contentFlow: Flow<CompositeEvent>
-        get() = listStateFlow
-            .flatMapLatest { list ->
-                if (list.isEmpty()) {
-                    emptyFlow()
-                } else {
-                    list.mapIndexed { idx, el ->
-                        el.stateFlow.flatMapMerge { fel ->
-                            when (fel) {
-                                is MutableStateFlowHolderComposite -> fel.contentFlow.map { (ck, cv) ->
-                                    CompositeEvent(listOf(idx) + ck, cv)
-                                }
+        get() = listStateFlow.flatMapLatest { list -> eventsFor(list.map { it.contentFlow }) }
 
-                                else -> flowOf(
-                                    CompositeEvent(listOf(idx), fel)
-                                )
-                            }
-                        }
-                    }.merge()
+    override val changesFlow: Flow<CompositeEvent>
+        get() {
+            // Read the current state now, so changes made before collection starts are still reported.
+            val initial = listStateFlow.value
+            val initialChanges = initial.map { it.changesFlow }
+            return listStateFlow.withIndex().flatMapLatest { (idx, list) ->
+                when {
+                    idx == 0 && list === initial -> eventsFor(initialChanges)
+                    else -> eventsFor(list.map { it.contentFlow })
                 }
             }
+        }
+
+    private fun eventsFor(elementFlows: List<Flow<CompositeEvent>>): Flow<CompositeEvent> = when {
+        elementFlows.isEmpty() -> emptyFlow()
+        else -> elementFlows.mapIndexed { idx, f ->
+            f.map { (ck, cv) -> CompositeEvent(listOf(idx) + ck, cv) }
+        }.merge()
+    }
 
     fun update(index: Int, provider: (E?) -> E) {
         val size = _listFlow.value.size
@@ -129,20 +168,38 @@ class MutableStateFlowHolderList<E : Any?>(initialValue: List<E>) : MutableState
         }
     }
 
+    /**
+     * Replace the whole content with the result of [provider].
+     * Existing elements are updated in place, extra elements are appended,
+     * and elements beyond the new size are removed.
+     */
     fun updateAll(provider: (List<E>) -> List<E>) {
-        provider.invoke(value).forEachIndexed { idx, v ->
+        val newValues = provider.invoke(value)
+        newValues.forEachIndexed { idx, v ->
             update(idx) { v }
         }
+        if (newValues.size < _listFlow.value.size) {
+            _listFlow.update { v -> v.subList(0, newValues.size).toList() }
+        }
+    }
+
+    fun removeAt(index: Int) {
+        val size = _listFlow.value.size
+        if (index < 0 || index >= size) error("Invalid index for MutableStateFlowHolderList $index, size is ${size}")
+        _listFlow.update { v -> v.filterIndexed { i, _ -> i != index } }
     }
 
     @Composable
     fun collectAsState() = listStateFlow.collectAsState()
 
-    fun onUpdated(scope: CoroutineScope, action: suspend (List<E>, CompositeEvent) -> Unit) {
+    /**
+     * Calls [action] with the current list for each update. [start] says whether the current values
+     * are reported first, or only the changes made after this call.
+     */
+    fun onUpdated(scope: CoroutineScope, start: OnUpdatedStart = OnUpdatedStart.CHANGES_ONLY, action: suspend (List<E>, CompositeEvent) -> Unit) {
+        val flow = flowFor(start)
         scope.launch(EmptyCoroutineContext + CoroutineName("Element UpdateNotifier for MutableStateFlowHolderList ${this.hashCode()}")) {
-            contentFlow
-                .shareIn(this, SharingStarted.Eagerly, 0) // use values from now onwards
-                .collect { e ->
+            flow.collect { e ->
                     action.invoke(value,  e)
                 }
         }
@@ -159,22 +216,28 @@ class MutableStateFlowHolderMap<K : Any, V>(initialValue: Map<K, V>) : MutableSt
 
     val value get() = _mapStateFlow.value.entries.associate { (k, v) -> Pair(k, v.value) }
     val mapStateFlow = _mapStateFlow.stateFlow
-    override val contentFlow
-        get() = mapStateFlow
-            .flatMapLatest { map ->
-                if (map.isEmpty()) {
-                    emptyFlow()
-                } else {
-                    map.map { (k, v) ->
-                        v.stateFlow.flatMapMerge { el ->
-                            when {
-                                el is MutableStateFlowHolderComposite -> el.contentFlow.map { (ck, cv) -> CompositeEvent(listOf(k) + ck, cv) }
-                                else -> flowOf(CompositeEvent(listOf(k), el))
-                            }
-                        }
-                    }.merge()
+    override val contentFlow: Flow<CompositeEvent>
+        get() = mapStateFlow.flatMapLatest { map -> eventsFor(map.mapValues { (_, v) -> v.contentFlow }) }
+
+    override val changesFlow: Flow<CompositeEvent>
+        get() {
+            // Read the current state now, so changes made before collection starts are still reported.
+            val initial = mapStateFlow.value
+            val initialChanges = initial.mapValues { (_, v) -> v.changesFlow }
+            return mapStateFlow.withIndex().flatMapLatest { (idx, map) ->
+                when {
+                    idx == 0 && map === initial -> eventsFor(initialChanges)
+                    else -> eventsFor(map.mapValues { (_, v) -> v.contentFlow })
                 }
             }
+        }
+
+    private fun eventsFor(entryFlows: Map<K, Flow<CompositeEvent>>): Flow<CompositeEvent> = when {
+        entryFlows.isEmpty() -> emptyFlow()
+        else -> entryFlows.map { (k, f) ->
+            f.map { (ck, cv) -> CompositeEvent(listOf(k) + ck, cv) }
+        }.merge()
+    }
 
     operator fun get(key: K) = _mapStateFlow.value[key]
 
@@ -188,20 +251,39 @@ class MutableStateFlowHolderMap<K : Any, V>(initialValue: Map<K, V>) : MutableSt
         }
     }
 
+    /**
+     * Replace the whole content with the result of [provider].
+     * Existing entries are updated in place, new keys are added,
+     * and keys not in the result are removed.
+     */
     fun updateAll(provider: (Map<K, V>) -> Map<K, V>) {
-        provider.invoke(value).entries.forEach { (k, v) ->
+        val newMap = provider.invoke(value)
+        newMap.entries.forEach { (k, v) ->
             update(k) { v }
+        }
+        val removedKeys = _mapStateFlow.value.keys - newMap.keys
+        if (removedKeys.isNotEmpty()) {
+            _mapStateFlow.update { v -> v - removedKeys }
+        }
+    }
+
+    fun remove(key: K) {
+        if (_mapStateFlow.value.containsKey(key)) {
+            _mapStateFlow.update { v -> v - key }
         }
     }
 
     @Composable
     fun collectAsState() = mapStateFlow.collectAsState()
 
-    fun onUpdated(scope: CoroutineScope, action: suspend (Map<K, V>, CompositeEvent) -> Unit) {
+    /**
+     * Calls [action] with the current map for each update. [start] says whether the current values
+     * are reported first, or only the changes made after this call.
+     */
+    fun onUpdated(scope: CoroutineScope, start: OnUpdatedStart = OnUpdatedStart.CHANGES_ONLY, action: suspend (Map<K, V>, CompositeEvent) -> Unit) {
+        val flow = flowFor(start)
         scope.launch(EmptyCoroutineContext + CoroutineName("Element UpdateNotifier for MutableStateFlowHolderMap ${this.hashCode()}")) {
-            contentFlow
-                .shareIn(this, SharingStarted.Eagerly, 0) // use values from now onwards
-                .collect { e ->
+            flow.collect { e ->
                     action.invoke(value, e)
                 }
         }

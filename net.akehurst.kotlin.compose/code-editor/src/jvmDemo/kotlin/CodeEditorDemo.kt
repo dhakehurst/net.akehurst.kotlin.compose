@@ -36,7 +36,6 @@ import net.akehurst.kotlin.compose.editor.api.*
 import net.akehurst.kotlin.compose.editor.api.simple.EditorSegmentStyleSimple
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.test.Test
 
 data class AcItem(
     override val text: String
@@ -50,7 +49,7 @@ data class AcItem(
     }
 }
 
-class test_CodeEditor {
+class CodeEditorDemo {
     /*
         @Test
         fun main1() {
@@ -119,7 +118,6 @@ class test_CodeEditor {
     */
 
     @OptIn(ExperimentalTextApi::class, ExperimentalAtomicApi::class)
-    @Test
     fun main() {
         val initialText = """
                     \red{Hello} \blue{World}
@@ -276,3 +274,5 @@ class test_CodeEditor {
     }
 
 }
+
+fun main() = CodeEditorDemo().main()

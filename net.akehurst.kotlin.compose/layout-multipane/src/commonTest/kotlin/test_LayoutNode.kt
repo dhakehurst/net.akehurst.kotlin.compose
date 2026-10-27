@@ -1,6 +1,7 @@
 package net.akehurst.kotlin.compose.layout.multipane
 
 import net.akehurst.kotlin.compose.components.SplitOrientation
+import net.akehurst.kotlinx.utils.UniqueIdentityGenerator
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,7 +11,8 @@ class test_LayoutNode {
 
     @BeforeTest
     fun before() {
-      //  LayoutNode.next = 0
+        // a fresh generator per test, so generated ids don't depend on test order
+        LayoutNode.idGenerator = UniqueIdentityGenerator()
     }
 
     @Test
@@ -206,8 +208,8 @@ class test_LayoutNode {
 
         //then
         val expected = layoutNode {
-            split(id="id1", orientation = SplitOrientation.Vertical) {
-                tabbed(weight = 0.5f,id = "id0",) {
+            split(id="split_0", orientation = SplitOrientation.Vertical) {
+                tabbed(weight = 0.5f,id = "tabbed_0",) {
                     pane(id = "pane_new", title = "Pane B") { }
                 }
                 tabbed(weight = 0.5f,id = "tabbed_1",) {
@@ -233,11 +235,11 @@ class test_LayoutNode {
 
         //then
         val expected = layoutNode {
-            split(id="id1", orientation = SplitOrientation.Horizontal) {
+            split(id="split_0", orientation = SplitOrientation.Horizontal) {
                 tabbed(weight = 0.5f,id = "tabbed_1",) {
                     pane(id = "pane_1_1", title = "Pane A") { }
                 }
-                tabbed(weight = 0.5f,id = "id0",) {
+                tabbed(weight = 0.5f,id = "tabbed_0",) {
                     pane(id = "pane_new", title = "Pane B") { }
                 }
             }
@@ -260,11 +262,11 @@ class test_LayoutNode {
 
         //then
         val expected = layoutNode {
-            split(id="id1", orientation = SplitOrientation.Vertical) {
+            split(id="split_0", orientation = SplitOrientation.Vertical) {
                 tabbed(weight = 0.5f,id = "tabbed_1",) {
                     pane(id = "pane_1_1", title = "Pane A") { }
                 }
-                tabbed(weight = 0.5f,id = "id0",) {
+                tabbed(weight = 0.5f,id = "tabbed_0",) {
                     pane(id = "pane_new", title = "Pane B") { }
                 }
             }
@@ -287,8 +289,8 @@ class test_LayoutNode {
 
         //then
         val expected = layoutNode {
-            split(id="id1", orientation = SplitOrientation.Horizontal) {
-                tabbed(weight = 0.5f,id = "id0",) {
+            split(id="split_0", orientation = SplitOrientation.Horizontal) {
+                tabbed(weight = 0.5f,id = "tabbed_0",) {
                     pane(id = "pane_new", title = "Pane B") { }
                 }
                 tabbed(weight = 0.5f,id = "tabbed_1",) {
@@ -314,7 +316,8 @@ class test_LayoutNode {
             val actual = layout.insertPaneIntoLayout(newPane, dropTarget)
         } catch (t:Throwable) {
             assertTrue (t is IllegalStateException)
-            assertEquals("Cannot Reorder a pane into a tabbed container: DropTarget.Reorder BEFORE tabbed_1 pane_1_1 RectInWindow(value=Rect.fromLTRB(0.0, 0.0, 0.0, 0.0))", t.message)
+            // the Rect part of the message is printed differently on JVM ("0.0") and JS ("0"), so build it from RectInWindow.Zero
+            assertEquals("Cannot Reorder a pane into a tabbed container: DropTarget.Reorder BEFORE tabbed_1 pane_1_1 ${RectInWindow.Zero}", t.message)
         }
         //then
 
@@ -342,8 +345,8 @@ class test_LayoutNode {
         //then
         val expected = layoutNode {
             split(id="split_1", orientation = SplitOrientation.Horizontal) {
-                split(weight=0.5f,id="id1", orientation = SplitOrientation.Vertical) {
-                    tabbed(weight = 0.5f, id = "id0",) {
+                split(weight=0.5f,id="split_0", orientation = SplitOrientation.Vertical) {
+                    tabbed(weight = 0.5f, id = "tabbed_0",) {
                         pane(id = "pane_new", title = "Pane C") { }
                     }
                     tabbed(weight = 0.5f, id = "tabbed_1_1",) {
@@ -380,11 +383,11 @@ class test_LayoutNode {
         //then
         val expected = layoutNode {
             split(id="split_1", orientation = SplitOrientation.Horizontal) {
-                split(weight=0.5f,id="id1", orientation = SplitOrientation.Horizontal) {
+                split(weight=0.5f,id="split_0", orientation = SplitOrientation.Horizontal) {
                     tabbed(weight = 0.5f, id = "tabbed_1_1",) {
                         pane(id = "pane_1_1_1", title = "Pane A") { }
                     }
-                    tabbed(weight = 0.5f, id = "id0",) {
+                    tabbed(weight = 0.5f, id = "tabbed_0",) {
                         pane(id = "pane_new", title = "Pane C") { }
                     }
                 }
@@ -418,11 +421,11 @@ class test_LayoutNode {
         //then
         val expected = layoutNode {
             split(id="split_1", orientation = SplitOrientation.Horizontal) {
-                split(weight=0.5f,id="id1", orientation = SplitOrientation.Vertical) {
+                split(weight=0.5f,id="split_0", orientation = SplitOrientation.Vertical) {
                     tabbed(weight = 0.5f, id = "tabbed_1_1",) {
                         pane(id = "pane_1_1_1", title = "Pane A") { }
                     }
-                    tabbed(weight = 0.5f, id = "id0",) {
+                    tabbed(weight = 0.5f, id = "tabbed_0",) {
                         pane(id = "pane_new", title = "Pane C") { }
                     }
                 }
@@ -456,8 +459,8 @@ class test_LayoutNode {
         //then
         val expected = layoutNode {
             split(id="split_1", orientation = SplitOrientation.Horizontal) {
-                split(weight=0.5f,id="id1", orientation = SplitOrientation.Horizontal) {
-                    tabbed(weight = 0.5f, id = "id0",) {
+                split(weight=0.5f,id="split_0", orientation = SplitOrientation.Horizontal) {
+                    tabbed(weight = 0.5f, id = "tabbed_0",) {
                         pane(id = "pane_new", title = "Pane C") { }
                     }
                     tabbed(weight = 0.5f, id = "tabbed_1_1",) {

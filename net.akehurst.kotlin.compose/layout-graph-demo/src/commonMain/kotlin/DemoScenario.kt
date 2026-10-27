@@ -1,9 +1,9 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
 import androidx.compose.runtime.Composable
-import net.akehurst.kotlin.components.layout.graph.ChildLayout
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
-import net.akehurst.kotlin.components.layout.graph.PaddingHint
+import net.akehurst.kotlin.compose.layout.graph.ChildLayoutAlgorithm
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
+import net.akehurst.kotlin.compose.layout.graph.PaddingHint
 
 /**
  * Deterministic IDs are required so visual comparisons stay stable between runs.
@@ -26,7 +26,7 @@ data class DemoNode(
     /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
     val defaultCollapsed: Boolean = false,
     /** Optional layout strategy for this node's immediate children. */
-    val childLayout: ChildLayout? = null,
+    val childLayout: ChildLayoutAlgorithm? = null,
     val content: (@Composable (@Composable () -> Unit) -> Unit)
 )
 

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import net.akehurst.kotlin.compose.components.SplitOrientation
 import net.akehurst.kotlin.compose.components.Splitter
+import net.akehurst.kotlinx.logging.api.logger
 import kotlin.math.roundToInt
 
 data class RectInWindow(val value: Rect) {
@@ -99,6 +100,8 @@ data class DragState(
  * CompositionLocal to provide and consume the global drag state.
  * This now correctly provides a MutableState<DragState>.
  */
+private val log = logger("MultiPaneLayout")
+
 val LocalDragState: ProvidableCompositionLocal<MutableState<DragState?>> = compositionLocalOf { mutableStateOf(null) }
 
 /**
@@ -180,7 +183,8 @@ fun MultiPaneLayout(
     modifier: Modifier = Modifier,
     splitterThickness: Dp = 8.dp
 ) {
-    var state by remember { mutableStateOf(layoutState) }
+    // use the caller's state directly, so a different layoutState passed later takes effect
+    val state = layoutState
     // dragState is now the MutableState<DragState> object
     val dragState: MutableState<DragState?> = remember { mutableStateOf(null) }
 
@@ -273,8 +277,7 @@ fun MultiPaneLayout(
                                     dropTarget = dt
                                 )
                             } catch (e: Exception) {
-                                println("ERROR in applyDrop: ${e.message}")
-                                e.printStackTrace()
+                                log.logError(e) { "applyDrop failed: ${e.message}" }
                             }
                         }
                     }
@@ -957,7 +960,7 @@ private fun LayoutNodeRenderer(
                                                 onDragStart = { initialTouchOffsetInSurface ->
                                                     val tabCoords = tabCoordinates[idx]
                                                     if (tabCoords == null) {
-                                                        println("ERROR: dragHandleCoordinates is null on drag start for pane ${pane.id}")
+                                                        log.logWarning { "dragHandleCoordinates is null on drag start for pane ${pane.id}" }
                                                         return@detectDragGestures // Cannot proceed without coordinates
                                                     }
                                                     // Get the absolute screen position of where the touch started
@@ -980,7 +983,7 @@ private fun LayoutNodeRenderer(
                                                 onDrag = { change: PointerInputChange, _: Offset ->
                                                     val tabCoords = tabCoordinates[idx]
                                                     if (tabCoords == null) {
-                                                        println("ERROR: dragHandleCoordinates is null on drag for pane ${pane.id}")
+                                                        log.logWarning { "dragHandleCoordinates is null on drag for pane ${pane.id}" }
                                                         return@detectDragGestures // Cannot proceed without coordinates
                                                     }
                                                     val currentScreenPosition = OffsetInScreen(tabCoords.localToScreen(change.position))

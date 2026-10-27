@@ -21,14 +21,15 @@
 - Remaining high-risk items: cross-hierarchy edge routing quality, profile tuning trade-offs (compactness vs readability), and incremental recompute boundaries.
 - Region-layout refinements now captured: tessellated region fill behavior, single-divider border rendering, reduced boundary-hop routing for sibling-region transitions, and per-container child-layout inheritance.
 - Container presentation intent captured: child-content origin and insets are measured from Compose child-host placement; legacy model geometry fields (`childContentOffsetX/Y`, `padding`, `headerHeight`) are removed.
-- **Node position/size contract clarified (implemented):** Caller-supplied `x`/`y` fields are removed from the demo node DTO — position is exclusively algorithm output. `widthHint`/`heightHint` on `GraphLayoutCompoundNode` are optional; the engine falls back to `CompoundLayoutConfig.defaultNodeWidth/Height` when not provided. Container size is computed from child bounds + Compose-measured insets, with `widthHint`/`heightHint` acting as a lower-bound floor. `DemoNode.x`, `DemoNode.y`, `DemoNode.width`, and `DemoNode.height` are replaced by `DemoNode.widthHint: Float?` and `DemoNode.heightHint: Float?`. The adapter-side `normalizeRegionTiles()` pre-computation (which depended on explicit container dimensions) is removed; tessellated tiling is owned entirely by the engine's `TESSELLATE` layout strategy.
+- **Node position/size contract clarified (implemented):** Caller-supplied `x`/`y` fields are removed from the demo node DTO — position is exclusively algorithm output. `widthHint`/`heightHint` on `GraphLayoutCompoundNode` are optional; the engine falls back to `CompoundLayoutConfig.defaultNodeWidth/Height` when not provided. Container size is computed from child bounds + Compose-measured insets, with `widthHint`/`heightHint` acting as a lower-bound floor. `DemoNode.x`, `DemoNode.y`, `DemoNode.width`, and `DemoNode.height` are replaced by `DemoNode.widthHint: Float?` and `DemoNode.heightHint: Float?`. The adapter-side `normalizeRegionTiles()` pre-computation (which depended on explicit container dimensions) is removed; tessellated tiling is owned entirely by the engine's `TessellateChildLayout` algorithm.
+- **Pluggable child layout (implemented 2026-10-27):** the `ChildLayout` and `CompoundLayoutProfile` enums are replaced by `ChildLayoutAlgorithm`, a `fun interface` the caller passes in via `GraphLayoutCompoundGraph.childLayout` or `CompoundLayoutConfig.defaultChildLayout`. Built-in implementations are `SugiyamaChildLayout` (with the former profiles as companion presets) and `TessellateChildLayout`. `CompoundGraphLayout.profile` is now `CompoundGraphLayout.childLayout`.
 - **Deterministic first-pass container metrics implemented:** when Compose has not yet measured a container child host, the engine now uses fallback child-host metrics `(originX=12, originY=24, insetRight=12, insetBottom=12)` for containers with visible children. This prevents first-pass layouts from collapsing child content flush against container boundaries and stabilizes demo scenarios such as `single_container_two_nodes` and nested state-like regions until measured metrics arrive.
 
 ## Research and yFiles-inspired constraints (applies to all steps)
 - Keep core layout domain-agnostic; map UML/statechart/package semantics before entering layout.
 - Treat containment as inclusion-tree structure only; never infer containment from adjacency edges.
 - Let each container optionally choose the layout for its immediate children; inherit the effective child layout from the parent when unspecified.
-- Support at least `GRAPH` (default) and `TESSELLATE` child-layout modes.
+- Child layout is a pluggable `ChildLayoutAlgorithm` passed in by the caller. Built-in: `SugiyamaChildLayout` (default) and `TessellateChildLayout`.
 - Preserve hierarchy direction per local level; apply stable tie-breakers by ID in every ordering phase.
 - Use Sugiyama-style per-level flow (`cycle removal -> layering -> dummy insertion -> crossing reduction -> coordinate assignment -> routing`) and keep child graphs atomic at parent levels.
 - Incorporate yFiles-like profile behavior: hierarchical default, orthogonal-biased routing, compact mode, and tree/series-parallel bias where graph metrics indicate suitability.
@@ -90,7 +91,7 @@ Goal: introduce data model without breaking current callers.
 Deliverables:
 - Compound graph structures in `commonMain`.
 - Containment represented as ownership/inclusion tree (not routable edge kind).
-- Per-container child-layout field with inheritance semantics (`GRAPH` default at root, `TESSELLATE` optional per container).
+- Per-container child-layout field with inheritance semantics (`SugiyamaChildLayout.DEFAULT` at root, `TessellateChildLayout` or any other `ChildLayoutAlgorithm` optional per container).
 - Core compound model excludes container geometry hint fields (`childContentOffsetX/Y`, `padding`, `headerHeight`).
 - Adapter from existing flat graph API to compound model.
 - Caller-facing compound state preserves Compose rendering content for nodes and edges, keyed by stable IDs; node content may render nested children, and edge content may define start/end symbols plus text labels positioned at the start, middle, or end of a route.
@@ -133,7 +134,7 @@ Goal: integrate level layout while treating child graphs as atomic nodes.
 Deliverables:
 - Parent-level graph built from atomic child placeholders.
 - Existing Sugiyama-style steps reused per level where possible.
-- `GRAPH` child layout uses the graph-oriented local pipeline; `TESSELLATE` child layout uses deterministic tiling for immediate children.
+- `SugiyamaChildLayout` uses the graph-oriented local pipeline; `TessellateChildLayout` uses deterministic tiling for immediate children.
 - Crossing reduction uses deterministic barycenter/median-style ordering with ID tie-breakers.
 - Long edges are expanded with dummy nodes at each local level.
 - Per-level algorithm/profile selection supported: inherit parent profile by default, allow explicit override for child graphs.
@@ -165,7 +166,7 @@ Deliverables:
   - Fixed boundary epsilon (`1e-6`) and normalized near-zero output.
   - Corner/degenerate tie-break side order: `RIGHT, BOTTOM, LEFT, TOP`.
   - Parallel-edge endpoint slotting based on stable edge ID ordering.
-- Routing profile presets (`DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT`, `CHANNEL_BIASED`) with deterministic fallback behavior.
+- Routing profile presets (`DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT`, `CHANNEL_BIASED`) with deterministic fallback behavior. These are now `SugiyamaChildLayout` companion presets (the `CompoundLayoutProfile` enum was removed).
 
 Live demo update:
 - `DemoApp.kt`: edges between nodes in different containers visually attach at container boundaries rather than passing through them.
@@ -206,7 +207,7 @@ Deliverables:
 - Profile presets wired and tuned: `genericCompound`, `hierarchyBiased`, `orthogonalBiased`, `compact`, `treeLikeSeriesParallel`.
 - Spacing/alignment tuning guided by UML-like and state-like scenarios.
 - Region-based tessellation tuning:
-  - when a container selects `TESSELLATE`, use deterministic row-major tiling that fills container content area
+  - when a container selects `TessellateChildLayout`, use deterministic row-major tiling that fills container content area
   - normalize region child bounds to tile bounds (author hints are advisory)
   - render shared region seams as single divider lines
 - Routing refinement discovered during live review:

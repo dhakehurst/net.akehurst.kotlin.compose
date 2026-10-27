@@ -26,11 +26,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
 
+/**
+ * A dialog asking for a single line of text.
+ * @param label optional label shown in the text field; no label when null
+ */
 @Composable
 fun TextInputDialog(
     title: String,
     onDismissRequest: () -> Unit,
-    onConfirmation: (String) -> Unit
+    onConfirmation: (String) -> Unit,
+    label: String? = null,
 ) {
     // State to hold the text inside the TextField
     var inputText by remember { mutableStateOf("") }
@@ -42,7 +47,7 @@ fun TextInputDialog(
             OutlinedTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
-                label = { Text("Identity") },
+                label = label?.let { { Text(it) } },
                 singleLine = true,
             )
         },
