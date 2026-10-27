@@ -42,7 +42,6 @@ import kotlin.math.sqrt
 import kotlin.math.absoluteValue
 import kotlin.math.exp
 import androidx.compose.foundation.Canvas
-import androidx.compose.ui.layout.Placeable
 import kotlin.math.min
 
 // ── Error indicator defaults ────────────────────────────────────────────────
@@ -375,8 +374,8 @@ private fun composeLayout(
             )
         )
     }
-    val requiredChildWidth = requiredChildHostWidth(placeables, childNodes, contentOriginX)
-    val requiredChildHeight = requiredChildHostHeight(placeables,childNodes, contentOriginY)
+    val requiredChildWidth = requiredChildHostWidth(placeables.map { it.width.toDouble() }, childNodes, contentOriginX)
+    val requiredChildHeight = requiredChildHostHeight(placeables.map { it.height.toDouble() }, childNodes, contentOriginY)
 
     val layoutWidth = when {
         constraints.hasBoundedWidth -> max(requiredChildWidth.roundToInt(), constraints.maxWidth)
@@ -543,20 +542,26 @@ internal fun resolveContainerChildHostMetrics(
     )
 }
 
+/**
+ * @param childWidths measured width of each child, in the same order as [childNodes]
+ */
 internal fun requiredChildHostWidth(
-    placeables:List<Placeable>,
+    childWidths: List<Double>,
     childNodes: List<CompoundNodeLayout>,
     contentOriginX: Double
 ): Double = childNodes.mapIndexed { index, childNode ->
-    max(0.0, childNode.globalX - contentOriginX) + placeables[index].width.toDouble()
+    max(0.0, childNode.globalX - contentOriginX) + childWidths[index]
 }.maxOrNull() ?: 0.0
 
+/**
+ * @param childHeights measured height of each child, in the same order as [childNodes]
+ */
 internal fun requiredChildHostHeight(
-    placeables:List<Placeable>,
+    childHeights: List<Double>,
     childNodes: List<CompoundNodeLayout>,
     contentOriginY: Double
 ): Double = childNodes.mapIndexed { index, childNode ->
-    max(0.0, childNode.globalY - contentOriginY) + placeables[index].height.toDouble()
+    max(0.0, childNode.globalY - contentOriginY) + childHeights[index]
 }.maxOrNull() ?: 0.0
 
 internal fun zoomAboutPointer(

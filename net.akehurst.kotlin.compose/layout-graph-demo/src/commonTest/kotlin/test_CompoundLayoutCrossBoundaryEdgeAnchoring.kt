@@ -76,14 +76,14 @@ class test_CompoundLayoutCrossBoundaryEdgeAnchoring {
         assertTrue(isOnRectBoundary(route.last(), target), "route end should be on target boundary")
     }
 
-    // ── deep nesting: LeafB → External (one level up) ──────────────────────
+    // ── deep nesting: LeafB → "In Level1" (one level up) ──────────────────────
 
     @Test
     fun deep_nesting_direct_edge_uses_only_endpoints() {
         val result = engine.layout(DemoScenarios.deepNesting.toCompoundGraphState())
         val route = result.edgeRoutesByEdgeId.getValue("e_deep_2")
         val source = result.nodeLayoutsById.getValue("LeafB")
-        val target = result.nodeLayoutsById.getValue("External")
+        val target = result.nodeLayoutsById.getValue("In Level1")
         assertEquals(2, route.size, "direct routing should use only source and target endpoints")
         assertTrue(isOnRectBoundary(route.first(), source), "source endpoint must be on source boundary")
         assertTrue(isOnRectBoundary(route.last(), target), "target endpoint must be on target boundary")
