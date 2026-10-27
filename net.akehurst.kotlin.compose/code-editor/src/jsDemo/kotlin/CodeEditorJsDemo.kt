@@ -27,7 +27,6 @@ import androidx.compose.ui.text.TextDecorationLineStyle
 import androidx.compose.ui.text.style.TextDecoration
 import net.akehurst.kotlin.compose.editor.ComposableCodeEditor
 import net.akehurst.kotlin.compose.editor.api.*
-import kotlin.test.Test
 
 data class AcItem(
     override val text: String
@@ -41,10 +40,10 @@ data class AcItem(
     }
 }
 
-class test_CodeEditor {
+// Moved from jsTest: it needs Skiko's wasm runtime loaded, so it cannot run as a plain test.
+class CodeEditorJsDemo {
 
     @OptIn(ExperimentalTextApi::class)
-    @Test
     fun main() {
         val composeEditor = ComposableCodeEditor(
             initialText = """

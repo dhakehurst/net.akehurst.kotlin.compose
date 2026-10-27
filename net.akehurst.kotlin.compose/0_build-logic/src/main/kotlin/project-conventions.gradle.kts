@@ -115,6 +115,13 @@ kotlin {
             target.set("es2015")
             freeCompilerArgs = listOf("-Xes-long-as-bigint")
         }
+        // JS demos live in src/jsDemo/kotlin, like the JVM ones: not in main (so not published) and not tests.
+        if (project.file("src/jsDemo").exists()) {
+            val main by compilations.getting
+            compilations.create("demo") {
+                associateWith(main)
+            }
+        }
     }
     wasmJs {
         binaries.library()
