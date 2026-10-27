@@ -4,13 +4,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.*
 import androidx.compose.ui.window.singleWindowApplication
 import net.akehurst.kotlin.compose.components.SplitOrientation
-import kotlin.test.Test
 
 
-class test_MultiPaneLayout {
+class MultiPaneLayoutDemo {
 
     @OptIn(ExperimentalMaterial3Api::class)
-    @Test
     fun main() {
         // initial layout
         val lay = layoutNode {
@@ -103,4 +101,4 @@ class test_MultiPaneLayout {
     }
 }
 
-
+fun main() = MultiPaneLayoutDemo().main()

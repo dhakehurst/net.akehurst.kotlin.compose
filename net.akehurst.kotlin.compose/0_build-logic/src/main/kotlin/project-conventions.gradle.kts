@@ -91,6 +91,20 @@ kotlin {
                 }
             }
         }
+        // Window demos live in src/jvmDemo/kotlin: not in main (so not published) and not tests.
+        // Each module registers its own run<Name>Demo tasks.
+        if (project.file("src/jvmDemo").exists()) {
+            compilations.create("demo") {
+                associateWith(main)
+                compileTaskProvider.configure {
+                    compilerOptions {
+                        languageVersion.set(kotlin_languageVersion)
+                        apiVersion.set(kotlin_apiVersion)
+                        jvmTarget.set(jvmTargetVersion)
+                    }
+                }
+            }
+        }
     }
     js {
         binaries.library()

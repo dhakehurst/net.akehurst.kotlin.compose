@@ -26,10 +26,8 @@ import net.akehurst.kotlin.compose.components.tree.TreeView
 import net.akehurst.kotlin.compose.components.tree.TreeViewNode
 import net.akehurst.kotlin.compose.components.tree.TreeViewStateHolder
 import java.awt.Component
-import kotlin.test.Test
 
-class test_TreeView {
-    @Test
+class TreeViewDemo {
     fun main() = application {
         Window(onCloseRequest = ::exitApplication, title = "TreeView Test") {
             MaterialTheme {
@@ -109,3 +107,5 @@ class test_TreeView {
     }
 
 }
+
+fun main() = TreeViewDemo().main()
