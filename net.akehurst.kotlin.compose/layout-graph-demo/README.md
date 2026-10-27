@@ -1,24 +1,20 @@
 # layout-graph-demo
 
-Step 0 demo scaffold for compound graph layout review.
+Compose Desktop demo of the compound graph layout in `layout-graph`. Not published.
 
-## Included in this slice
+## Features
 
-- JVM Compose Desktop entrypoint.
-- Scenario picker with deterministic scenario IDs.
-- Debug overlay toggles for bounds, ports, and edge IDs.
-- Placeholder/static canvas rendering path (no edge routing yet).
+- Scenario picker with fixed scenario IDs (flat chain, nested and sibling containers, collapsed containers, UML-like and state-like diagrams).
+- Live layout using `CompoundGraphLayoutView`.
+- Debug overlay toggles for rendered bounds and endpoints, ports, edge IDs and content origins.
+- Collapse and expand of containers.
 
 ## Run
 
-From the repo root:
+From the `net.akehurst.kotlin.compose/` folder (the Gradle project root):
 
-```zsh
+```sh
 ./gradlew :layout-graph-demo:run
 ```
 
-## Notes
-
-- This is a static baseline to validate review workflow before layout integration.
-- Later steps will add compound-aware layout and routed edges.
-
+The scenario tests are in `src/commonTest` and run with `./gradlew :layout-graph-demo:jvmTest`.
