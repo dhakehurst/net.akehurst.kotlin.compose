@@ -9,7 +9,8 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                implementation(libs.nak.kotlinx.utils)
+                api(libs.nak.kotlinx.utils) // api: LayoutNode.idGenerator is a UniqueIdentityGenerator
+                implementation(libs.nak.kotlinx.logging.api)
 
                 implementation(libs.compose.ui)
                 implementation(libs.compose.foundation)
