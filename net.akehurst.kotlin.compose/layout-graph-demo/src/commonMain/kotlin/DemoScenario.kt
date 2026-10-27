@@ -1,9 +1,9 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
 import androidx.compose.runtime.Composable
-import net.akehurst.kotlin.components.layout.graph.ChildLayout
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
-import net.akehurst.kotlin.components.layout.graph.PaddingHint
+import net.akehurst.kotlin.compose.layout.graph.ChildLayout
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
+import net.akehurst.kotlin.compose.layout.graph.PaddingHint
 
 /**
  * Deterministic IDs are required so visual comparisons stay stable between runs.

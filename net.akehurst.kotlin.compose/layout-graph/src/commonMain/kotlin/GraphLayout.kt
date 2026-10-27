@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph
+package net.akehurst.kotlin.compose.layout.graph
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -259,6 +259,7 @@ fun GraphLayoutView(
         ) {
             var graphLayoutData by remember { mutableStateOf(SugiyamaLayoutData<GraphLayoutNode>()) }
             var actualNodePositions by remember { mutableStateOf<Map<GraphLayoutNode, Pair<Int, Int>>>(emptyMap()) }
+            val layoutCache = remember { GraphLayoutInputCache() }
 
             //layout the nodes
             Layout(
@@ -269,28 +270,35 @@ fun GraphLayoutView(
             ) { measurables, constraints ->
                 val placeables = measurables.map { measurable -> measurable.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
 
-                //TODO: make this somehow derived state
                 val nodes = graphState.nodes
-                val nodesById = graphState.nodesById
-                val sgl = SugiyamaLayout<GraphLayoutNode>(
-                    nodeWidth = { node -> placeables[nodes.indexOf(node)].width.toDouble() },
-                    nodeHeight = { node -> placeables[nodes.indexOf(node)].height.toDouble() },
-                    edgeRouting = routing
+                // only re-run the (expensive) graph layout when its inputs change
+                val layoutInput = listOf(
+                    nodes.map { it.id },
+                    placeables.map { Pair(it.width, it.height) },
+                    graphState.edges.map { Triple(it.id, it.sourceId, it.targetId) },
+                    routing
                 )
-                val edges = graphState.edges.mapNotNull {
-                    val src = nodesById[it.sourceId]
-                    val tgt = nodesById[it.targetId]
-                    src?.let{ tgt?.let {
-                        SugiyamaEdge(it.id,src, tgt)
-                    } }
+                if (layoutInput != layoutCache.input) {
+                    val nodesById = graphState.nodesById
+                    val placeableByNode = nodes.withIndex().associate { (idx, node) -> Pair(node, placeables[idx]) }
+                    val sgl = SugiyamaLayout<GraphLayoutNode>(
+                        nodeWidth = { node -> placeableByNode[node]!!.width.toDouble() },
+                        nodeHeight = { node -> placeableByNode[node]!!.height.toDouble() },
+                        edgeRouting = routing
+                    )
+                    val edges = graphState.edges.mapNotNull {
+                        val src = nodesById[it.sourceId]
+                        val tgt = nodesById[it.targetId]
+                        src?.let { tgt?.let { SugiyamaEdge(it.id, src, tgt) } }
+                    }
+                    graphLayoutData = sgl.layoutGraph(nodes, edges) // cache for use laying out edges
+                    layoutCache.input = layoutInput
                 }
-                graphLayoutData = sgl.layoutGraph(nodes, edges) // cache for use laying out edges
 
                 layout(width = graphLayoutData.totalWidth.roundToInt(), height = graphLayoutData.totalHeight.roundToInt()) {
                     placeables.forEachIndexed { index, placeable ->
                         val node = graphState.nodes[index]
                         val position = graphLayoutData.nodePositions[node]
-                        println("** layout ${node.id} at $position")
                         if (null != position) {
                             placeable.placeRelative(x = position.first.roundToInt(), y = position.second.roundToInt())
                         }
@@ -376,3 +384,7 @@ fun ScalableBox(
     content = content
 )
 
+/** last inputs used for the graph layout, so it is not recomputed on every measure pass */
+private class GraphLayoutInputCache {
+    var input: Any? = null
+}

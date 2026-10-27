@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph
+package net.akehurst.kotlin.compose.layout.graph
 
 import kotlin.math.abs
 import kotlin.math.ceil

@@ -1,6 +1,6 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
-import net.akehurst.kotlin.components.layout.graph.*
+import net.akehurst.kotlin.compose.layout.graph.*
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     val root = GraphLayoutCompoundGraph(id = "root")

@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph
+package net.akehurst.kotlin.compose.layout.graph
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutCompoundGraphState
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutCompoundGraphState
 
 /**
  * Compound graph root state used by the recursive layout pipeline.

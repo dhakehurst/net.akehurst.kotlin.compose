@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.window.Window

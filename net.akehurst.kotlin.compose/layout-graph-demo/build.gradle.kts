@@ -27,6 +27,6 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "net.akehurst.kotlin.components.layout.graph.demo.MainKt"
+        mainClass = "net.akehurst.kotlin.compose.layout.graph.demo.MainKt"
     }
 }

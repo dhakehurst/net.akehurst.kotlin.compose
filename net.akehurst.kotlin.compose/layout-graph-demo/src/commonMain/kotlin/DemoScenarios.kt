@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph.demo
+package net.akehurst.kotlin.compose.layout.graph.demo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,12 +27,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import net.akehurst.kotlin.components.layout.graph.ChildLayout
-import net.akehurst.kotlin.components.layout.graph.EdgeContentPosition
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeContent
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeSymbol
-import net.akehurst.kotlin.components.layout.graph.GraphLayoutEdgeText
-import net.akehurst.kotlin.components.layout.graph.PaddingHint
+import net.akehurst.kotlin.compose.layout.graph.ChildLayout
+import net.akehurst.kotlin.compose.layout.graph.EdgeContentPosition
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeSymbol
+import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeText
+import net.akehurst.kotlin.compose.layout.graph.PaddingHint
 
 object DemoScenarios {
 

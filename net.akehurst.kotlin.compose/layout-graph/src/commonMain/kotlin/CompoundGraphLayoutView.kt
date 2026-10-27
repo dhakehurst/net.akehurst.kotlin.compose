@@ -1,4 +1,4 @@
-package net.akehurst.kotlin.components.layout.graph
+package net.akehurst.kotlin.compose.layout.graph
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
