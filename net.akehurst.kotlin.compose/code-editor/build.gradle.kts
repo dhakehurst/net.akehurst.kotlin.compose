@@ -16,8 +16,9 @@ kotlin {
                 api(libs.material.icons.core)
             }
         }
-        jvmMain {
+        jvmTest {
             dependencies {
+                // OS specific desktop runtime is only needed to run the tests; applications choose their own
                 implementation(compose.desktop.currentOs)
             }
         }

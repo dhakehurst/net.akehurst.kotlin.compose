@@ -42,6 +42,10 @@ fileTree(".") {
     exclude("build.gradle.kts")
     exclude("_buildSrc")
     exclude("0_build-logic")
+    exclude(".gradle-build")
+    exclude(".kotlin")
+    exclude("kotlin-js-store")
+    exclude("**/temp/**")
     include("**/build.gradle.kts")
 }.forEach {
     val prjName = it.parentFile.name

@@ -12,14 +12,15 @@ kotlin {
                 api(libs.nak.kotlinx.collections)
 
                 implementation(project(":components"))
-                implementation(compose.ui)
-                implementation(compose.foundation)
-                implementation(compose.material3)
+                implementation(libs.compose.ui)
+                implementation(libs.compose.foundation)
+                implementation(libs.compose.material3)
                 implementation(libs.material.icons.core)
             }
         }
-        jvmMain {
+        jvmTest {
             dependencies {
+                // OS specific desktop runtime is only needed to run the tests; applications choose their own
                 implementation(compose.desktop.currentOs)
             }
         }

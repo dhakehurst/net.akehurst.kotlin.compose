@@ -5,5 +5,5 @@ plugins {
 }
 
 dependencies {
-    commonMainApi(compose.ui)
+    commonMainApi(libs.compose.ui)
 }
