@@ -12,7 +12,7 @@ import net.akehurst.kotlinx.utils.UniqueIdentityGenerator
  * @param content The Composable content to display inside the pane.
  */
 class Pane(
-    val id: String = UniqueIdentityGenerator.GLOBAL.generate("pane"),
+    val id: String = LayoutNode.idGenerator.generate("pane"),
     val title: String,
     val update: () -> Unit = {},
     val content: @Composable () -> Unit
@@ -38,6 +38,14 @@ class Pane(
  * Represents a node in the layout tree. It can be either a Pane or a Split.
  */
 sealed class LayoutNode {
+
+    companion object {
+        /**
+         * Generates the ids of new nodes and panes that are not given an id.
+         * Tests can set a fresh generator so the ids don't depend on which tests ran before.
+         */
+        var idGenerator: UniqueIdentityGenerator = UniqueIdentityGenerator.GLOBAL
+    }
     /**
      * only the root should ever be empty, otherwise layout nodes are collapsed away
      */
@@ -78,7 +86,7 @@ sealed class LayoutNode {
      * @param weights The proportional sizes of the children. Must match the size of `children`.
      */
     data class Split(
-        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("split"),
+        override val id: String = LayoutNode.idGenerator.generate("split"),
         val orientation: SplitOrientation,
         val children: List<LayoutNode>,
         val weights: List<Float>
@@ -218,7 +226,7 @@ sealed class LayoutNode {
     }
 
     data class Tabbed(
-        override val id: String = UniqueIdentityGenerator.GLOBAL.generate("tabbed"),
+        override val id: String = LayoutNode.idGenerator.generate("tabbed"),
         val children: List<Pane>,
         val selectedTabIndex: Int = 0
     ) : LayoutNode() {
