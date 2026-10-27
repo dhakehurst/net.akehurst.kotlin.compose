@@ -34,16 +34,12 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.*
 import me.saket.extendedspans.drawBehind
-import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
+import net.akehurst.kotlin.compose.editor.CodeViewCore
 import net.akehurst.kotlin.compose.editor.ComposeEditorUtils
-import net.akehurst.kotlin.compose.editor.MarginItemState
 import net.akehurst.kotlin.compose.editor.MarginItemListState
-import net.akehurst.kotlin.compose.editor.MarginItemsStateHolder
 import net.akehurst.kotlin.compose.editor.TextMarkerDefault
-import net.akehurst.kotlin.compose.editor.TextMarkerState
 import net.akehurst.kotlin.compose.editor.annotationMargin
 import net.akehurst.kotlin.compose.editor.api.*
-import kotlin.collections.set
 
 data class CodeViewerState(
     val inputTextFieldState: State<TextFieldState>,
@@ -62,137 +58,72 @@ class CodeViewerStateHolder(
     val defaultTextStyle: SpanStyle = SpanStyle(color = Color.Black, background = Color.White),
 ) : ComposeCodeViewer {
 
-    private val MARGIN_WIDTH = 20.dp
+    private val _core = CodeViewCore(initialText)
 
-    private val _inputTextFieldState = mutableStateFlowHolderOf(TextFieldState(initialText))
-    private val _lineStyles = androidx.compose.runtime.mutableStateMapOf<Int, List<EditorSegmentStyle>>()
+    internal var lastAnnotatedText: AnnotatedString?
+        get() = _core.lastAnnotatedText
+        set(value) {
+            _core.lastAnnotatedText = value
+        }
 
-    internal var lastAnnotatedText: AnnotatedString? = null
-    private val _inputScrollState by mutableStateOf(ScrollState(0))
-
-    // so we can get the annotatedstring
-    private var _lastTextLayoutResult: TextLayoutResult? = null
-
-    private var _viewFirstLine by mutableStateOf(0)
-    private var _viewLastLine by mutableStateOf(0)
-    private var _lineScrollOffset by mutableStateOf(0f)
-    private var _viewFirstLineStartTextPosition by mutableStateOf(0)
-    private var _viewLastLineFinishTextPosition by mutableStateOf(0)
-
-    private val _marginItemsStateHolder = MarginItemsStateHolder()
-
-    private val _textMarkersState by mutableStateOf(TextMarkerState())
     private val _textMarkersVisible by derivedStateOf {
-        _textMarkersState.markers.filter { _viewFirstLineStartTextPosition <= it.position && it.position <= _viewLastLineFinishTextPosition }
-    }
-
-    private val _extendedSpans = me.saket.extendedspans.ExtendedSpans(ComposeEditorUtils.STRAIGHT, ComposeEditorUtils.SQUIGGLY)
-
-    @Composable
-    fun collectAsState(): CodeViewerState {
-        return CodeViewerState(
-            inputTextFieldState = this._inputTextFieldState.collectAsState(),
-            extendedSpans = this._extendedSpans,
-            inputScrollState = this._inputScrollState,
-            lastTextLayoutResult = this._lastTextLayoutResult,
-            viewFirstLine = this._viewFirstLine,
-            viewLastLine = this._viewLastLine,
-            lineScrollOffset = _lineScrollOffset,
-            lineTokens = lineStyles,
-            textMarkersVisible = _textMarkersVisible
-        )
+        _core.textMarkersState.markers.filter { _core.isInView(it.position) }
     }
 
     @Composable
-    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemListState {
-        val visibleItems = _marginItemsStateHolder.stateFlow.collectAsState()
-        return MarginItemListState(
-            marginWidth = MARGIN_WIDTH,
-            visibleItems = visibleItems.value.map { item ->
-                val layoutLine = textLayoutResult?.let { tlr -> ComposeEditorUtils.textLineToLayoutLine(item.lineNumber, tlr) } ?: item.lineNumber
-                val offsetFromTopOfViewport = textLayoutResult?.let { tlr -> ComposeEditorUtils.offsetFromTopOfViewport(layoutLine, viewFirstLine, viewLastLine, lineScrollOffset, tlr) } ?: 0f
-                val detailOffset = textLayoutResult?.let { tlr -> offsetFromTopOfViewport + ComposeEditorUtils.lineHeight(tlr, layoutLine) / 2 } ?: 0f
-                MarginItemState(item, offsetFromTopOfViewport, detailOffset)
-            }
-        )
-    }
+    fun collectAsState(): CodeViewerState = _core.collectViewerState(_textMarkersVisible)
+
+    @Composable
+    fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemListState =
+        _core.collectVisibleMarginItemsAsState(viewFirstLine, viewLastLine, lineScrollOffset, textLayoutResult)
 
     // useful helpers
-    fun setNewText(text: String) {
-        this._inputTextFieldState.update {
-            TextFieldState(text, it.selection)
-        }
-    }
+    fun setNewText(text: String) = _core.setNewText(text)
 
-    fun onInputScroll(i: ScrollState) {
-        if (null != _lastTextLayoutResult) {
-            updateViewDetails(_lastTextLayoutResult!!)
-        }
-    }
+    fun onInputScroll(i: ScrollState) = _core.onInputScroll()
 
-    fun onInputTextLayout(textLayoutResult: TextLayoutResult) {
-        updateViewDetails(textLayoutResult)
-        _lastTextLayoutResult = textLayoutResult
-        _extendedSpans.onTextLayout(textLayoutResult)
-    }
+    fun onInputTextLayout(textLayoutResult: TextLayoutResult) = _core.onInputTextLayout(textLayoutResult)
 
-    private fun updateViewDetails(textLayoutResult: TextLayoutResult) {
-        val st = _inputScrollState.value.toFloat()
-        val len = _inputScrollState.viewportSize
-        _viewFirstLine = textLayoutResult.getLineForVerticalPosition(st)
-        _viewLastLine = textLayoutResult.getLineForVerticalPosition(st + len - 1)
-        _viewFirstLineStartTextPosition = textLayoutResult.getLineStart(_viewFirstLine)
-        _viewLastLineFinishTextPosition = textLayoutResult.getLineEnd(_viewLastLine)
-        val topOfFirstLine = textLayoutResult.getLineTop(_viewFirstLine)
-        _lineScrollOffset = st - topOfFirstLine
-    }
+    fun setAllLineStyles(value: Map<Int, List<EditorSegmentStyle>>) = _core.setAllLineStyles(value)
 
-    fun setAllLineStyles(value: Map<Int, List<EditorSegmentStyle>>) {
-        _lineStyles.clear()
-        _lineStyles.putAll(value)
-    }
+    fun setLineStyles(lineNumber: Int, styles: List<EditorSegmentStyle>) = _core.setLineStyles(lineNumber, styles)
 
-    fun setLineStyles(lineNumber: Int, styles: List<EditorSegmentStyle>) {
-        _lineStyles[lineNumber] = styles
-    }
-
-    // --- ComposeCodeEditor ---
+    // --- ComposeCodeViewer ---
 
     override var rawText: String
-        get() = this._inputTextFieldState.value.text.toString()
+        get() = _core.rawText
         set(value) {
-            this.setNewText(value)
+            _core.rawText = value
         }
 
     override var lineStyles: Map<Int, List<EditorSegmentStyle>>
-        get() = _lineStyles
+        get() = _core.lineStyles
         set(value) {
-            setAllLineStyles(value)
+            _core.setAllLineStyles(value)
         }
 
-    override var annotatedText: androidx.compose.ui.text.AnnotatedString
-        get() = this.lastAnnotatedText ?: androidx.compose.ui.text.AnnotatedString("")
+    override var annotatedText: AnnotatedString
+        get() = _core.annotatedText
         set(value) {
-            this.lastAnnotatedText = value
-            this.setNewText(value.text)
+            _core.annotatedText = value
         }
 
-    override val marginItems: List<net.akehurst.kotlin.compose.editor.api.MarginItem> get() = _marginItemsStateHolder.value
+    override val marginItems: List<net.akehurst.kotlin.compose.editor.api.MarginItem> get() = _core.marginItems
 
     override fun clearTextMarkers() {
-        this._textMarkersState.clear()
+        _core.clearTextMarkers()
     }
 
     override fun addTextMarker(position: Int, length: Int, style: SpanStyle, decoration: TextDecorationStyle) {
-        this._textMarkersState.addMarker(position, length, style, decoration)
+        _core.addTextMarker(position, length, style, decoration)
     }
 
     override fun clearMarginItems() {
-        this._marginItemsStateHolder.clear()
+        _core.clearMarginItems()
     }
 
     override fun addMarginItem(lineNumber: Int, kind: String, text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
-        this._marginItemsStateHolder.addAnnotation(lineNumber, kind, text, icon, color)
+        _core.addMarginItem(lineNumber, kind, text, icon, color)
     }
 
 }
