@@ -16,15 +16,23 @@
 
 package test
 
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.remember
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformSpanStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextDecorationLineStyle
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.ComposeViewport
+import kotlinx.browser.document
 import net.akehurst.kotlin.compose.editor.ComposableCodeEditor
 import net.akehurst.kotlin.compose.editor.api.*
 
@@ -40,11 +48,22 @@ data class AcItem(
     }
 }
 
-// Moved from jsTest: it needs Skiko's wasm runtime loaded, so it cannot run as a plain test.
+// Run with ./gradlew :code-editor-demo-js:jsBrowserDevelopmentRun, then open the URL it prints.
+@OptIn(ExperimentalComposeUiApi::class)
+fun main() {
+    // ComposeViewport waits for Skiko's wasm runtime, so the editor is created inside it
+    ComposeViewport(document.body!!) {
+        val composeEditor = remember { CodeEditorJsDemo().createEditor() }
+        Surface {
+            composeEditor.content(autocompleteModifier = Modifier.width(500.dp))
+        }
+    }
+}
+
 class CodeEditorJsDemo {
 
     @OptIn(ExperimentalTextApi::class)
-    fun main() {
+    fun createEditor(): ComposableCodeEditor {
         val composeEditor = ComposableCodeEditor(
             initialText = """
                     \red{Hello} \blue{World}
@@ -84,16 +103,7 @@ class CodeEditorJsDemo {
 
             composeEditor.lineStyles = lines.mapIndexed { idx, ln -> Pair(idx, getLineTokens(ln)) }.toMap()
         }
-        /*
-                singleWindowApplication(
-                    title = "Code Editor 3 Test",
-                ) {
-                    Surface {
-                        composeEditor.content(autocompleteModifier = Modifier.width(500.dp))
-                    }
-                }
-                TODO
-         */
+        return composeEditor
     }
 
     private fun requestAutocompleteSuggestions(req: AutocompleteRequestData, result: AutocompleteSuggestion) {
