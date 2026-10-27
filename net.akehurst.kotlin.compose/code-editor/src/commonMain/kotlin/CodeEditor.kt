@@ -263,12 +263,12 @@ class CodeEditorStateHolder(
 
                 // Ctrl+Enter accepts the ghost text
                 isGhostActive && ev.isCtrlEnter -> {
-                    acceptGhostText(currentGhostState!!)
+                    acceptGhostText(currentGhostState)
                     handled = true
                 }
 
                 // Intercept Right Arrow to skip affinity bounds
-                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState!!.replaceWholeText && currentCursor == currentGhostState.ghostPosition -> {
+                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState.replaceWholeText && currentCursor == currentGhostState.ghostPosition -> {
                     if (currentCursor < tfs.text.length) {
                         tfs.edit { this.selection = androidx.compose.ui.text.TextRange(currentCursor + 1) }
                     }
@@ -291,7 +291,7 @@ class CodeEditorStateHolder(
             // KeyUp / KeyPressed
             else -> when {
                 isGhostActive && ev.isCtrlEnter -> handled = true // Swallow release event
-                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState!!.replaceWholeText && currentCursor == currentGhostState?.ghostPosition -> handled = true
+                isGhostActive && ev.key == Key.DirectionRight && !currentGhostState.replaceWholeText && currentCursor == currentGhostState.ghostPosition -> handled = true
                 ev.isCtrlSpace -> handled = true
                 ev.isCtrlF || ev.isCtrlR -> handled = true
                 ev.isEscape && _findReplaceState.isVisible -> handled = true
