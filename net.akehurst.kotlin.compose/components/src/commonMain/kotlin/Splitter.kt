@@ -35,19 +35,17 @@ import androidx.compose.ui.unit.Dp
  */
 enum class SplitOrientation { Horizontal, Vertical }
 
+/**
+ * Move [dragAmount] (in the same units as [totalSize]) of weight from the second pane to the first.
+ * The sum of the two weights stays the same and neither weight goes below 0.01.
+ */
 fun adjustSplitterWeights(totalSize:Float, f1:Float, f2:Float, dragAmount:Float) : Pair<Float,Float> {
+    val minWeight = 0.01f
+    val sum = f1 + f2
+    if (totalSize <= 0f || sum <= 2 * minWeight) return Pair(f1, f2)
     val deltaRatio = dragAmount / totalSize
-    // Adjust weights, ensuring they stay positive
-    var newF1 = (f1 + deltaRatio).coerceAtLeast(0.01f)
-    var newF2 = (f2 - deltaRatio).coerceAtLeast(0.01f)
-    // Re-normalize if necessary to maintain sum
-    val adjustment = (f1 + f2) - (newF1 + newF2)
-    newF1 = newF1 + adjustment / 2
-    newF2 = newF2 + adjustment / 2
-    // Ensure final weights are still positive after adjustment
-    newF1 = newF1.coerceAtLeast(0.01f)
-    newF2 = newF2.coerceAtLeast(0.01f)
-    return Pair(newF1,newF2)
+    val newF1 = (f1 + deltaRatio).coerceIn(minWeight, sum - minWeight)
+    return Pair(newF1, sum - newF1)
 }
 
 /**

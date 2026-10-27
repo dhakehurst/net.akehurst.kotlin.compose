@@ -38,6 +38,8 @@ fun VerticalTabbedPane(
     body: @Composable (selectedTab: Int) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
+    // keep the selection valid if the list of tabs gets shorter
+    val shownTab = selectedTab.coerceIn(0, tabNames.lastIndex.coerceAtLeast(0))
     Row(
         modifier = paneModifier
     ) {
@@ -45,10 +47,10 @@ fun VerticalTabbedPane(
             modifier = tabListModifier
         ) {
             tabNames.forEachIndexed { index, tabName ->
-                VerticalTab(tabName, index == selectedTab, onClick = { selectedTab = index }, tabContent)
+                VerticalTab(tabName, index == shownTab, onClick = { selectedTab = index }, tabContent)
             }
         }
-        body.invoke(selectedTab)
+        body.invoke(shownTab)
     }
 }
 
