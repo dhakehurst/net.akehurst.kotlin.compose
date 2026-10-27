@@ -27,6 +27,10 @@ plugins {
 // do not publish
 tasks.withType<AbstractPublishToMaven> { onlyIf { false } }
 
+// project-conventions makes every JS target a library, and this module adds an executable.
+// Both write to the same folder, so turn off the library distribution: a demo is not a library.
+tasks.matching { it.name.endsWith("LibraryDistribution") }.configureEach { enabled = false }
+
 kotlin {
     js {
         binaries.executable()
