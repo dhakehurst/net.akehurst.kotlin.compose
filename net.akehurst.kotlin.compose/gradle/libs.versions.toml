@@ -1,5 +1,5 @@
 [versions]
-project = "2.3.21"
+project = "2.4.0-SNAPSHOT"
 
 kotlin = "2.4.0"
 dokka = "2.1.0"
@@ -10,7 +10,7 @@ compose = "1.11.1"
 compose-material3 = "1.11.0-alpha07"
 material-icons = "1.7.3"
 
-nak-kotlinx = "2.3.21"
+nak-kotlinx = "2.4.0-SNAPSHOT"
 kotlinx-coroutines = "1.11.0"
 
 [libraries]
