@@ -18,14 +18,13 @@ package net.akehurst.kotlin.compose.components.tree
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -44,7 +43,13 @@ import kotlinx.coroutines.launch
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 
 //TODO: use nak.kotlinx.Tree
-data class TreeViewNode(
+/**
+ * A node in a [TreeView].
+ *
+ * Nodes are compared by object identity, so two nodes with the same [id] in different branches are distinct.
+ * Sibling nodes must have distinct ids, because the path of ids is used as the list item key.
+ */
+class TreeViewNode(
     val id: String
 ) {
     var content: @Composable () -> Unit = { Text(text = id, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -60,6 +65,8 @@ data class TreeViewNode(
         children.update { fetched }
         children
     } ?: children
+
+    override fun toString(): String = "TreeViewNode($id)"
 }
 
 
@@ -112,16 +119,46 @@ class TreeViewStateHolder(
     }
 
     /**
-     * Collapses the given node and all its descendants.
+     * Collapses the given node and all its already fetched descendants.
+     * Does not fetch children.
      */
-    suspend fun collapseAll(node: TreeViewNode) {
+    fun collapseAll(node: TreeViewNode) {
         node.expanded = false
-        val childList = node.fetchedChildren().value
-        for (child in childList) {
+        for (child in node.children.value) {
             collapseAll(child)
         }
     }
 
+}
+
+/**
+ * One row of the tree as currently shown: the node, its depth and its id path from the root.
+ */
+private data class VisibleTreeNode(
+    val node: TreeViewNode,
+    val level: Int,
+    val path: String
+)
+
+/**
+ * Flattens the expanded part of the tree into rows, in display order.
+ * Returns a value, so it is not a separate recompose scope: any change to an expanded flag
+ * or to the children of an expanded node recomposes the calling [TreeView].
+ */
+@Composable
+private fun visibleTreeNodes(nodes: List<TreeViewNode>, level: Int, parentPath: String): List<VisibleTreeNode> {
+    val result = mutableListOf<VisibleTreeNode>()
+    for (node in nodes) {
+        key(node) {
+            val path = "$parentPath/${node.id}"
+            result.add(VisibleTreeNode(node, level, path))
+            if (node.expanded && node.hasChildren) {
+                val children by node.children.collectAsState()
+                result.addAll(visibleTreeNodes(children, level + 1, path))
+            }
+        }
+    }
+    return result
 }
 
 @Composable
@@ -134,6 +171,7 @@ fun TreeView(
 ) {
 
     val nodes = stateHolder.items.collectAsState()
+    val visibleNodes = visibleTreeNodes(nodes.value, 0, "")
     val coroutineScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
 
@@ -155,6 +193,12 @@ fun TreeView(
         onSelectItem(node)
     }
 
+    // index is into visibleNodes, which matches the LazyColumn item index
+    val selectAt: (Int) -> Unit = { index ->
+        selectNode(visibleNodes[index].node)
+        coroutineScope.launch { stateHolder.lazyListState.animateScrollToItem(index) }
+    }
+
     LazyColumn(
         state = stateHolder.lazyListState,
         modifier = modifier
@@ -162,20 +206,18 @@ fun TreeView(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                val (visibleNodes, parentMap) = TreeViewStateHolder.flattenVisible(nodes.value)
-                val currentIndex = visibleNodes.indexOf(stateHolder.selectedItem)
+                if (visibleNodes.isEmpty()) return@onPreviewKeyEvent false
+                val currentIndex = visibleNodes.indexOfFirst { it.node === stateHolder.selectedItem }
                 when (event.key) {
                     Key.DirectionDown -> {
                         val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1).coerceAtMost(visibleNodes.lastIndex)
-                        selectNode(visibleNodes[nextIndex])
-                        coroutineScope.launch { stateHolder.lazyListState.animateScrollToItem(nextIndex) }
+                        selectAt(nextIndex)
                         true
                     }
 
                     Key.DirectionUp -> {
                         val prevIndex = if (currentIndex < 0) 0 else (currentIndex - 1).coerceAtLeast(0)
-                        selectNode(visibleNodes[prevIndex])
-                        coroutineScope.launch { stateHolder.lazyListState.animateScrollToItem(prevIndex) }
+                        selectAt(prevIndex)
                         true
                     }
 
@@ -187,11 +229,9 @@ fun TreeView(
                                 coroutineScope.launch { stateHolder.expandAll(sel) }
                             } else if (!sel.expanded) {
                                 toggleExpanded(sel)
-                            } else {
-                                val children = sel.children.value
-                                if (children.isNotEmpty()) {
-                                    selectNode(children.first())
-                                }
+                            } else if (currentIndex >= 0 && currentIndex < visibleNodes.lastIndex && visibleNodes[currentIndex + 1].level > visibleNodes[currentIndex].level) {
+                                // first child is the next visible row
+                                selectAt(currentIndex + 1)
                             }
                         }
                         true
@@ -202,13 +242,15 @@ fun TreeView(
                         val hasModifier = event.isCtrlPressed || event.isMetaPressed
                         if (sel != null) {
                             if (hasModifier) {
-                                coroutineScope.launch { stateHolder.collapseAll(sel) }
+                                stateHolder.collapseAll(sel)
                             } else if (sel.expanded) {
                                 toggleExpanded(sel)
-                            } else {
-                                val parent = parentMap[sel]
-                                if (parent != null) {
-                                    selectNode(parent)
+                            } else if (currentIndex > 0) {
+                                // parent is the nearest earlier row one level up
+                                val level = visibleNodes[currentIndex].level
+                                val parentIndex = (currentIndex - 1 downTo 0).firstOrNull { visibleNodes[it].level == level - 1 }
+                                if (parentIndex != null) {
+                                    selectAt(parentIndex)
                                 }
                             }
                         }
@@ -219,17 +261,17 @@ fun TreeView(
                 }
             },
     ) {
-        nodes(
-            level = 0,
-            parentPath = "",
-            nodes = nodes.value,
-            isExpanded = { it.expanded },
-            toggleExpanded = toggleExpanded,
-            onSelectItem = selectNode,
-            selectedItem = stateHolder.selectedItem,
-            expanded,
-            collapsed
-        )
+        items(visibleNodes, key = { it.path }) { visibleNode ->
+            TreeNodeRow(
+                level = visibleNode.level,
+                node = visibleNode.node,
+                toggleExpanded = toggleExpanded,
+                onSelectItem = selectNode,
+                isSelected = stateHolder.selectedItem === visibleNode.node,
+                expanded = expanded,
+                collapsed = collapsed,
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -237,102 +279,16 @@ fun TreeView(
     }
 }
 
-fun LazyListScope.nodes(
-    level: Int,
-    parentPath: String,
-    nodes: List<TreeViewNode>,
-    isExpanded: (TreeViewNode) -> Boolean,
-    toggleExpanded: (TreeViewNode) -> Unit,
-    onSelectItem: (TreeViewNode) -> Unit,
-    selectedItem: TreeViewNode?,
-    expanded: @Composable (Modifier) -> Unit,
-    collapsed: @Composable (Modifier) -> Unit
-) {
-    nodes.forEach { node ->
-        node(
-            level,
-            parentPath,
-            node,
-            isExpanded = isExpanded,
-            toggleExpanded = toggleExpanded,
-            onSelectItem = onSelectItem,
-            selectedItem = selectedItem,
-            expanded,
-            collapsed
-        )
-    }
-}
-
-fun LazyListScope.node(
-    level: Int,
-    parentPath: String,
-    node: TreeViewNode,
-    isExpanded: (TreeViewNode) -> Boolean,
-    toggleExpanded: (TreeViewNode) -> Unit,
-    onSelectItem: (TreeViewNode) -> Unit,
-    selectedItem: TreeViewNode?,
-    expanded: @Composable (Modifier) -> Unit,
-    collapsed: @Composable (Modifier) -> Unit
-) {
-    val nodePath = "$parentPath/${node.id}"
-    val isNodeExpanded = isExpanded(node)
-    item(key = nodePath) {
-        // Collect children as Compose state so recomposition is triggered when children are fetched
-        val childrenState by node.children.collectAsState()
-        val isSelected = selectedItem == node
-        val rowModifier = if (isSelected) {
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer)
-        } else {
-            Modifier.fillMaxWidth()
-        }
-
-        Row(modifier = rowModifier) {
-            Spacer(Modifier.width((20 * level).dp))
-            when {
-                node.hasChildren -> when {
-                    isNodeExpanded -> expanded.invoke(Modifier.size(24.dp).clickable { toggleExpanded(node) })
-                    else -> collapsed.invoke(Modifier.size(24.dp).clickable { toggleExpanded(node) })
-                }
-
-                else -> Spacer(Modifier.width(20.dp))
-            }
-            Row(modifier = Modifier.clickable { onSelectItem.invoke(node) }) {
-                node.content.invoke()
-            }
-        }
-        if (isNodeExpanded) {
-            Column {
-                childrenState.forEach { child ->
-                    NodeRow(
-                        level = level + 1,
-                        node = child,
-                        isExpanded = isExpanded,
-                        toggleExpanded = toggleExpanded,
-                        onSelectItem = onSelectItem,
-                        selectedItem = selectedItem,
-                        expanded = expanded,
-                        collapsed = collapsed,
-                    )
-                }
-            }
-        }
-    }
-}
-
 @Composable
-fun NodeRow(
+private fun TreeNodeRow(
     level: Int,
     node: TreeViewNode,
-    isExpanded: (TreeViewNode) -> Boolean,
     toggleExpanded: (TreeViewNode) -> Unit,
     onSelectItem: (TreeViewNode) -> Unit,
-    selectedItem: TreeViewNode?,
+    isSelected: Boolean,
     expanded: @Composable (Modifier) -> Unit,
     collapsed: @Composable (Modifier) -> Unit,
 ) {
-    val childrenState by node.children.collectAsState()
-    val nodeExpanded = isExpanded(node)
-    val isSelected = selectedItem == node
     val rowModifier = if (isSelected) {
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer)
     } else {
@@ -343,7 +299,7 @@ fun NodeRow(
         Spacer(Modifier.width((20 * level).dp))
         when {
             node.hasChildren -> when {
-                nodeExpanded -> expanded.invoke(Modifier.size(24.dp).clickable { toggleExpanded(node) })
+                node.expanded -> expanded.invoke(Modifier.size(24.dp).clickable { toggleExpanded(node) })
                 else -> collapsed.invoke(Modifier.size(24.dp).clickable { toggleExpanded(node) })
             }
 
@@ -351,22 +307,6 @@ fun NodeRow(
         }
         Row(modifier = Modifier.clickable { onSelectItem.invoke(node) }) {
             node.content.invoke()
-        }
-    }
-    if (nodeExpanded) {
-        Column {
-            childrenState.forEach { child ->
-                NodeRow(
-                    level = level + 1,
-                    node = child,
-                    isExpanded = isExpanded,
-                    toggleExpanded = toggleExpanded,
-                    onSelectItem = onSelectItem,
-                    selectedItem = selectedItem,
-                    expanded = expanded,
-                    collapsed = collapsed,
-                )
-            }
         }
     }
 }

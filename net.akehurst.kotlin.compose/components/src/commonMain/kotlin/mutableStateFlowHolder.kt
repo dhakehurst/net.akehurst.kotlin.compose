@@ -48,7 +48,7 @@ class MutableStateFlowHolder<T : Any?>(initialValue: T): MutableStateFlowHolderC
 
     val stateFlow = _mutableStateFlow.asStateFlow()
     val value get() = _mutableStateFlow.value
-    override val contentFlow get() = stateFlow.flatMapMerge { fel ->
+    override val contentFlow get() = stateFlow.flatMapLatest { fel ->
         when (fel) {
             is MutableStateFlowHolderComposite -> fel.contentFlow.map { (ck, cv) ->
                 CompositeEvent( ck, cv)
@@ -96,7 +96,7 @@ class MutableStateFlowHolderList<E : Any?>(initialValue: List<E>) : MutableState
                     emptyFlow()
                 } else {
                     list.mapIndexed { idx, el ->
-                        el.stateFlow.flatMapMerge { fel ->
+                        el.stateFlow.flatMapLatest { fel ->
                             when (fel) {
                                 is MutableStateFlowHolderComposite -> fel.contentFlow.map { (ck, cv) ->
                                     CompositeEvent(listOf(idx) + ck, cv)
@@ -129,10 +129,25 @@ class MutableStateFlowHolderList<E : Any?>(initialValue: List<E>) : MutableState
         }
     }
 
+    /**
+     * Replace the whole content with the result of [provider].
+     * Existing elements are updated in place, extra elements are appended,
+     * and elements beyond the new size are removed.
+     */
     fun updateAll(provider: (List<E>) -> List<E>) {
-        provider.invoke(value).forEachIndexed { idx, v ->
+        val newValues = provider.invoke(value)
+        newValues.forEachIndexed { idx, v ->
             update(idx) { v }
         }
+        if (newValues.size < _listFlow.value.size) {
+            _listFlow.update { v -> v.subList(0, newValues.size).toList() }
+        }
+    }
+
+    fun removeAt(index: Int) {
+        val size = _listFlow.value.size
+        if (index < 0 || index >= size) error("Invalid index for MutableStateFlowHolderList $index, size is ${size}")
+        _listFlow.update { v -> v.filterIndexed { i, _ -> i != index } }
     }
 
     @Composable
@@ -166,7 +181,7 @@ class MutableStateFlowHolderMap<K : Any, V>(initialValue: Map<K, V>) : MutableSt
                     emptyFlow()
                 } else {
                     map.map { (k, v) ->
-                        v.stateFlow.flatMapMerge { el ->
+                        v.stateFlow.flatMapLatest { el ->
                             when {
                                 el is MutableStateFlowHolderComposite -> el.contentFlow.map { (ck, cv) -> CompositeEvent(listOf(k) + ck, cv) }
                                 else -> flowOf(CompositeEvent(listOf(k), el))
@@ -188,9 +203,25 @@ class MutableStateFlowHolderMap<K : Any, V>(initialValue: Map<K, V>) : MutableSt
         }
     }
 
+    /**
+     * Replace the whole content with the result of [provider].
+     * Existing entries are updated in place, new keys are added,
+     * and keys not in the result are removed.
+     */
     fun updateAll(provider: (Map<K, V>) -> Map<K, V>) {
-        provider.invoke(value).entries.forEach { (k, v) ->
+        val newMap = provider.invoke(value)
+        newMap.entries.forEach { (k, v) ->
             update(k) { v }
+        }
+        val removedKeys = _mapStateFlow.value.keys - newMap.keys
+        if (removedKeys.isNotEmpty()) {
+            _mapStateFlow.update { v -> v - removedKeys }
+        }
+    }
+
+    fun remove(key: K) {
+        if (_mapStateFlow.value.containsKey(key)) {
+            _mapStateFlow.update { v -> v - key }
         }
     }
 

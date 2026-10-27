@@ -21,9 +21,10 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
             }
         }
-        jvmMain {
+        jvmTest {
             dependencies {
-                api(compose.desktop.currentOs)
+                // OS specific desktop runtime is only needed to run the tests; applications choose their own
+                implementation(compose.desktop.currentOs)
             }
         }
     }
