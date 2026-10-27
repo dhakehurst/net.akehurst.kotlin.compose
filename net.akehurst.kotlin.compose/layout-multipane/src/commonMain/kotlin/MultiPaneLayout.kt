@@ -180,7 +180,8 @@ fun MultiPaneLayout(
     modifier: Modifier = Modifier,
     splitterThickness: Dp = 8.dp
 ) {
-    var state by remember { mutableStateOf(layoutState) }
+    // use the caller's state directly, so a different layoutState passed later takes effect
+    val state = layoutState
     // dragState is now the MutableState<DragState> object
     val dragState: MutableState<DragState?> = remember { mutableStateOf(null) }
 
