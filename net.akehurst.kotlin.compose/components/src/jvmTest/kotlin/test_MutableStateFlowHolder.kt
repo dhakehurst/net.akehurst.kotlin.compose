@@ -40,7 +40,7 @@ class test_MutableStateFlowHolder {
 
         var actual = Pair("unset","unset")
         val updatedJob = launch {
-            sut.onUpdated(this) {
+            sut.onUpdated(this, OnUpdatedStart.CURRENT_VALUES_FIRST) {
                 actual = Pair(it.path.joinToString("."), it.value as String)
             }
         }
