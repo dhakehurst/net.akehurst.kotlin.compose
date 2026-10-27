@@ -153,7 +153,7 @@ class CodeEditorStateHolder(
     private var _viewFirstLineStartTextPosition by mutableStateOf(0)
     private var _viewLastLineFinishTextPosition by mutableStateOf(0)
 
-    private val _autocompleteState by mutableStateOf(
+    internal val _autocompleteState by mutableStateOf(
         AutocompleteStateCompose( //TODO: don't get 'value' of inputTextFieldState flow
             getText = { this._inputTextFieldState.value.text },
             getCursorPosition = { this._inputTextFieldState.value.selection.min },
