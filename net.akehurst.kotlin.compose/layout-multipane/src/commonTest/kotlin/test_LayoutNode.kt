@@ -316,7 +316,8 @@ class test_LayoutNode {
             val actual = layout.insertPaneIntoLayout(newPane, dropTarget)
         } catch (t:Throwable) {
             assertTrue (t is IllegalStateException)
-            assertEquals("Cannot Reorder a pane into a tabbed container: DropTarget.Reorder BEFORE tabbed_1 pane_1_1 RectInWindow(value=Rect.fromLTRB(0.0, 0.0, 0.0, 0.0))", t.message)
+            // the Rect part of the message is printed differently on JVM ("0.0") and JS ("0"), so build it from RectInWindow.Zero
+            assertEquals("Cannot Reorder a pane into a tabbed container: DropTarget.Reorder BEFORE tabbed_1 pane_1_1 ${RectInWindow.Zero}", t.message)
         }
         //then
 
