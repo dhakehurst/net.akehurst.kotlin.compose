@@ -32,6 +32,8 @@ class FindReplaceStateCompose(
     private val getText: () -> CharSequence,
     private val replaceInText: (start: Int, end: Int, replacement: String) -> Unit,
     private val scrollToOffset: (offset: Int) -> Unit,
+    /** replaces all given ranges in one edit; when null, [replaceInText] is called once per range */
+    private val replaceRangesInText: ((ranges: List<IntRange>, replacement: String) -> Unit)? = null,
 ) : FindReplaceState {
 
     companion object {
@@ -109,10 +111,15 @@ class FindReplaceStateCompose(
 
     override fun replaceAll() {
         if (_matches.isEmpty()) return
-        // iterate in reverse so earlier offsets remain valid
-        for (i in _matches.indices.reversed()) {
-            val range = _matches[i]
-            replaceInText(range.first, range.last + 1, replacement)
+        val replaceRanges = replaceRangesInText
+        if (null != replaceRanges) {
+            replaceRanges(_matches.toList(), replacement)
+        } else {
+            // iterate in reverse so earlier offsets remain valid
+            for (i in _matches.indices.reversed()) {
+                val range = _matches[i]
+                replaceInText(range.first, range.last + 1, replacement)
+            }
         }
         updateMatches()
     }

@@ -26,7 +26,7 @@ import androidx.compose.ui.input.key.utf16CodePoint
 
 val KeyEvent.isCtrlEnter get() = (key == Key.Enter || utf16CodePoint == '\n'.code) && (isCtrlPressed || isMetaPressed)
 val KeyEvent.isCtrlSpace get() = (key == Key.Spacebar || utf16CodePoint == ' '.code) && (isCtrlPressed || isMetaPressed)
-val KeyEvent.isUndo get() = (key == Key.Z || utf16CodePoint == 'z'.code) && (isCtrlPressed || isMetaPressed)
+val KeyEvent.isUndo get() = (key == Key.Z || utf16CodePoint == 'z'.code) && (isCtrlPressed || isMetaPressed) && !isShiftPressed
 val KeyEvent.isRedo get() = (key == Key.Z || utf16CodePoint == 'z'.code) && (isCtrlPressed || isMetaPressed) && isShiftPressed
 val KeyEvent.isCtrlF get() = key == Key.F && (isCtrlPressed || isMetaPressed)
 val KeyEvent.isCtrlR get() = key == Key.R && (isCtrlPressed || isMetaPressed)

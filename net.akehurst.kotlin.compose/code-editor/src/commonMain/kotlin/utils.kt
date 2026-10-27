@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-@file:Suppress("UNUSED", "INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
 
 package net.akehurst.kotlin.compose.editor
 

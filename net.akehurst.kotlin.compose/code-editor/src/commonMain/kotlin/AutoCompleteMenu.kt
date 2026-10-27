@@ -36,14 +36,22 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import net.akehurst.kotlin.compose.editor.api.*
 
+/**
+ * Shorten to at most [maxLen] characters, ending with an ellipsis when shortened.
+ * A negative [maxLen] means no limit.
+ */
 fun String.fixLength(maxLen: Int) = when {
     maxLen < 0 -> this
-    maxLen > this.length -> this
+    maxLen >= this.length -> this
+    0 == maxLen -> ""
     else -> this.substring(0, maxLen - 1) + "\u2026"
 }
 
@@ -60,60 +68,6 @@ fun <T> MutableList<T>.setOrAdd(index: Int, element: T) {
     }
 }
 
-/*
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun AutocompletePopup(
-    modifier: Modifier = Modifier,
-    state: AutocompleteStateCompose
-) {
-    if (state.isVisible) {
-        Surface(
-            shadowElevation = 1.dp,
-            border = BorderStroke(Dp.Hairline, MaterialTheme.colorScheme.onSurface),
-
-            //.wrapContentSize(unbounded = true)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-//                    .width(300.dp)
-//                    .heightIn(min = 30.dp, max = 250.dp)
-
-            ) {
-                // List
-                LazyColumn(
-                    state = state.lazyListState
-                ) {
-                    itemsIndexed(state.items) { idx, item ->
-                        Row(
-                            modifier = Modifier
-                                .background(color = if (state.isSelected(idx)) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
-                                .padding(top = 2.dp, bottom = 3.dp, start = 2.dp, end = 2.dp)
-                                .onClick(
-                                    onClick = { state.choose(item) },
-                                )
-                        ) {
-                            item.label?.let { Text("${it.fixLength(state.itemLabelLength)}: ") }
-                            Spacer(Modifier.width(20.dp))
-                            Text(item.text.fixLength(state.itemTextLength))
-                        }
-                    }
-                }
-                when {
-                    state.isLoading -> {
-                        CircularProgressIndicator()
-                    }
-
-                    state.items.isEmpty() -> {
-                        Text("No suggestions")
-                    }
-                }
-            }
-        }
-    }
-}
-*/
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AutocompletePopup2(
@@ -238,6 +192,11 @@ class AutocompleteStateCompose(
 
     var requestAutocompleteSuggestions: AutocompleteFunction = { _, _ -> }
 
+    // one scope for background work, so requests can be cancelled
+    private val _scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var _requestJob: Job? = null
+    private var _requestId = 0
+
     var itemTextLength by mutableStateOf(-1)
     var itemLabelLength by mutableStateOf(-1)
     val lazyListState = LazyListState()
@@ -263,7 +222,7 @@ class AutocompleteStateCompose(
     }
 
     fun scrollToSelected() {
-        CoroutineScope(Dispatchers.Default).launch {
+        _scope.launch {
             val dist = dropdownItemHeight.take(selectedIndex).sum()
             scrollState.scrollTo(dist - 100)
         }
@@ -321,6 +280,9 @@ class AutocompleteStateCompose(
     }
 
     fun close() {
+        _requestJob?.cancel()
+        _requestJob = null
+        _requestId++ // ignore results of any request still in flight
         isVisible = false
         items.clear()
         selectedIndex = -1
@@ -344,19 +306,28 @@ class AutocompleteStateCompose(
     }
 
     private fun requestSuggestions(isOpen: Boolean, proposalPathDelta: Int, depthDelta: Int) {
+        // a newer request replaces any request still in flight
+        _requestJob?.cancel()
+        val requestId = ++_requestId
         this.clear()
         val result = object : AutocompleteSuggestion {
             override fun provide(items: List<AutocompleteItem>) {
-                this@AutocompleteStateCompose.items.addAll(items)
-                isLoading = false
+                if (requestId != _requestId) return // stale result from an older request
+                Snapshot.withMutableSnapshot {
+                    this@AutocompleteStateCompose.items.addAll(items)
+                    isLoading = false
+                    if (items.isNotEmpty()) {
+                        selectedIndex = 0
+                    }
+                }
                 if (items.isNotEmpty()) {
-                    selectedIndex = 0
                     scrollToSelected()
                 }
             }
         }
-        CoroutineScope(Dispatchers.Default).launch {
-            requestAutocompleteSuggestions.invoke(AutocompleteRequestData(getCursorPosition(), getText(), isOpen, selectedIndex, proposalPathDelta, depthDelta), result)
+        val requestData = AutocompleteRequestData(getCursorPosition(), getText(), isOpen, selectedIndex, proposalPathDelta, depthDelta)
+        _requestJob = _scope.launch {
+            requestAutocompleteSuggestions.invoke(requestData, result)
         }
     }
 

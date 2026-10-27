@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-// suppress these so we can access TextFieldScrollerPosition
-@file:Suppress("UNUSED", "INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
-
 package net.akehurst.kotlin.compose.viewer
 
 import androidx.compose.foundation.*
@@ -66,10 +63,8 @@ class CodeViewerStateHolder(
 ) : ComposeCodeViewer {
 
     private val MARGIN_WIDTH = 20.dp
-    private val _interactionSource = MutableInteractionSource()
 
     private val _inputTextFieldState = mutableStateFlowHolderOf(TextFieldState(initialText))
-    private val _inputRawText by derivedStateOf { snapshotFlow { _inputTextFieldState.value.text } }
     private val _lineStyles = androidx.compose.runtime.mutableStateMapOf<Int, List<EditorSegmentStyle>>()
 
     internal var lastAnnotatedText: AnnotatedString? = null
@@ -202,18 +197,25 @@ class CodeViewerStateHolder(
 
 }
 
+/**
+ * @param editorState the viewer state; when null, a state is created and remembered by this composable
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CodeViewerView(
-    editorState: CodeViewerStateHolder = CodeViewerStateHolder(
-        initialText = "",
-        defaultTextStyle = SpanStyle(color = MaterialTheme.colorScheme.onBackground)
-    ),
+    editorState: CodeViewerStateHolder? = null,
     textStyle: TextStyle = TextStyle.Default,
     modifier: Modifier = Modifier,
     autocompleteModifier: Modifier = Modifier,
     marginItemHoverModifier: Modifier = Modifier,
 ) {
+    val defaultTextColor = MaterialTheme.colorScheme.onBackground
+    val editorState = editorState ?: remember {
+        CodeViewerStateHolder(
+            initialText = "",
+            defaultTextStyle = SpanStyle(color = defaultTextColor)
+        )
+    }
     val state: CodeViewerState = editorState.collectAsState()
     val marginItemsState = editorState.collectVisibleMarginItemsAsState( //TODO: maybe pass the CodeEditorState !
         state.viewFirstLine,
@@ -265,8 +267,10 @@ fun BasicCodeViewer(
             outputTransformation = outputTransformation,
         )
 
-        LaunchedEffect(state.inputScrollState.value) {
-            snapshotFlow { state.inputScrollState }.collect { onInputScroll(it) }
+        val scrollState = state.inputScrollState
+        val currentOnInputScroll by rememberUpdatedState(onInputScroll)
+        LaunchedEffect(scrollState) {
+            snapshotFlow { scrollState.value }.collect { currentOnInputScroll(scrollState) }
         }
 
     }
