@@ -647,7 +647,7 @@ fun CompoundGraphLayoutView(
     }
     val tessellatedGraphIds = remember(state.id, layoutKey) {
         fun collect(graph: GraphLayoutCompoundGraph): List<String> {
-            val include = if (graph.childLayout == ChildLayout.TESSELLATE && !graph.isCollapsed) {
+            val include = if (graph.childLayout == TessellateChildLayout && !graph.isCollapsed) {
                 listOf(graph.id)
             } else {
                 emptyList()

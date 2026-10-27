@@ -17,7 +17,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             val childLayout = containerNode?.childLayout
             val isRegionContainer = containerNode
                 ?.containerId
-                ?.let { parentId -> nodesById[parentId]?.childLayout == ChildLayout.TESSELLATE }
+                ?.let { parentId -> nodesById[parentId]?.childLayout == TessellateChildLayout }
                 ?: false
             graphById[containerId] = GraphLayoutCompoundGraph(
                 id = containerId,

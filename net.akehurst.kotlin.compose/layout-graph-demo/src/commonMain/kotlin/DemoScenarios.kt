@@ -27,7 +27,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import net.akehurst.kotlin.compose.layout.graph.ChildLayout
+import net.akehurst.kotlin.compose.layout.graph.SugiyamaChildLayout
+import net.akehurst.kotlin.compose.layout.graph.TessellateChildLayout
 import net.akehurst.kotlin.compose.layout.graph.EdgeContentPosition
 import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
 import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeSymbol
@@ -222,9 +223,9 @@ object DemoScenarios {
         id = "state_like_regions",
         title = "State-like regions",
         nodes = listOf(
-            DemoNode("StateMachine", childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("StateMachine", children) }),
-            DemoNode("RegionA", containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionA", children) }),
-            DemoNode("RegionB", containerId = "StateMachine", childLayout = ChildLayout.GRAPH, content = { children -> Region("RegionB", children) }),
+            DemoNode("StateMachine", childLayout = TessellateChildLayout, content = { children -> CompoundState("StateMachine", children) }),
+            DemoNode("RegionA", containerId = "StateMachine", childLayout = SugiyamaChildLayout.DEFAULT, content = { children -> Region("RegionA", children) }),
+            DemoNode("RegionB", containerId = "StateMachine", childLayout = SugiyamaChildLayout.DEFAULT, content = { children -> Region("RegionB", children) }),
             DemoNode("A1", containerId = "RegionA", content = { SimpleState("A1") }),
             DemoNode("A2", containerId = "RegionA", content = { SimpleState("A2") }),
             DemoNode("B1", containerId = "RegionB", content = { SimpleState("B1") }),
@@ -271,22 +272,22 @@ object DemoScenarios {
         id = "uml_statechart_nested_regions",
         title = "UML statechart with nested regions",
         nodes = listOf(
-            DemoNode("Machine", childLayout = ChildLayout.TESSELLATE, content = { children -> CompoundState("Machine", children) }),
+            DemoNode("Machine", childLayout = TessellateChildLayout, content = { children -> CompoundState("Machine", children) }),
             DemoNode(
                 "ParallelA",
                 containerId = "Machine",
-                childLayout = ChildLayout.TESSELLATE,
+                childLayout = TessellateChildLayout,
                 content = { children -> Region("ParallelA", children) }),
-            DemoNode("ParallelB", containerId = "Machine", childLayout = ChildLayout.GRAPH, content = { children -> Region("ParallelB", children) }),
+            DemoNode("ParallelB", containerId = "Machine", childLayout = SugiyamaChildLayout.DEFAULT, content = { children -> Region("ParallelB", children) }),
             DemoNode(
                 "SubRegionA1",
                 containerId = "ParallelA",
-                childLayout = ChildLayout.GRAPH,
+                childLayout = SugiyamaChildLayout.DEFAULT,
                 content = { children -> Region("SubRegionA1", children) }),
             DemoNode(
                 "SubRegionA2",
                 containerId = "ParallelA",
-                childLayout = ChildLayout.GRAPH,
+                childLayout = SugiyamaChildLayout.DEFAULT,
                 content = { children -> Region("SubRegionA2", children) }),
             DemoNode("Idle", containerId = "SubRegionA1", content = { SimpleState("Idle") }),
             DemoNode("Active", containerId = "SubRegionA2", content = { SimpleState("Active") }),

@@ -102,9 +102,8 @@ data class GraphLayoutEdgeContent(
 data class GraphLayoutCompoundGraph(
     val id: String,
     val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
-    /** Optional layout strategy for this graph's immediate children. Null inherits from parent. */
-    val childLayout: ChildLayout? = null,
-    val layoutProfile: CompoundLayoutProfile? = null,
+    /** Optional layout algorithm for this graph's immediate children. Null inherits from parent. */
+    val childLayout: ChildLayoutAlgorithm? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
@@ -112,11 +111,6 @@ data class GraphLayoutCompoundGraph(
     val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false
 )
-
-enum class ChildLayout {
-    GRAPH,
-    TESSELLATE
-}
 
 data class PaddingHint(
     val top: Double = 0.0,
@@ -167,14 +161,6 @@ enum class EdgeKind {
 enum class CollapsePolicy {
     EXPANDED_BY_DEFAULT,
     COLLAPSED_BY_DEFAULT
-}
-
-enum class CompoundLayoutProfile {
-    DEFAULT,
-    HIERARCHY_BIASED,
-    ORTHOGONAL_BIASED,
-    COMPACT,
-    CHANNEL_BIASED
 }
 
 data class CompoundGraphValidationResult(

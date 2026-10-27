@@ -1,7 +1,6 @@
 package net.akehurst.kotlin.compose.layout.graph
 
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -14,8 +13,7 @@ import kotlin.math.sqrt
 data class CompoundLayoutConfig(
     val defaultNodeWidth: Double = 100.0,
     val defaultNodeHeight: Double = 56.0,
-    val defaultProfile: CompoundLayoutProfile = CompoundLayoutProfile.DEFAULT,
-    val defaultChildLayout: ChildLayout = ChildLayout.GRAPH,
+    val defaultChildLayout: ChildLayoutAlgorithm = SugiyamaChildLayout.DEFAULT,
     val defaultContainerChildHostMetrics: ContainerChildHostMetrics = ContainerChildHostMetrics(
         originX = 12.0,
         originY = 24.0,
@@ -54,7 +52,7 @@ data class CompoundGraphLayout(
     val contentWidth: Double,
     val contentHeight: Double,
     val routeBoundary: Boolean,
-    val profile: CompoundLayoutProfile
+    val childLayout: ChildLayoutAlgorithm
 )
 
 data class CompoundRect(
@@ -100,7 +98,7 @@ private enum class DetourSide {
 
 private data class PlannedGraphLayout(
     val graphId: String,
-    val profile: CompoundLayoutProfile,
+    val childLayout: ChildLayoutAlgorithm,
     val routeBoundary: Boolean,
     val childOriginByContainerNodeId: Map<String, Pair<Double, Double>>,
     val nodeOrder: List<GraphLayoutCompoundNode>,
@@ -126,19 +124,6 @@ private data class CompoundGraphIndex(
     val parentGraphByGraphId: Map<String, String?>
 )
 
-private data class ProfileSettings(
-    val layerSpacing: Double,
-    val nodeSpacing: Double,
-    val edgeRouting: EdgeRouting
-)
-
-private data class TiledLayout(
-    val nodeSizesById: Map<String, Pair<Double, Double>>,
-    val nodeTopLeftById: Map<String, Pair<Double, Double>>,
-    val contentWidth: Double,
-    val contentHeight: Double
-)
-
 class CompoundLayoutEngine(
     private val config: CompoundLayoutConfig = CompoundLayoutConfig()
 ) {
@@ -153,12 +138,10 @@ class CompoundLayoutEngine(
         require(validation.isValid) { "Invalid compound graph state: ${validation.errors.joinToString()}" }
 
         val index = buildGraphIndex(state.root)
-        val rootProfile = state.root.layoutProfile ?: config.defaultProfile
         val initialChildLayout = state.root.childLayout ?: config.defaultChildLayout
         val rootPlan = planGraph(
             graph = state.root,
             index = index,
-            inheritedProfile = rootProfile,
             inheritedChildLayout = initialChildLayout,
             containerMetricsByNodeId = containerMetricsByNodeId
         )
@@ -229,13 +212,10 @@ class CompoundLayoutEngine(
     private fun planGraph(
         graph: GraphLayoutCompoundGraph,
         index: CompoundGraphIndex,
-        inheritedProfile: CompoundLayoutProfile,
-        inheritedChildLayout: ChildLayout,
+        inheritedChildLayout: ChildLayoutAlgorithm,
         containerMetricsByNodeId: Map<String, ContainerChildHostMetrics>
     ): PlannedGraphLayout {
         val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
-        val effectiveProfile = graph.layoutProfile ?: inheritedProfile
-        val profile = profileSettings(effectiveProfile)
         // Only recurse into non-collapsed children; collapsed containers are treated as plain nodes.
         val childPlansById = graph.children.keys.sorted()
             .filter { childId -> !graph.children.getValue(childId).isCollapsed }
@@ -243,7 +223,6 @@ class CompoundLayoutEngine(
                 planGraph(
                     graph = graph.children.getValue(childId),
                     index = index,
-                    inheritedProfile = effectiveProfile,
                     inheritedChildLayout = effectiveChildLayout,
                     containerMetricsByNodeId = containerMetricsByNodeId
                 )
@@ -277,84 +256,40 @@ class CompoundLayoutEngine(
             metrics.originX to metrics.originY
         }
 
-        when (effectiveChildLayout) {
-            ChildLayout.TESSELLATE -> {
-                val tiled = tessellateNodes(nodes, nodeSizesById)
-                return PlannedGraphLayout(
-                    graphId = graph.id,
-                    profile = effectiveProfile,
-                    routeBoundary = graph.routeBoundary,
-                    childOriginByContainerNodeId = childOriginByContainerNodeId,
-                    nodeOrder = nodes,
-                    nodeSizesById = tiled.nodeSizesById,
-                    nodeTopLeftById = tiled.nodeTopLeftById,
-                    edgeRoutesByEdgeId = emptyMap(),
-                    childPlansById = childPlansById,
-                    containerNodeIds = containerNodeIds,
-                    contentWidth = tiled.contentWidth,
-                    contentHeight = tiled.contentHeight
-                )
-            }
-
-            ChildLayout.GRAPH -> Unit
-        }
-
         val edges = graph.edges.values
             .sortedBy { it.id }
             .mapNotNull { edge ->
                 val sourceNodeId = projectToLevelNode(graph.id, edge.sourceId, index)
                 val targetNodeId = projectToLevelNode(graph.id, edge.targetId, index)
-                val source = sourceNodeId?.let { graph.nodes[it] }
-                val target = targetNodeId?.let { graph.nodes[it] }
-                if (source != null && target != null) SugiyamaEdge(edge.id, source, target) else null
+                if (sourceNodeId != null && targetNodeId != null && sourceNodeId in graph.nodes && targetNodeId in graph.nodes) {
+                    ChildLayoutEdge(edge.id, sourceNodeId, targetNodeId)
+                } else {
+                    null
+                }
             }
 
-        val layoutData: SugiyamaLayoutData<GraphLayoutCompoundNode> = if (nodes.isEmpty()) {
-            SugiyamaLayoutData<GraphLayoutCompoundNode>()
-        } else {
-            SugiyamaLayout<GraphLayoutCompoundNode>(
-                nodeWidth = { node -> nodeSizesById.getValue(node.id).first },
-                nodeHeight = { node -> nodeSizesById.getValue(node.id).second },
-                layerSpacing = profile.layerSpacing,
-                nodeSpacing = profile.nodeSpacing,
-                edgeRouting = profile.edgeRouting
-            ).layoutGraph(nodes = nodes, edges = edges)
-        }
-
-        val nodeTopLeftById = nodes.associate { node ->
-            val position = layoutData.nodePositions[node] ?: (0.0 to 0.0)
-            node.id to position
-        }
-
-        val maxRight = nodes.maxOfOrNull { node ->
-            val topLeft = nodeTopLeftById.getValue(node.id)
-            topLeft.first + nodeSizesById.getValue(node.id).first
-        } ?: 0.0
-        val maxBottom = nodes.maxOfOrNull { node ->
-            val topLeft = nodeTopLeftById.getValue(node.id)
-            topLeft.second + nodeSizesById.getValue(node.id).second
-        } ?: 0.0
-
-        val contentWidth = max(layoutData.totalWidth, maxRight)
-        val contentHeight = max(layoutData.totalHeight, maxBottom)
-
-        val localEdgeRoutes = layoutData.edgeRoutes.entries
-            .sortedBy { it.key.id }
-            .associate { (edge, route) -> edge.id to route }
+        val laidOut = effectiveChildLayout.layout(
+            ChildLayoutInput(
+                graphId = graph.id,
+                nodes = nodes,
+                nodeSizesById = nodeSizesById,
+                edges = edges
+            )
+        )
 
         return PlannedGraphLayout(
             graphId = graph.id,
-            profile = effectiveProfile,
+            childLayout = effectiveChildLayout,
             routeBoundary = graph.routeBoundary,
             childOriginByContainerNodeId = childOriginByContainerNodeId,
             nodeOrder = nodes,
-            nodeSizesById = nodeSizesById,
-            nodeTopLeftById = nodeTopLeftById,
-            edgeRoutesByEdgeId = localEdgeRoutes,
+            nodeSizesById = laidOut.nodeSizesById,
+            nodeTopLeftById = laidOut.nodeTopLeftById,
+            edgeRoutesByEdgeId = laidOut.edgeRoutesByEdgeId,
             childPlansById = childPlansById,
             containerNodeIds = containerNodeIds,
-            contentWidth = contentWidth,
-            contentHeight = contentHeight
+            contentWidth = laidOut.contentWidth,
+            contentHeight = laidOut.contentHeight
         )
     }
 
@@ -379,7 +314,7 @@ class CompoundLayoutEngine(
             contentWidth = plan.contentWidth,
             contentHeight = plan.contentHeight,
             routeBoundary = plan.routeBoundary,
-            profile = plan.profile
+            childLayout = plan.childLayout
         )
 
         plan.nodeOrder.forEach { node ->
@@ -1034,40 +969,6 @@ class CompoundLayoutEngine(
         }
     }
 
-    private fun profileSettings(profile: CompoundLayoutProfile): ProfileSettings {
-        return when (profile) {
-            CompoundLayoutProfile.DEFAULT -> ProfileSettings(
-                layerSpacing = 100.0,
-                nodeSpacing = 100.0,
-                edgeRouting = EdgeRouting.DIRECT
-            )
-
-            CompoundLayoutProfile.HIERARCHY_BIASED -> ProfileSettings(
-                layerSpacing = 130.0,
-                nodeSpacing = 110.0,
-                edgeRouting = EdgeRouting.DIRECT
-            )
-
-            CompoundLayoutProfile.ORTHOGONAL_BIASED -> ProfileSettings(
-                layerSpacing = 110.0,
-                nodeSpacing = 110.0,
-                edgeRouting = EdgeRouting.RECTILINEAR
-            )
-
-            CompoundLayoutProfile.COMPACT -> ProfileSettings(
-                layerSpacing = 70.0,
-                nodeSpacing = 70.0,
-                edgeRouting = EdgeRouting.DIRECT
-            )
-
-            CompoundLayoutProfile.CHANNEL_BIASED -> ProfileSettings(
-                layerSpacing = 95.0,
-                nodeSpacing = 130.0,
-                edgeRouting = EdgeRouting.DIRECT
-            )
-        }
-    }
-
     private fun fallbackContainerMetrics(childPlan: PlannedGraphLayout?): ContainerChildHostMetrics {
         return if (childPlan == null) {
             ContainerChildHostMetrics()
@@ -1075,34 +976,4 @@ class CompoundLayoutEngine(
             config.defaultContainerChildHostMetrics
         }
     }
-
-    private fun tessellateNodes(
-        nodes: List<GraphLayoutCompoundNode>,
-        nodeSizesById: Map<String, Pair<Double, Double>>
-    ): TiledLayout {
-        val count = nodes.size
-        val cols = ceil(sqrt(count.toDouble())).toInt().coerceAtLeast(1)
-        val rows = ceil(count.toDouble() / cols.toDouble()).toInt().coerceAtLeast(1)
-
-        val cellWidth = nodes.maxOf { node -> nodeSizesById.getValue(node.id).first }
-        val cellHeight = nodes.maxOf { node -> nodeSizesById.getValue(node.id).second }
-
-        val tiledNodeSizes = nodes.associate { node ->
-            node.id to (cellWidth to cellHeight)
-        }
-
-        val positions = nodes.mapIndexed { index, node ->
-            val row = index / cols
-            val col = index % cols
-            node.id to (col * cellWidth to row * cellHeight)
-        }.toMap()
-
-        return TiledLayout(
-            nodeSizesById = tiledNodeSizes,
-            nodeTopLeftById = positions,
-            contentWidth = cols * cellWidth,
-            contentHeight = rows * cellHeight
-        )
-    }
 }
-
