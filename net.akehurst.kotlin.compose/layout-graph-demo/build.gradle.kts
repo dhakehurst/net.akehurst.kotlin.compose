@@ -22,6 +22,11 @@ kotlin {
                 implementation(compose.desktop.currentOs)
             }
         }
+        jvmTest {
+            dependencies {
+                implementation(libs.compose.ui.test)
+            }
+        }
     }
 }
 

@@ -1,8 +1,26 @@
 # Container Padding Bug - Issue Capture
 
-**Status:** Investigating  
-**Last Updated:** 2026-05-13  
+**Status:** Not reproduced on 2026-10-28 (see "Check on 2026-10-28" below)  
+**Last Updated:** 2026-10-28  
 **Scenario:** `single_container_two_nodes_withPadding`
+
+## Check on 2026-10-28
+
+The test `layout-graph-demo/src/jvmTest/kotlin/test_ContainerPadding.kt` renders this scenario with
+`CompoundGraphLayoutView` (headless Compose UI test) and checks that `InsideA` and `InsideB` lie inside
+`Container1` shrunk by its 20dp padding. It passes, and no "LayoutCoordinates not attached" exception was thrown.
+
+Rendered bounds (density 1, so px = dp):
+
+| Node | Bounds (left, top, right, bottom) |
+|---|---|
+| Container1 | 0, 0, 180, 328 |
+| Container1 minus 20dp padding | 20, 20, 160, 308 |
+| InsideA | 20, 36, 120, 92 |
+| InsideB | 20, 192, 120, 248 |
+
+The children fit. The container is larger than it needs to be, by 40 on the right and 60 at the bottom.
+This was checked only in the headless test, not by eye in the demo window.
 
 ## Problem Statement
 
