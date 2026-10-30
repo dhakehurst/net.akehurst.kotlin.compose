@@ -54,7 +54,12 @@ data class CompoundGraphLayout(
     val contentWidth: Double,
     val contentHeight: Double,
     val routeBoundary: Boolean,
-    val childLayout: ChildLayoutAlgorithm
+    val childLayout: ChildLayoutAlgorithm,
+    /**
+     * How far the children are shifted right inside the container's child area, to centre them
+     * when the container is wider than they need. The child area starts at globalOffsetX - centringX.
+     */
+    val centringX: Double = 0.0
 )
 
 data class CompoundRect(
@@ -91,18 +96,13 @@ private data class RectBounds(
     val height: Double
 )
 
-private enum class DetourSide {
-    RIGHT,
-    BOTTOM,
-    LEFT,
-    TOP
-}
 
 private data class PlannedGraphLayout(
     val graphId: String,
     val childLayout: ChildLayoutAlgorithm,
     val routeBoundary: Boolean,
     val childOriginByContainerNodeId: Map<String, Pair<Double, Double>>,
+    val childTrailingXByContainerNodeId: Map<String, Double>,
     val nodeOrder: List<GraphLayoutCompoundNode>,
     val nodeSizesById: Map<String, Pair<Double, Double>>,
     val nodeTopLeftById: Map<String, Pair<Double, Double>>,
@@ -134,7 +134,9 @@ class CompoundLayoutEngine(
 
     fun layout(
         state: GraphLayoutCompoundGraphState,
-        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics> = emptyMap()
+        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics> = emptyMap(),
+        /** Measured content size of leaf nodes (width to height). Hints act as minimums. */
+        leafSizesByNodeId: Map<String, Pair<Double, Double>> = emptyMap()
     ): CompoundLayoutResult {
         val validation = state.validateInvariants()
         require(validation.isValid) { "Invalid compound graph state: ${validation.errors.joinToString()}" }
@@ -145,7 +147,8 @@ class CompoundLayoutEngine(
             graph = state.root,
             index = index,
             inheritedChildLayout = initialChildLayout,
-            containerMetricsByNodeId = containerMetricsByNodeId
+            containerMetricsByNodeId = containerMetricsByNodeId,
+            leafSizesByNodeId = leafSizesByNodeId
         )
         val nodeLayouts = mutableMapOf<String, CompoundNodeLayout>()
         val graphLayouts = mutableMapOf<String, CompoundGraphLayout>()
@@ -164,7 +167,6 @@ class CompoundLayoutEngine(
 
         val edgeDescriptorsById = collectEdgeDescriptors(state.root)
         val collapsedRedirectMap = buildCollapsedNodeRedirectMap(state.root)
-        val parallelSlotByEdgeId = computeParallelEdgeSlotsByResolvedEndpoints(edgeDescriptorsById, collapsedRedirectMap)
         val resolvedEdgeEndpointsById = mutableMapOf<String, Pair<String, String>>()
 
         val routerEdges = mutableListOf<RouterEdge>()
@@ -187,14 +189,7 @@ class CompoundLayoutEngine(
                         target.ownerGraphId != descriptor.ownerGraphId
 
                 if (isCrossBoundary || edgeId !in edgeRoutesByEdgeId) {
-                    edgeRoutesByEdgeId[edgeId] = routeCrossBoundaryEdge(
-                        sourceNode = source,
-                        targetNode = target,
-                        nodeLayouts = nodeLayouts,
-                        graphLayouts = graphLayouts,
-                        routing = state.routing,
-                        parallelSlot = parallelSlotByEdgeId[edgeId] ?: 0.0
-                    )
+                    edgeRoutesByEdgeId[edgeId] = routeDirectEdge(sourceNode = source, targetNode = target)
                 }
             }
         }
@@ -207,7 +202,13 @@ class CompoundLayoutEngine(
                     y = n.globalY,
                     width = n.width,
                     height = n.height,
-                    containerId = graphLayouts[n.ownerGraphId]?.containerNodeId
+                    containerId = graphLayouts[n.ownerGraphId]?.containerNodeId,
+                    childAreaInsets = graphLayouts[n.nodeId]?.let { g ->
+                        val left = g.globalOffsetX - g.centringX - n.globalX
+                        val top = g.globalOffsetY - n.globalY
+                        val m = containerMetricsByNodeId[n.nodeId]
+                        listOf(left, top, m?.insetRight ?: left, m?.insetBottom ?: left)
+                    } ?: listOf(0.0, 0.0, 0.0, 0.0)
                 )
             }
             edgeRoutesByEdgeId.keys.removeAll(routerEdges.map { it.id }.toSet())
@@ -236,7 +237,8 @@ class CompoundLayoutEngine(
         graph: GraphLayoutCompoundGraph,
         index: CompoundGraphIndex,
         inheritedChildLayout: ChildLayoutAlgorithm,
-        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics>
+        containerMetricsByNodeId: Map<String, ContainerChildHostMetrics>,
+        leafSizesByNodeId: Map<String, Pair<Double, Double>>
     ): PlannedGraphLayout {
         val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
         // Only recurse into non-collapsed children; collapsed containers are treated as plain nodes.
@@ -247,7 +249,8 @@ class CompoundLayoutEngine(
                     graph = graph.children.getValue(childId),
                     index = index,
                     inheritedChildLayout = effectiveChildLayout,
-                    containerMetricsByNodeId = containerMetricsByNodeId
+                    containerMetricsByNodeId = containerMetricsByNodeId,
+                    leafSizesByNodeId = leafSizesByNodeId
                 )
             }
 
@@ -260,8 +263,11 @@ class CompoundLayoutEngine(
             val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
             val paddingHintWidth = node.containerPaddingHint?.let { it.left+it.right } ?: 0.0
             val paddingHintHeight = node.containerPaddingHint?.let { it.top+it.bottom } ?: 0.0
-            val widthHint = (node.widthHint ?:config.defaultNodeWidth)
-            val heightHint = (node.heightHint ?:config.defaultNodeHeight)
+            // A measured leaf takes its content size, never smaller than its hints.
+            // Until it is measured (and for expanded containers) the default size is used when there is no hint.
+            val measured = if (childPlan == null) leafSizesByNodeId[node.id] else null
+            val widthHint = if (measured != null) max(node.widthHint ?: 0.0, measured.first) else (node.widthHint ?: config.defaultNodeWidth)
+            val heightHint = if (measured != null) max(node.heightHint ?: 0.0, measured.second) else (node.heightHint ?: config.defaultNodeHeight)
             val width = max(
                 widthHint,
                 (childPlan?.contentWidth ?: 0.0) + metrics.originX + metrics.insetRight
@@ -277,6 +283,12 @@ class CompoundLayoutEngine(
             val childPlan = childPlansById[childId]
             val metrics = containerMetricsByNodeId[childId] ?: fallbackContainerMetrics(childPlan)
             metrics.originX to metrics.originY
+        }
+        // Space a container keeps to the right of its children (measured inset plus padding hint).
+        val childTrailingXByContainerNodeId = childPlansById.keys.associateWith { childId ->
+            val metrics = containerMetricsByNodeId[childId] ?: fallbackContainerMetrics(childPlansById[childId])
+            val paddingHintWidth = graph.nodes[childId]?.containerPaddingHint?.let { it.left + it.right } ?: 0.0
+            metrics.insetRight + paddingHintWidth
         }
 
         val edges = graph.edges.values
@@ -305,6 +317,7 @@ class CompoundLayoutEngine(
             childLayout = effectiveChildLayout,
             routeBoundary = graph.routeBoundary,
             childOriginByContainerNodeId = childOriginByContainerNodeId,
+            childTrailingXByContainerNodeId = childTrailingXByContainerNodeId,
             nodeOrder = nodes,
             nodeSizesById = laidOut.nodeSizesById,
             nodeTopLeftById = laidOut.nodeTopLeftById,
@@ -323,6 +336,8 @@ class CompoundLayoutEngine(
         localOffset: Pair<Double, Double>,
         globalOffset: Pair<Double, Double>,
         nodeLayouts: MutableMap<String, CompoundNodeLayout>,
+        /** Horizontal shift of the children inside the container's child area (included in the offsets). */
+        centring: Double = 0.0,
         graphLayouts: MutableMap<String, CompoundGraphLayout>,
         edgeRoutesByEdgeId: MutableMap<String, List<Pair<Double, Double>>>
     ) {
@@ -337,7 +352,8 @@ class CompoundLayoutEngine(
             contentWidth = plan.contentWidth,
             contentHeight = plan.contentHeight,
             routeBoundary = plan.routeBoundary,
-            childLayout = plan.childLayout
+            childLayout = plan.childLayout,
+            centringX = centring
         )
 
         plan.nodeOrder.forEach { node ->
@@ -367,7 +383,12 @@ class CompoundLayoutEngine(
         plan.childPlansById.keys.sorted().forEach { childId ->
             val childPlan = plan.childPlansById.getValue(childId)
             val childContainer = nodeLayouts[childId] ?: return@forEach
-            val childOrigin = plan.childOriginByContainerNodeId[childId] ?: (0.0 to 0.0)
+            val origin = plan.childOriginByContainerNodeId[childId] ?: (0.0 to 0.0)
+            // When the container is wider than its children (e.g. a long name), centre them horizontally.
+            val available = childContainer.width - origin.first - (plan.childTrailingXByContainerNodeId[childId] ?: 0.0)
+            // Tessellated children fill the area instead (spec 6.6), so they are not centred.
+            val centring = if (childPlan.childLayout == TessellateChildLayout) 0.0 else max(0.0, (available - childPlan.contentWidth) / 2.0)
+            val childOrigin = (origin.first + centring) to origin.second
             val childLocalOffset =
                 (childContainer.localX + childOrigin.first) to
                     (childContainer.localY + childOrigin.second)
@@ -382,6 +403,7 @@ class CompoundLayoutEngine(
                 localOffset = childLocalOffset,
                 globalOffset = childGlobalOffset,
                 nodeLayouts = nodeLayouts,
+                centring = centring,
                 graphLayouts = graphLayouts,
                 edgeRoutesByEdgeId = edgeRoutesByEdgeId
             )
@@ -391,297 +413,20 @@ class CompoundLayoutEngine(
     // ── Boundary-port routing helpers ───────────────────────────────────────
 
     /**
-     * Returns the point where the line from [from] to [to] first crosses the boundary of the
-     * rectangle defined by ([rectX], [rectY], [rectW], [rectH]).
-     *
-     * Works whether [from] is inside or outside the rectangle:
-     * - inside → outside: returns the exit point.
-     * - outside → inside: returns the entry point.
-     *
-     * Falls back to [from] if [from] == [to] or no intersection is found within the segment.
+     * Straight route for an edge when routing is [EdgeRouting.DIRECT]: from border to border on the
+     * line between the node centres. (Orthogonal routes come from [OrthogonalEdgeRouter].)
      */
-    private fun lineRectIntersection(
-        from: Pair<Double, Double>,
-        to: Pair<Double, Double>,
-        rectX: Double,
-        rectY: Double,
-        rectW: Double,
-        rectH: Double
-    ): Pair<Double, Double> {
-        val rect = RectBounds(rectX, rectY, rectW, rectH)
-        return clipRayToRectBoundary(from, to, rect)
-    }
-
-    /**
-     * Finds the lowest common ancestor graph of [graphA] and [graphB] by walking [graphLayouts].
-     * Returns [graphA] as a safe fallback if the LCA cannot be determined.
-     */
-    private fun findLca(
-        graphA: String,
-        graphB: String,
-        graphLayouts: Map<String, CompoundGraphLayout>
-    ): String {
-        val ancestorsOfA = mutableSetOf<String>()
-        var current: String? = graphA
-        while (current != null) {
-            ancestorsOfA.add(current)
-            current = graphLayouts[current]?.parentGraphId
-        }
-        var currentB: String? = graphB
-        while (currentB != null) {
-            if (currentB in ancestorsOfA) return currentB
-            currentB = graphLayouts[currentB]?.parentGraphId
-        }
-        return graphA
-    }
-
-    /**
-     * Collects the ordered list of container [CompoundNodeLayout]s that must be crossed going
-     * from [startGraphId] outward until [lcaGraphId] is reached (exclusive).
-     * The list is innermost → outermost, matching the traversal order for source-side exits.
-     */
-    private fun containerChainToLca(
-        startGraphId: String,
-        lcaGraphId: String,
-        graphLayouts: Map<String, CompoundGraphLayout>,
-        nodeLayouts: Map<String, CompoundNodeLayout>
-    ): List<CompoundNodeLayout> {
-        val chain = mutableListOf<CompoundNodeLayout>()
-        var currentGraphId = startGraphId
-        while (currentGraphId != lcaGraphId) {
-            val graphLayout = graphLayouts[currentGraphId] ?: break
-            val containerNodeId = graphLayout.containerNodeId ?: break
-            val containerNode = nodeLayouts[containerNodeId] ?: break
-            if (graphLayout.routeBoundary) {
-                chain.add(containerNode)
-            }
-            currentGraphId = containerNode.ownerGraphId
-        }
-        return chain
-    }
-
-    /**
-     * Builds a route for a cross-container edge.
-     *
-     * The route is: `sourceCenter → (exit each source container) → (enter each target container) → targetCenter`.
-     * Boundary attachment points are computed via [lineRectIntersection] so each waypoint
-     * lies exactly on the wall of the container being crossed.
-     */
-    private fun routeCrossBoundaryEdge(
+    private fun routeDirectEdge(
         sourceNode: CompoundNodeLayout,
-        targetNode: CompoundNodeLayout,
-        nodeLayouts: Map<String, CompoundNodeLayout>,
-        graphLayouts: Map<String, CompoundGraphLayout>,
-        routing: EdgeRouting,
-        parallelSlot: Double
+        targetNode: CompoundNodeLayout
     ): List<Pair<Double, Double>> {
         val sourceCenter = sourceNode.globalX + sourceNode.width / 2.0 to sourceNode.globalY + sourceNode.height / 2.0
         val targetCenter = targetNode.globalX + targetNode.width / 2.0 to targetNode.globalY + targetNode.height / 2.0
-
         val sourceRect = RectBounds(sourceNode.globalX, sourceNode.globalY, sourceNode.width, sourceNode.height)
         val targetRect = RectBounds(targetNode.globalX, targetNode.globalY, targetNode.width, targetNode.height)
-
-        val sourceEndpoint = when (routing) {
-            EdgeRouting.DIRECT -> clipRayToRectBoundary(sourceCenter, targetCenter, sourceRect)
-            EdgeRouting.RECTILINEAR -> rectilinearAnchor(sourceRect, sourceCenter, targetCenter, parallelSlot)
-        }
-        val targetEndpoint = when (routing) {
-            EdgeRouting.DIRECT -> clipRayToRectBoundary(targetCenter, sourceCenter, targetRect)
-            EdgeRouting.RECTILINEAR -> rectilinearAnchor(targetRect, targetCenter, sourceCenter, parallelSlot)
-        }
-
-        if (routing == EdgeRouting.DIRECT) {
-            return collapseConsecutiveDuplicates(listOf(sourceEndpoint, targetEndpoint)).map(::normalizePoint)
-        }
-
-        val lcaGraphId = findLca(sourceNode.ownerGraphId, targetNode.ownerGraphId, graphLayouts)
-
-        // Container nodes the edge must EXIT (innermost → outermost, going from source to LCA)
-        val sourceChain = containerChainToLca(sourceNode.ownerGraphId, lcaGraphId, graphLayouts, nodeLayouts)
-        // Container nodes the edge must ENTER (innermost → outermost, reversed = outermost first for entry)
-        val targetChain = containerChainToLca(targetNode.ownerGraphId, lcaGraphId, graphLayouts, nodeLayouts)
-
-        val route = mutableListOf(sourceEndpoint)
-        var currentPoint = sourceEndpoint
-
-        // Exit source containers (innermost first, heading toward targetCenter)
-        for (container in sourceChain) {
-            val exitPoint = lineRectIntersection(
-                currentPoint, targetCenter,
-                container.globalX, container.globalY, container.width, container.height
-            )
-            route.add(exitPoint)
-            currentPoint = exitPoint
-        }
-
-        // Enter target containers (outermost first, still heading toward targetCenter)
-        for (container in targetChain.reversed()) {
-            val entryPoint = lineRectIntersection(
-                currentPoint, targetCenter,
-                container.globalX, container.globalY, container.width, container.height
-            )
-            route.add(entryPoint)
-            currentPoint = entryPoint
-        }
-
-        if (routing == EdgeRouting.RECTILINEAR) {
-            val bend = targetEndpoint.first to currentPoint.second
-            if (!samePoint(currentPoint, bend) && !samePoint(bend, targetEndpoint)) {
-                route.add(normalizePoint(bend))
-            }
-        }
-        route.add(targetEndpoint)
-
-        val relatedContainerIds = (sourceChain + targetChain)
-            .map { it.nodeId }
-            .toMutableSet()
-            .also {
-                graphLayouts[lcaGraphId]?.containerNodeId?.let { lcaContainerNodeId ->
-                    it.add(lcaContainerNodeId)
-                }
-                it.add(sourceNode.nodeId)
-                it.add(targetNode.nodeId)
-            }
-
-        val unrelatedContainerObstacles = nodeLayouts.values
-            .filter { layout ->
-                layout.isContainer &&
-                    layout.nodeId !in relatedContainerIds &&
-                    (graphLayouts[layout.nodeId]?.routeBoundary != false)
-            }
-            .sortedBy { it.nodeId }
-            .map { RectBounds(it.globalX, it.globalY, it.width, it.height) }
-
-        val normalized = collapseConsecutiveDuplicates(route).map(::normalizePoint)
-        return applyObstacleAvoidanceToPolyline(normalized, unrelatedContainerObstacles)
-    }
-
-    private fun applyObstacleAvoidanceToPolyline(
-        points: List<Pair<Double, Double>>,
-        obstacles: List<RectBounds>
-    ): List<Pair<Double, Double>> {
-        if (points.size <= 1 || obstacles.isEmpty()) {
-            return points
-        }
-
-        val result = mutableListOf(points.first())
-        for (index in 0 until points.size - 1) {
-            val from = result.last()
-            val to = points[index + 1]
-            val detour = detourSegmentAvoidingObstacles(from, to, obstacles)
-            detour.drop(1).forEach { point ->
-                if (!samePoint(result.last(), point)) {
-                    result.add(normalizePoint(point))
-                }
-            }
-        }
-        return collapseConsecutiveDuplicates(result).map(::normalizePoint)
-    }
-
-    private fun detourSegmentAvoidingObstacles(
-        from: Pair<Double, Double>,
-        to: Pair<Double, Double>,
-        obstacles: List<RectBounds>
-    ): List<Pair<Double, Double>> {
-        val blocking = obstacles.filter { segmentIntersectsRectInterior(from, to, it) }
-        if (blocking.isEmpty()) {
-            return listOf(from, to)
-        }
-
-        val margin = 16.0
-        val minLeft = blocking.minOf { it.x } - margin
-        val maxRight = blocking.maxOf { it.x + it.width } + margin
-        val minTop = blocking.minOf { it.y } - margin
-        val maxBottom = blocking.maxOf { it.y + it.height } + margin
-
-        val candidates = listOf(
-            DetourSide.RIGHT to listOf(from, maxRight to from.second, maxRight to to.second, to),
-            DetourSide.BOTTOM to listOf(from, from.first to maxBottom, to.first to maxBottom, to),
-            DetourSide.LEFT to listOf(from, minLeft to from.second, minLeft to to.second, to),
-            DetourSide.TOP to listOf(from, from.first to minTop, to.first to minTop, to)
-        )
-
-        val valid = candidates
-            .map { (side, path) -> side to collapseConsecutiveDuplicates(path).map(::normalizePoint) }
-            .filter { (_, path) ->
-                path.zipWithNext().none { (a, b) -> obstacles.any { obstacle -> segmentIntersectsRectInterior(a, b, obstacle) } }
-            }
-
-        if (valid.isEmpty()) {
-            return listOf(from, to)
-        }
-
-        val best = valid.minWithOrNull(
-            compareBy<Pair<DetourSide, List<Pair<Double, Double>>>>(
-                { (_, path) -> pathLength(path) },
-                { (side, _) -> detourSidePriority(side) }
-            )
-        ) ?: return listOf(from, to)
-
-        return best.second
-    }
-
-    private fun pathLength(path: List<Pair<Double, Double>>): Double {
-        return path.zipWithNext().sumOf { (a, b) ->
-            val dx = b.first - a.first
-            val dy = b.second - a.second
-            sqrt(dx * dx + dy * dy)
-        }
-    }
-
-    private fun detourSidePriority(side: DetourSide): Int = when (side) {
-        DetourSide.RIGHT -> 0
-        DetourSide.BOTTOM -> 1
-        DetourSide.LEFT -> 2
-        DetourSide.TOP -> 3
-    }
-
-    private fun segmentIntersectsRectInterior(
-        a: Pair<Double, Double>,
-        b: Pair<Double, Double>,
-        rect: RectBounds
-    ): Boolean {
-        val left = rect.x + boundaryEpsilon
-        val right = rect.x + rect.width - boundaryEpsilon
-        val top = rect.y + boundaryEpsilon
-        val bottom = rect.y + rect.height - boundaryEpsilon
-        if (left >= right || top >= bottom) {
-            return false
-        }
-
-        val dx = b.first - a.first
-        val dy = b.second - a.second
-        var t0 = 0.0
-        var t1 = 1.0
-
-        fun clip(p: Double, q: Double): Boolean {
-            if (abs(p) < boundaryEpsilon) {
-                return q >= 0.0
-            }
-            val r = q / p
-            return if (p < 0.0) {
-                if (r > t1) {
-                    false
-                } else {
-                    if (r > t0) t0 = r
-                    true
-                }
-            } else {
-                if (r < t0) {
-                    false
-                } else {
-                    if (r < t1) t1 = r
-                    true
-                }
-            }
-        }
-
-        if (!clip(-dx, a.first - left)) return false
-        if (!clip(dx, right - a.first)) return false
-        if (!clip(-dy, a.second - top)) return false
-        if (!clip(dy, bottom - a.second)) return false
-
-        return t0 < t1 && t1 > 0.0 && t0 < 1.0
+        val sourceEndpoint = clipRayToRectBoundary(sourceCenter, targetCenter, sourceRect)
+        val targetEndpoint = clipRayToRectBoundary(targetCenter, sourceCenter, targetRect)
+        return collapseConsecutiveDuplicates(listOf(sourceEndpoint, targetEndpoint)).map(::normalizePoint)
     }
 
     private fun buildResultsByGraphId(
@@ -807,48 +552,6 @@ class CompoundLayoutEngine(
         return normalizePoint(best.third)
     }
 
-    private fun rectilinearAnchor(
-        rect: RectBounds,
-        center: Pair<Double, Double>,
-        otherCenter: Pair<Double, Double>,
-        slot: Double
-    ): Pair<Double, Double> {
-        val preferred = preferredSideForDirection(center, otherCenter)
-        val baseCenter = sideCenter(rect, preferred)
-        val offset = slot * 10.0
-        return when (preferred) {
-            BoundarySide.RIGHT, BoundarySide.LEFT -> {
-                val yMin = rect.y + boundaryEpsilon
-                val yMax = rect.y + rect.height - boundaryEpsilon
-                normalizePoint(baseCenter.first to min(yMax, max(yMin, baseCenter.second + offset)))
-            }
-
-            BoundarySide.TOP, BoundarySide.BOTTOM -> {
-                val xMin = rect.x + boundaryEpsilon
-                val xMax = rect.x + rect.width - boundaryEpsilon
-                normalizePoint(min(xMax, max(xMin, baseCenter.first + offset)) to baseCenter.second)
-            }
-        }
-    }
-
-    private fun preferredSideForDirection(
-        center: Pair<Double, Double>,
-        otherCenter: Pair<Double, Double>
-    ): BoundarySide {
-        val dx = otherCenter.first - center.first
-        val dy = otherCenter.second - center.second
-        if (abs(dx) < boundaryEpsilon && abs(dy) < boundaryEpsilon) {
-            return BoundarySide.RIGHT
-        }
-        return if (abs(dx) > abs(dy)) {
-            if (dx >= 0.0) BoundarySide.RIGHT else BoundarySide.LEFT
-        } else if (abs(dy) > abs(dx)) {
-            if (dy >= 0.0) BoundarySide.BOTTOM else BoundarySide.TOP
-        } else {
-            if (dx >= 0.0) BoundarySide.RIGHT else if (dy >= 0.0) BoundarySide.BOTTOM else BoundarySide.LEFT
-        }
-    }
-
     private fun sideCenter(rect: RectBounds, side: BoundarySide): Pair<Double, Double> = when (side) {
         BoundarySide.RIGHT -> rect.x + rect.width to rect.y + rect.height / 2.0
         BoundarySide.BOTTOM -> rect.x + rect.width / 2.0 to rect.y + rect.height
@@ -910,30 +613,6 @@ class CompoundLayoutEngine(
 
         walkCollapsed(root, null)
         return redirect
-    }
-
-    /**
-     * Groups edges by their *resolved* endpoints (after applying [redirectMap]
-     * for hidden nodes inside collapsed containers) and assigns deterministic slots.
-     */
-    private fun computeParallelEdgeSlotsByResolvedEndpoints(
-        edgeDescriptorsById: Map<String, EdgeDescriptor>,
-        redirectMap: Map<String, String>
-    ): Map<String, Double> {
-        val grouped = edgeDescriptorsById.values.groupBy {
-            val src = redirectMap[it.sourceId] ?: it.sourceId
-            val tgt = redirectMap[it.targetId] ?: it.targetId
-            "$src->$tgt"
-        }
-        val result = mutableMapOf<String, Double>()
-        grouped.values.forEach { descriptors ->
-            val sorted = descriptors.sortedBy { it.edgeId }
-            val midpoint = (sorted.size - 1) / 2.0
-            sorted.forEachIndexed { idx, descriptor ->
-                result[descriptor.edgeId] = idx - midpoint
-            }
-        }
-        return result
     }
 
     private fun collectEdgeDescriptors(graph: GraphLayoutCompoundGraph): Map<String, EdgeDescriptor> {

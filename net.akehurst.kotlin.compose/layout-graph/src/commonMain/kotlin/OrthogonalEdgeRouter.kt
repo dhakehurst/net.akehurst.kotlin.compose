@@ -15,7 +15,13 @@ data class RouterNode(
     val y: Double,
     val width: Double,
     val height: Double,
-    val containerId: String?
+    val containerId: String?,
+    /**
+     * For a container: where its child area starts and ends, as insets from its border
+     * (left, top, right, bottom). Edges avoid running inside the band between border and child area,
+     * for example along a header.
+     */
+    val childAreaInsets: List<Double> = listOf(0.0, 0.0, 0.0, 0.0)
 )
 
 data class RouterEdge(
@@ -35,6 +41,8 @@ data class RouterEdge(
 class OrthogonalEdgeRouter(
     val margin: Double = 12.0,
     val bendCost: Double = 40.0,
+    /** Cost multiplier for running inside a container's border band or along its border. */
+    val bandCostFactor: Double = 6.0,
     val edgeSpacing: Double = 8.0
 ) {
 
@@ -81,7 +89,14 @@ class OrthogonalEdgeRouter(
                 }
                 .sortedBy { it.id }
                 .map { rectById.getValue(it.id) }
-            val path = findPath(source, target, obstacles, sourceNested.contains(edge.targetId) || targetNested.contains(edge.sourceId))
+            // Containers the edge is inside of: it may cross their band, but should not run along it.
+            val bands = (sourceAncestors + targetAncestors).sorted().mapNotNull { id ->
+                val n = nodesById[id] ?: return@mapNotNull null
+                val outer = rectById.getValue(id)
+                val i = n.childAreaInsets
+                outer to Rect(outer.left + i[0], outer.top + i[1], outer.right - i[2], outer.bottom - i[3])
+            }
+            val path = findPath(source, target, obstacles, bands, sourceNested.contains(edge.targetId) || targetNested.contains(edge.sourceId))
             routes[edge.id] = path
         }
         return nudge(routes)
@@ -99,7 +114,7 @@ class OrthogonalEdgeRouter(
     // direction: 0 = +x, 1 = +y, 2 = -x, 3 = -y
     private data class State(val xi: Int, val yi: Int, val dir: Int)
 
-    private fun findPath(source: Rect, target: Rect, obstacles: List<Rect>, nested: Boolean): List<Pair<Double, Double>> {
+    private fun findPath(source: Rect, target: Rect, obstacles: List<Rect>, bands: List<Pair<Rect, Rect>>, nested: Boolean): List<Pair<Double, Double>> {
         val inflated = obstacles.map { it.inflate(margin) }
         val xs = mutableSetOf<Double>()
         val ys = mutableSetOf<Double>()
@@ -109,6 +124,25 @@ class OrthogonalEdgeRouter(
             ys.add(r.top - margin); ys.add(r.bottom + margin)
         }
         inflated.forEach { r -> xs.add(r.left); xs.add(r.right); ys.add(r.top); ys.add(r.bottom) }
+        bands.forEach { (outer, inner) ->
+            // Lines just inside the child area and just outside the border, so routes can keep clear of both.
+            xs.add(inner.left + margin); xs.add(inner.right - margin); ys.add(inner.top + margin); ys.add(inner.bottom - margin)
+            xs.add(outer.left - margin); xs.add(outer.right + margin); ys.add(outer.top - margin); ys.add(outer.bottom + margin)
+        }
+        // Length of a segment that runs along a container's border band (header, frame, or just outside the border).
+        fun lengthAlongBands(x1: Double, y1: Double, x2: Double, y2: Double): Double = bands.sumOf { (outer, inner) ->
+            val half = margin / 2.0
+            if (abs(y1 - y2) < eps) {
+                val inTop = y1 > outer.top - half && y1 < inner.top + half
+                val inBottom = y1 > inner.bottom - half && y1 < outer.bottom + half
+                if (!(inTop || inBottom)) 0.0 else max(0.0, min(max(x1, x2), outer.right) - max(min(x1, x2), outer.left))
+            } else {
+                val inLeft = x1 > outer.left - half && x1 < inner.left + half
+                val inRight = x1 > inner.right - half && x1 < outer.right + half
+                if (!(inLeft || inRight)) 0.0 else max(0.0, min(max(y1, y2), outer.bottom) - max(min(y1, y2), outer.top))
+            }
+        }
+
         // Lines midway between neighbouring coordinates give routes room in narrow channels.
         val xList = withMidpoints(xs.sorted())
         val yList = withMidpoints(ys.sorted())
@@ -157,7 +191,9 @@ class OrthogonalEdgeRouter(
                     // Inside the source or target, stay on its centre lines so the edge meets the border at a side centre.
                     if (offCentreInside(source, x1, y1, x2, y2) || offCentreInside(target, x1, y1, x2, y2)) continue
                 }
-                val step = abs(x2 - x1) + abs(y2 - y1)
+                val length = abs(x2 - x1) + abs(y2 - y1)
+                // Crossing a band is fine; running along it is expensive.
+                val step = length + lengthAlongBands(x1, y1, x2, y2) * (bandCostFactor - 1.0)
                 val turn = if (nd != state.dir) bendCost else 0.0
                 val next = State(nxi, nyi, nd)
                 val nc = cost + step + turn
@@ -244,7 +280,7 @@ class OrthogonalEdgeRouter(
      * so they can be told apart. End segments move their end point along the node border.
      */
     private fun nudge(routes: Map<String, List<Pair<Double, Double>>>): Map<String, List<Pair<Double, Double>>> {
-        val mutable = routes.mapValues { it.value.toMutableList() }.toSortedMap()
+        val mutable = routes.entries.sortedBy { it.key }.associate { it.key to it.value.toMutableList() }
         // Collect segments: (edgeId, index, horizontal, coordinate, from, to)
         data class Seg(val edgeId: String, val index: Int, val horizontal: Boolean, val coord: Double, val lo: Double, val hi: Double)
 
@@ -263,7 +299,7 @@ class OrthogonalEdgeRouter(
 
         val groups = segments()
             .groupBy { (if (it.horizontal) "h" else "v") + ":" + ((it.coord * 1000).toLong()) }
-            .toSortedMap()
+            .entries.sortedBy { it.key }.associate { it.key to it.value }
         groups.values.forEach { segs ->
             // Group overlapping segments of different edges into clusters.
             val sorted = segs.sortedWith(compareBy({ it.lo }, { it.edgeId }))
@@ -273,7 +309,7 @@ class OrthogonalEdgeRouter(
                 if (c != null && c.any { it.hi > s.lo + eps }) c.add(s) else clusters.add(mutableListOf(s))
             }
             clusters.filter { c -> c.map { it.edgeId }.distinct().size > 1 }.forEach { c ->
-                val byEdge = c.groupBy { it.edgeId }.toSortedMap()
+                val byEdge = c.groupBy { it.edgeId }.entries.sortedBy { it.key }.associate { it.key to it.value }
                 val n = byEdge.size
                 byEdge.entries.forEachIndexed { k, (edgeId, list) ->
                     val offset = (k - (n - 1) / 2.0) * edgeSpacing

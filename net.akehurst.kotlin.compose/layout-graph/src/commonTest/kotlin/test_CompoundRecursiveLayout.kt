@@ -61,10 +61,11 @@ class test_CompoundRecursiveLayout {
         val l2Node = assertNotNull(result.nodeLayoutsById["L2"])
         val leafNode = assertNotNull(result.nodeLayoutsById["Leaf"])
 
-        assertEquals(l1Node.globalX + 12.0, l1Graph.globalOffsetX)
+        // The graph offset is the child-area origin plus the centring shift (container wider than its children).
+        assertEquals(l1Node.globalX + 12.0 + l1Graph.centringX, l1Graph.globalOffsetX)
         assertEquals(l1Node.globalY + 24.0, l1Graph.globalOffsetY)
 
-        assertEquals(l2Node.globalX + 12.0, l2Graph.globalOffsetX)
+        assertEquals(l2Node.globalX + 12.0 + l2Graph.centringX, l2Graph.globalOffsetX)
         assertEquals(l2Node.globalY + 24.0, l2Graph.globalOffsetY)
 
         val expectedLeafGlobalX = leafNode.localX + l2Graph.globalOffsetX
