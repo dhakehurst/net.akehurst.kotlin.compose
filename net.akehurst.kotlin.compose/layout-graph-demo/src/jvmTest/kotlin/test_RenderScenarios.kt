@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
@@ -36,21 +39,39 @@ class test_RenderScenarios {
     @Test
     fun render_all_scenarios_debug() = renderAll(debug = true)
 
-    private fun renderAll(debug: Boolean) {
-        val dir = if (debug) File(outDir, "debug").also { it.mkdirs() } else outDir
+    /**
+     * Laptop-style screens: higher density, and views smaller than the diagram.
+     * Written to density-<d>/ and small-view/.
+     */
+    @Test
+    fun render_all_scenarios_at_other_densities_and_sizes() {
+        listOf(1.5f, 2f).forEach { d ->
+            renderAll(debug = true, density = d, size = 1400 to 900, subDir = "density-$d")
+        }
+        renderAll(debug = true, density = 1f, size = 300 to 250, subDir = "small-view")
+    }
+
+    private fun renderAll(debug: Boolean, density: Float = 1f, size: Pair<Int, Int> = 1200 to 900, subDir: String? = null) {
+        val dir = when {
+            subDir != null -> File(outDir, subDir).also { it.mkdirs() }
+            debug -> File(outDir, "debug").also { it.mkdirs() }
+            else -> outDir
+        }
         DemoScenarios.all.forEachIndexed { index, scenario ->
             runComposeUiTest {
                 val state = scenario.toCompoundGraphState()
                 state.showDebugOverlay.value = debug
                 state.showContentOrigins.value = debug
                 setContent {
-                    Box(Modifier.size(1200.dp, 900.dp).background(Color.White).testTag("root")) {
+                    CompositionLocalProvider(LocalDensity provides Density(density)) {
+                    Box(Modifier.size(size.first.dp, size.second.dp).background(Color.White).testTag("root")) {
                         CompoundGraphLayoutView(
                             state = state,
                             viewState = GraphLayoutViewState(),
                             updateView = { _, _ -> },
                             modifier = Modifier.fillMaxSize()
                         )
+                    }
                     }
                 }
                 waitForIdle()
