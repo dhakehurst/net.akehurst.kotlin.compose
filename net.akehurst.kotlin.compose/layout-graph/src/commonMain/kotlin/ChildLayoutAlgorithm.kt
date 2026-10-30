@@ -21,7 +21,12 @@ data class ChildLayoutInput(
     val graphId: String,
     val nodes: List<GraphLayoutCompoundNode>,
     val nodeSizesById: Map<String, Pair<Double, Double>>,
-    val edges: List<ChildLayoutEdge>
+    val edges: List<ChildLayoutEdge>,
+    /**
+     * How strongly a node should be placed to the left (negative) or right (positive) of its siblings,
+     * for example because it connects to a port on that side of the container. Algorithms may ignore it.
+     */
+    val horizontalPullById: Map<String, Double> = emptyMap()
 )
 
 /**
@@ -84,7 +89,8 @@ data class SugiyamaChildLayout(
                 nodeHeight = { node -> nodeSizesById.getValue(node.id).second },
                 layerSpacing = layerSpacing,
                 nodeSpacing = nodeSpacing,
-                edgeRouting = edgeRouting
+                edgeRouting = edgeRouting,
+                horizontalPull = { node -> input.horizontalPullById[node.id] ?: 0.0 }
             ).layoutGraph(nodes = nodes, edges = edges)
         }
 

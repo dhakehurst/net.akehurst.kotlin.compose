@@ -1,6 +1,7 @@
 package net.akehurst.kotlin.compose.layout.graph.demo
 
 import net.akehurst.kotlin.compose.layout.graph.CompoundLayoutEngine
+import net.akehurst.kotlin.compose.layout.graph.EdgeRouting
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -42,7 +43,7 @@ class test_DemoUmlScenarios {
     @Test
     fun uml_statechart_nested_regions_forward_edge_uses_only_endpoints_and_stays_in_machine() {
         val scenario = DemoScenarios.umlStatechartNestedRegions
-        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState())
+        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState().copy(routing = EdgeRouting.DIRECT))
 
         val route = result.edgeRoutesByEdgeId.getValue("e_state_nested_2")
         assertEquals(2, route.size, "direct routing should use only source and target endpoints for e_state_nested_2")
@@ -81,7 +82,7 @@ class test_DemoUmlScenarios {
     @Test
     fun uml_statechart_nested_regions_reverse_edge_uses_only_endpoints_and_stays_in_machine() {
         val scenario = DemoScenarios.umlStatechartNestedRegions
-        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState())
+        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState().copy(routing = EdgeRouting.DIRECT))
 
         val reverseRoute = result.edgeRoutesByEdgeId.getValue("e_state_nested_4")
         assertEquals(2, reverseRoute.size, "direct routing should use only source and target endpoints for e_state_nested_4")
@@ -118,7 +119,7 @@ class test_DemoUmlScenarios {
     @Test
     fun state_like_regions_cross_edge_attaches_to_boundaries_and_stays_in_state_machine() {
         val scenario = DemoScenarios.stateLikeRegions
-        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState())
+        val result = CompoundLayoutEngine().layout(scenario.toCompoundGraphState().copy(routing = EdgeRouting.DIRECT))
 
         val route = result.edgeRoutesByEdgeId.getValue("e_state_2")
         assertEquals(2, route.size, "direct routing should use only source and target endpoints for e_state_2")

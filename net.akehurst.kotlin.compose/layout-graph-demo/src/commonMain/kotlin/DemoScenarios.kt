@@ -1,5 +1,6 @@
 package net.akehurst.kotlin.compose.layout.graph.demo
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -22,11 +23,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import net.akehurst.kotlin.compose.layout.graph.BorderPlacement
+import net.akehurst.kotlin.compose.layout.graph.BorderSide
 import net.akehurst.kotlin.compose.layout.graph.SugiyamaChildLayout
 import net.akehurst.kotlin.compose.layout.graph.TessellateChildLayout
 import net.akehurst.kotlin.compose.layout.graph.EdgeContentPosition
@@ -326,10 +330,15 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", content = { children -> Component("Controller", children) }),
-            DemoNode("InputPort", containerId = "Controller", content = { Interface("InputPort") }),
+            DemoNode(
+                "Controller",
+                ports = listOf(
+                    DemoPort("InputPort") { Port("input") },
+                    DemoPort("OutputPort") { Port("output") }
+                ),
+                content = { children -> Component("Controller", children) }
+            ),
             DemoNode("Core", containerId = "Controller", content = { children -> Component("Core", children) }),
-            DemoNode("OutputPort", containerId = "Controller", content = { Interface("OutputPort") }),
             DemoNode("Sensor", content = { children -> Component("Sensor", children) }),
             DemoNode("Actuator", content = { children -> Component("Actuator", children) })
         ),
@@ -378,6 +387,91 @@ object DemoScenarios {
         )
     )
 
+    /**
+     * Ports owned by a container and by a leaf node. In and cfg have fixed sides; the others are free.
+     * cfg pulls Logger to the right inside Controller. status sits inside the border, fout outside.
+     */
+    val borderPlacedNodes = DemoScenario(
+        id = "border_placed_nodes",
+        title = "Ports (nodes on the border of their owner)",
+        nodes = listOf(
+            DemoNode(
+                "Controller",
+                ports = listOf(
+                    DemoPort("In", side = BorderSide.LEFT) { Port("in") },
+                    DemoPort("Out") { Port("out") },
+                    DemoPort("Cfg", side = BorderSide.RIGHT) { Port("cfg") },
+                    DemoPort("Status", placement = BorderPlacement.INSIDE) { Port("status") }
+                ),
+                content = { children -> Component("Controller", children) }
+            ),
+            DemoNode("Core", containerId = "Controller", content = { Block("Core") }),
+            DemoNode("Parser", containerId = "Controller", content = { Block("Parser") }),
+            DemoNode("Logger", containerId = "Controller", content = { Block("Logger") }),
+            DemoNode("Sensor", content = { Block("Sensor") }),
+            DemoNode("Config", content = { Block("Config") }),
+            DemoNode(
+                "Filter",
+                ports = listOf(
+                    DemoPort("fin") { Port("fin") },
+                    DemoPort("fout", placement = BorderPlacement.OUTSIDE) { Port("fout") }
+                ),
+                content = { Block("Filter") }
+            ),
+            DemoNode("Actuator", content = { Block("Actuator") }),
+            DemoNode("Monitor", content = { Block("Monitor") })
+        ),
+        edges = listOf(
+            DemoEdge("e_bp_1", "Sensor", "In"),
+            DemoEdge("e_bp_2", "In", "Parser"),
+            DemoEdge("e_bp_3", "Parser", "Core"),
+            DemoEdge("e_bp_4", "Core", "Out"),
+            DemoEdge("e_bp_5", "Out", "fin"),
+            DemoEdge("e_bp_6", "fout", "Actuator"),
+            DemoEdge("e_bp_7", "Parser", "Logger"),
+            DemoEdge("e_bp_8", "Config", "Cfg"),
+            DemoEdge("e_bp_9", "Cfg", "Logger"),
+            DemoEdge("e_bp_10", "Logger", "Status"),
+            DemoEdge("e_bp_11", "Status", "Monitor")
+        )
+    )
+
+    /**
+     * Ports with ports of their own (SysML v2 nested ports): the complex port on Equation has Real and
+     * Imaginary ports on its border, each connected separately.
+     */
+    val portsWithPorts = DemoScenario(
+        id = "ports_with_ports",
+        title = "Ports with ports",
+        nodes = listOf(
+            DemoNode(
+                "Equation",
+                ports = listOf(
+                    DemoPort(
+                        "Complex",
+                        ports = listOf(
+                            DemoPort("Real") { Port("re") },
+                            DemoPort("Imaginary") { Port("im") }
+                        )
+                    ) { Port("c: ComplexNumber") },
+                    DemoPort("Result") { Port("result") }
+                ),
+                content = { children -> Component("Equation", children) }
+            ),
+            DemoNode("Solver", containerId = "Equation", content = { Block("Solver") }),
+            DemoNode("RealSource", content = { Block("RealSource") }),
+            DemoNode("ImaginarySource", content = { Block("ImaginarySource") }),
+            DemoNode("Display", content = { Block("Display") })
+        ),
+        edges = listOf(
+            DemoEdge("e_pp_1", "RealSource", "Real"),
+            DemoEdge("e_pp_2", "ImaginarySource", "Imaginary"),
+            DemoEdge("e_pp_3", "Complex", "Solver"),
+            DemoEdge("e_pp_4", "Solver", "Result"),
+            DemoEdge("e_pp_5", "Result", "Display")
+        )
+    )
+
     val all: List<DemoScenario> = listOf(
         flatChain,
         singleContainerTwoNodes,
@@ -393,7 +487,9 @@ object DemoScenarios {
         umlUseCaseDiagram,
         umlCompositeStructureDiagram,
         umlDeploymentDiagram,
-        umlClassPackageCrossingRelations
+        umlClassPackageCrossingRelations,
+        borderPlacedNodes,
+        portsWithPorts
     )
 
     /**
@@ -567,46 +663,57 @@ object DemoScenarios {
     }
 
     @Composable
-    fun Actor(name: String) = Box(
+    fun Actor(name: String) = Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // UML actor: a stick figure with the name below it, and no surrounding box.
+        Canvas(modifier = Modifier.size(width = 24.dp, height = 40.dp)) {
+            val stroke = 1.5.dp.toPx()
+            val w = size.width
+            val h = size.height
+            val headRadius = h * 0.13f
+            val headCentre = Offset(w / 2f, headRadius + stroke)
+            val neck = headCentre.y + headRadius
+            val hip = h * 0.66f
+            val arms = neck + (hip - neck) * 0.3f
+            drawCircle(umlStroke, radius = headRadius, center = headCentre, style = Stroke(stroke))
+            drawLine(umlStroke, Offset(w / 2f, neck), Offset(w / 2f, hip), stroke)
+            drawLine(umlStroke, Offset(stroke, arms), Offset(w - stroke, arms), stroke)
+            drawLine(umlStroke, Offset(w / 2f, hip), Offset(stroke, h - stroke), stroke)
+            drawLine(umlStroke, Offset(w / 2f, hip), Offset(w - stroke, h - stroke), stroke)
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelSmall,
+            color = umlStroke,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+    }
+
+    /** A plain leaf block with a name. */
+    @Composable
+    fun Block(name: String) = Box(
         modifier = Modifier
-            .minWidthToContent(30.dp)
             .background(umlFill)
-            .border(1.5.dp, umlStroke),
+            .border(1.5.dp, umlStroke)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .border(1.5.dp, umlStroke, CircleShape)
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .width(1.5.dp)
-                    .height(10.dp)
-                    .background(umlStroke)
-            )
-            Box(
-                modifier = Modifier
-                    .width(18.dp)
-                    .height(1.5.dp)
-                    .background(umlStroke)
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.5.dp)
-                    .height(8.dp)
-                    .background(umlStroke)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = name,
-                style = MaterialTheme.typography.labelSmall,
-                color = umlStroke,
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = umlStroke, maxLines = 1)
+    }
+
+    /** A small labelled square, for nodes placed on another node's border. */
+    @Composable
+    fun Port(name: String) = Box(
+        modifier = Modifier
+            .background(umlFill)
+            .border(1.5.dp, umlStroke)
+            .padding(horizontal = 3.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = umlStroke, maxLines = 1)
     }
 
     @Composable
@@ -619,15 +726,15 @@ object DemoScenarios {
                 .padding(start = 6.dp, top = 6.dp)
                 .border(1.5.dp, umlStroke)
         )
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(end = 6.dp, bottom = 6.dp)
                 .background(umlFill)
                 .border(1.5.dp, umlStroke),
-            contentAlignment = Alignment.TopCenter
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            children()
+            // Name first, so the children host starts below it.
             Text(
                 text = name,
                 modifier = Modifier.padding(top = 4.dp),
@@ -635,6 +742,9 @@ object DemoScenarios {
                 color = umlStroke,
                 textAlign = TextAlign.Center
             )
+            Box(modifier = Modifier.fillMaxSize().padding(umlPadding)) {
+                children()
+            }
         }
     }
 

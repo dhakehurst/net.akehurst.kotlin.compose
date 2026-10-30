@@ -356,23 +356,22 @@ private fun composeLayout(
     nodeId:String,
     childNodes: List<CompoundNodeLayout>,
     contentOriginX: Double,
-    contentOriginY: Double
+    contentOriginY: Double,
+    onLeafMeasured: (String, Pair<Double, Double>) -> Unit
 ): MeasurePolicy = MeasurePolicy { measurables, constraints ->
     // println("composeLayout: $nodeId")
     val placeables = childNodes.mapIndexed { i, childNode ->
         val measurable = measurables[i]
-        val contentWidth = measurable.maxIntrinsicWidth(constraints.maxWidth)
-        val contentHeight = measurable.maxIntrinsicHeight(constraints.maxHeight)
-       // println("measure child ${childNode.nodeId}: alg-w=${childNode.width}, alg-h=${childNode.height}")
-       // println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
-        measurable.measure(
-            Constraints(
-                minWidth = max(contentWidth,childNode.width.roundToInt()),
-                maxWidth = max(contentWidth,childNode.width.roundToInt()),
-                minHeight = max(contentHeight,childNode.height.roundToInt()),
-                maxHeight = max(contentHeight,childNode.height.roundToInt()),
-            )
-        )
+        if (!childNode.isContainer) {
+            // The content's own size, reported so the next layout pass can size the node to fit it.
+            val naturalWidth = measurable.maxIntrinsicWidth(Constraints.Infinity)
+            val naturalHeight = measurable.maxIntrinsicHeight(naturalWidth)
+            onLeafMeasured(childNode.nodeId, naturalWidth.toDouble() to naturalHeight.toDouble())
+        }
+        // maxIntrinsicWidth takes the available height, and maxIntrinsicHeight the chosen width.
+        val width = max(measurable.maxIntrinsicWidth(childNode.height.roundToInt()), childNode.width.roundToInt())
+        val height = max(measurable.maxIntrinsicHeight(width), childNode.height.roundToInt())
+        measurable.measure(Constraints.fixed(width, height))
     }
     val requiredChildWidth = requiredChildHostWidth(placeables.map { it.width.toDouble() }, childNodes, contentOriginX)
     val requiredChildHeight = requiredChildHostHeight(placeables.map { it.height.toDouble() }, childNodes, contentOriginY)
@@ -414,15 +413,18 @@ private fun NodeContent(
     layoutResult: CompoundLayoutResult,
     nodeCoordinatesById: MutableMap<String, LayoutCoordinates>,
     onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit,
+    onLeafMeasured: (String, Pair<Double, Double>) -> Unit,
 ) {
     val content = state.nodeContentById[node.nodeId]
     if (node.isContainer) {
         val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
-        val contentOriginX = containerGraphLayout?.globalOffsetX ?: node.globalX
-        val contentOriginY = containerGraphLayout?.globalOffsetY ?: node.globalY
+        // The child area's origin; children may be shifted right of it to centre them.
+        val contentOriginX = containerGraphLayout?.let { it.globalOffsetX - it.centringX } ?: node.globalX
+        val contentOriginY = containerGraphLayout?.let { it.globalOffsetY - it.shiftY } ?: node.globalY
         val childNodes = layoutResult.nodeLayoutsById.values
             .filter { it.ownerGraphId == node.nodeId }
-            .sortedWith(compareBy({ if (it.isContainer) 0 else 1 }, { it.nodeId }))
+            // Border nodes last, so they are drawn on top of their host.
+            .sortedWith(compareBy({ drawOrder(it, layoutResult) }, { it.nodeId }))
         // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
         // insets are computed in zoom-independent layout pixels.
         var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
@@ -481,11 +483,12 @@ private fun NodeContent(
                                     state = state,
                                     layoutResult = layoutResult,
                                     nodeCoordinatesById = nodeCoordinatesById,
-                                    onChildHostMeasured = onChildHostMeasured
+                                    onChildHostMeasured = onChildHostMeasured,
+                                    onLeafMeasured = onLeafMeasured
                                 )
                             }
                         },
-                        measurePolicy = composeLayout(node.nodeId,childNodes, contentOriginX, contentOriginY)
+                        measurePolicy = composeLayout(node.nodeId, childNodes, contentOriginX, contentOriginY, onLeafMeasured)
                     )
                 }
             }
@@ -545,6 +548,21 @@ internal fun resolveContainerChildHostMetrics(
 /**
  * @param childWidths measured width of each child, in the same order as [childNodes]
  */
+/**
+ * Containers first, then leaves, then ports; a port on a port after the port it is on,
+ * so each is drawn on top of what it sits on.
+ */
+private fun drawOrder(node: CompoundNodeLayout, layoutResult: CompoundLayoutResult): Int {
+    if (node.borderHostId == null) return if (node.isContainer) 0 else 1
+    var depth = 0
+    var host: String? = node.borderHostId
+    while (host != null && depth < 64) {
+        depth++
+        host = layoutResult.nodeLayoutsById[host]?.borderHostId
+    }
+    return 1 + depth
+}
+
 internal fun requiredChildHostWidth(
     childWidths: List<Double>,
     childNodes: List<CompoundNodeLayout>,
@@ -625,8 +643,11 @@ fun CompoundGraphLayoutView(
     }
     var graphLayerCoordinates by remember(state.id, layoutKey) { mutableStateOf<LayoutCoordinates?>(null) }
     val nodeCoordinatesById = remember(state.id, layoutKey) { mutableStateMapOf<String, LayoutCoordinates>() }
-    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics) {
-        CompoundLayoutEngine().layout(state, measuredContainerMetrics)
+    var measuredLeafSizes by remember(state.id, layoutKey) {
+        mutableStateOf<Map<String, Pair<Double, Double>>>(emptyMap())
+    }
+    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredLeafSizes) {
+        CompoundLayoutEngine().layout(state, measuredContainerMetrics, measuredLeafSizes)
     }
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
@@ -636,7 +657,7 @@ fun CompoundGraphLayoutView(
             .filter { it.ownerGraphId == state.root.id }
             .sortedWith(
                 compareBy<CompoundNodeLayout>(
-                    { if (it.isContainer) 0 else 1 },
+                    { drawOrder(it, layoutResult) },
                     { it.nodeId }
                 )
             )
@@ -704,6 +725,14 @@ fun CompoundGraphLayoutView(
         { nodeId, metrics ->
             if (measuredContainerMetrics[nodeId] != metrics) {
                 measuredContainerMetrics = measuredContainerMetrics + (nodeId to metrics)
+            }
+        }
+    }
+
+    val onLeafMeasured: (String, Pair<Double, Double>) -> Unit = remember(state.id, layoutKey) {
+        { nodeId, size ->
+            if (measuredLeafSizes[nodeId] != size) {
+                measuredLeafSizes = measuredLeafSizes + (nodeId to size)
             }
         }
     }
@@ -794,11 +823,12 @@ fun CompoundGraphLayoutView(
                                 state = state,
                                 layoutResult = layoutResult,
                                 nodeCoordinatesById = nodeCoordinatesById,
-                                onChildHostMeasured = onChildHostMeasured
+                                onChildHostMeasured = onChildHostMeasured,
+                                onLeafMeasured = onLeafMeasured
                             )
                         }
                     },
-                    measurePolicy = composeLayout("root", rootNodes, globalToViewportOffsetX, globalToViewportOffsetY)
+                    measurePolicy = composeLayout("root", rootNodes, -globalToViewportOffsetX, -globalToViewportOffsetY, onLeafMeasured)
                 )
 
                 // ── Layer 2: Edge route lines ────────────────────────────────────
@@ -868,7 +898,9 @@ fun CompoundGraphLayoutView(
 
                         // Get the actual rendered node positions to properly attach edge endpoints
                         val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
-                        val drawRoute = if (endpoints != null && graphLayerCoordinates != null) {
+                        // Orthogonal routes already end on the node borders; moving their end points
+                        // to the rendered bounds would add diagonal segments.
+                        val drawRoute = if (state.routing == EdgeRouting.DIRECT && endpoints != null && graphLayerCoordinates != null) {
                             val (sourceNodeId, targetNodeId) = endpoints
                             val sourceCoords = nodeCoordinatesById[sourceNodeId]
                             val targetCoords = nodeCoordinatesById[targetNodeId]

@@ -63,7 +63,9 @@ class SugiyamaLayout<NT : Any>(
     private val edgeRouting: EdgeRouting = EdgeRouting.DIRECT,
     private val portStrategy: PortStrategy = PortStrategy.UNIQUE,
     private val edgePriority: EdgePriority = EdgePriority.FEWEST_CROSSINGS,
-    private val nodeClearance: Double = 0.25 // as fraction of nodeSpacing
+    private val nodeClearance: Double = 0.25, // as fraction of nodeSpacing
+    /** Negative to keep a node at the left of its layer, positive to keep it at the right. */
+    private val horizontalPull: (NT) -> Double = { 0.0 }
 ) {
 
     private var dummyIdCounter = 0
@@ -149,6 +151,18 @@ class SugiyamaLayout<NT : Any>(
 
         // 4. Crossing Reduction (improved with multiple heuristics)
         reduceCrossingsImproved(layeredNodes, layeredEdges)
+
+        // 4b. Nodes pulled to one side (e.g. connected to a port on that side of their container) go to
+        // that end of their layer; the order found above is kept otherwise.
+        layeredNodes.forEach { layer ->
+            fun side(n: SNode<NT>) = n.originalNode?.let(horizontalPull)?.let { if (it < 0) -1 else if (it > 0) 1 else 0 } ?: 0
+            if (layer.any { side(it) != 0 }) {
+                val sorted = layer.sortedBy { side(it) } // stable
+                layer.clear()
+                layer.addAll(sorted)
+                layer.forEachIndexed { index, node -> node.posInLayer = index }
+            }
+        }
 
         // 5. Coordinate Assignment with port assignment
         return assignCoordinates(layeredNodes, layeredEdges, nodes, newEdges, reversedEdges, edges, selfLoops, multiEdges)
@@ -982,6 +996,57 @@ class SugiyamaLayout<NT : Any>(
     /**
      * Step 5: Assigns final coordinates to nodes and determines edge routes with port assignment.
      */
+    private fun computeCentreXs(
+        layeredNodes: List<MutableList<SNode<NT>>>,
+        layeredEdges: List<SEdge<NT>>,
+        layerWidths: List<Double>,
+        maxWidth: Double
+    ): Map<SNode<NT>, Double> {
+        fun width(n: SNode<NT>) = n.originalNode?.let(nodeWidth) ?: 0.0
+        val centre = mutableMapOf<SNode<NT>, Double>()
+        // Start from the packed, centred placement.
+        layeredNodes.forEachIndexed { layerIndex, layer ->
+            var x = (maxWidth - layerWidths[layerIndex]) / 2.0
+            layer.forEach { n ->
+                centre[n] = x + width(n) / 2.0
+                x += width(n) + nodeSpacing
+            }
+        }
+        val up = mutableMapOf<SNode<NT>, MutableList<SNode<NT>>>()
+        val down = mutableMapOf<SNode<NT>, MutableList<SNode<NT>>>()
+        layeredEdges.forEach { e ->
+            val (a, b) = if (e.from.layer <= e.to.layer) e.from to e.to else e.to to e.from
+            if (a.layer != b.layer) {
+                down.getOrPut(a) { mutableListOf() }.add(b)
+                up.getOrPut(b) { mutableListOf() }.add(a)
+            }
+        }
+
+        fun place(layer: List<SNode<NT>>, neighbours: Map<SNode<NT>, List<SNode<NT>>>) {
+            if (layer.isEmpty()) return
+            val desired = layer.map { n ->
+                val ns = neighbours[n].orEmpty()
+                if (ns.isEmpty()) centre.getValue(n) else ns.sumOf { centre.getValue(it) } / ns.size
+            }
+            fun gap(i: Int) = width(layer[i - 1]) / 2.0 + nodeSpacing + width(layer[i]) / 2.0
+            // Push right from the left, and push left from the right; the average keeps order and spacing.
+            val l = DoubleArray(layer.size)
+            for (i in layer.indices) l[i] = if (i == 0) desired[0] else max(desired[i], l[i - 1] + gap(i))
+            val r = DoubleArray(layer.size)
+            for (i in layer.indices.reversed()) r[i] = if (i == layer.lastIndex) desired[i] else min(desired[i], r[i + 1] - gap(i + 1))
+            layer.forEachIndexed { i, n -> centre[n] = (l[i] + r[i]) / 2.0 }
+        }
+
+        repeat(4) {
+            for (i in 1 until layeredNodes.size) place(layeredNodes[i], up)
+            for (i in layeredNodes.size - 2 downTo 0) place(layeredNodes[i], down)
+        }
+
+        // Shift so the leftmost node starts at 0.
+        val minLeft = centre.entries.minOfOrNull { (n, c) -> c - width(n) / 2.0 } ?: 0.0
+        return centre.mapValues { it.value - minLeft }
+    }
+
     private fun assignCoordinates(
         layeredNodes: List<MutableList<SNode<NT>>>,
         layeredEdges: List<SEdge<NT>>,
@@ -1005,21 +1070,19 @@ class SugiyamaLayout<NT : Any>(
             layerTops.add(layerTops[i] + layerHeights[i] + layerSpacing)
         }
 
-        // Position nodes
+        // Position nodes: each node is pulled towards the centres of its neighbours in the
+        // adjacent layers (down and up sweeps), keeping the order and at least nodeSpacing between nodes.
+        val centreX = computeCentreXs(layeredNodes, layeredEdges, layerWidths, maxWidth)
         layeredNodes.forEachIndexed { layerIndex, layer ->
-            val layerWidth = layerWidths[layerIndex]
             val currentLayerTop = layerTops[layerIndex]
-            var x = (maxWidth - layerWidth) / 2.0
-
             layer.forEach { sNode ->
                 val nodeW = sNode.originalNode?.let(nodeWidth) ?: 0.0
-                val pos = Pair(x, currentLayerTop) // this is top-left
+                val pos = Pair(centreX.getValue(sNode) - nodeW / 2.0, currentLayerTop) // this is top-left
                 if (sNode.isDummy) {
                     dummyPositions[sNode] = pos
                 } else {
                     nodePositions[sNode.originalNode!!] = pos
                 }
-                x += nodeW + nodeSpacing
             }
         }
 
@@ -1103,7 +1166,7 @@ class SugiyamaLayout<NT : Any>(
             }
         }
 
-        val totalWidth = maxWidth
+        val totalWidth = nodePositions.entries.maxOfOrNull { (n, p) -> p.first + nodeWidth(n) } ?: 0.0
         val totalHeight = (layerTops.lastOrNull() ?: 0.0) + (layerHeights.lastOrNull() ?: 0.0)
         return SugiyamaLayoutData(totalWidth, totalHeight, nodePositions, finalEdgeRoutes)
     }

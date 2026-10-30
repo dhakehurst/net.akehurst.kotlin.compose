@@ -37,9 +37,12 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             id = node.id,
             widthHint = node.widthHint?.toDouble(),
             heightHint = node.heightHint?.toDouble(),
-            containerPaddingHint = node.paddingHint
+            containerPaddingHint = node.paddingHint,
+            ports = node.ports.map { it.toCompoundPort() }
         )
         ownerGraphByNodeId[node.id] = ownerGraphId
+        // A port belongs to the same graph as the node that owns it.
+        node.ports.allPorts().forEach { ownerGraphByNodeId[it.id] = ownerGraphId }
     }
 
     containerIds.sorted().forEach { containerId ->
@@ -67,6 +70,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         // Register Compose content for every node.
         nodes.sortedBy { it.id }.forEach { node ->
             node.content.let { state.addNodeContent(node.id, it) }
+            node.ports.allPorts().forEach { port -> state.addNodeContent(port.id) { port.content() } }
         }
 
         // Register edge rendering content.
@@ -78,6 +82,11 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
     }
 }
 
+
+private fun DemoPort.toCompoundPort(): GraphLayoutCompoundPort =
+    GraphLayoutCompoundPort(id = id, side = side, placement = placement, ports = ports.map { it.toCompoundPort() })
+
+private fun List<DemoPort>.allPorts(): List<DemoPort> = flatMap { listOf(it) + it.ports.allPorts() }
 
 private fun lowestCommonAncestor(
     graphA: String,

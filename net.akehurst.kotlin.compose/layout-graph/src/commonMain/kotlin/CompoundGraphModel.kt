@@ -17,7 +17,7 @@ import net.akehurst.kotlin.compose.layout.graph.GraphLayoutCompoundGraphState
  */
 data class GraphLayoutCompoundGraphState(
     val id: String,
-    val routing: EdgeRouting = EdgeRouting.DIRECT,
+    val routing: EdgeRouting = EdgeRouting.RECTILINEAR,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
 ) {
 
@@ -124,10 +124,48 @@ data class GraphLayoutCompoundNode(
     val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
     val heightHint: Double? = null,
-    val containerPaddingHint: PaddingHint? = null
+    val containerPaddingHint: PaddingHint? = null,
+    /**
+     * Nodes owned by this node and placed on its border, for example ports. Any node can have them,
+     * leaf or container. Edges can connect to a port from outside this node and from its children.
+     */
+    val ports: List<GraphLayoutCompoundPort> = emptyList()
 ) {
     val metadata: MutableMap<String, String> = mutableMapOf()
 }
+
+/** A side of a node's border. */
+enum class BorderSide { TOP, RIGHT, BOTTOM, LEFT }
+
+/** Where a border node sits relative to its host's border line. */
+enum class BorderPlacement {
+    /** Centred on the border line: half inside the host, half outside. */
+    STRADDLE,
+    /** Just inside the host, touching the border. */
+    INSIDE,
+    /** Just outside the host, touching the border. */
+    OUTSIDE
+}
+
+/**
+ * A node on the border of the node that owns it, for example a port.
+ *
+ * Its id is a node id like any other: edges connect to it and its Compose content is registered with
+ * [GraphLayoutCompoundGraphState.addNodeContent]. Its size is measured from that content, with the hints
+ * as minimums.
+ *
+ * When [side] is null the layout chooses the side, facing the nodes the port connects to (inside or outside
+ * its owner). The position along the side is always chosen by the layout.
+ */
+data class GraphLayoutCompoundPort(
+    val id: String,
+    val side: BorderSide? = null,
+    val placement: BorderPlacement = BorderPlacement.STRADDLE,
+    val widthHint: Double? = null,
+    val heightHint: Double? = null,
+    /** Ports on this port's border (for example SysML v2 nested ports). They work like any port. */
+    val ports: List<GraphLayoutCompoundPort> = emptyList()
+)
 
 data class GraphLayoutCompoundEdge(
     val id: String,
@@ -243,13 +281,25 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
         }
 
         graph.nodes.values.forEach { node ->
-            allNodeIds.add(node.id)
+            if (!allNodeIds.add(node.id) && node.id !in nodeOwnerByNodeId) {
+                errors.add("Node id '${node.id}' is already used by a port")
+            }
             val existingOwner = nodeOwnerByNodeId[node.id]
             if (existingOwner != null) {
                 errors.add("Node '${node.id}' is contained by both '$existingOwner' and '${graph.id}'")
             } else {
                 nodeOwnerByNodeId[node.id] = graph.id
             }
+            fun checkPorts(ownerId: String, ports: List<GraphLayoutCompoundPort>) {
+                ports.forEach { port ->
+                    // Port ids share the node id space, so edges can refer to them.
+                    if (!allNodeIds.add(port.id)) {
+                        errors.add("Port id '${port.id}' of '$ownerId' is already used by another node or port")
+                    }
+                    checkPorts(port.id, port.ports)
+                }
+            }
+            checkPorts(node.id, node.ports)
         }
 
         graph.children.values.forEach { child ->
@@ -258,6 +308,7 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
     }
 
     walk(root, emptyList())
+
 
     val validatedEdgeGraphs = mutableSetOf<String>()
 

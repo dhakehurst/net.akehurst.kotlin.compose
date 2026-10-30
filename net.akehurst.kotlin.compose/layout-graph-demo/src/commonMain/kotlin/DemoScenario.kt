@@ -1,6 +1,8 @@
 package net.akehurst.kotlin.compose.layout.graph.demo
 
 import androidx.compose.runtime.Composable
+import net.akehurst.kotlin.compose.layout.graph.BorderPlacement
+import net.akehurst.kotlin.compose.layout.graph.BorderSide
 import net.akehurst.kotlin.compose.layout.graph.ChildLayoutAlgorithm
 import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
 import net.akehurst.kotlin.compose.layout.graph.PaddingHint
@@ -27,7 +29,19 @@ data class DemoNode(
     val defaultCollapsed: Boolean = false,
     /** Optional layout strategy for this node's immediate children. */
     val childLayout: ChildLayoutAlgorithm? = null,
+    /** Nodes on this node's border, for example ports. */
+    val ports: List<DemoPort> = emptyList(),
     val content: (@Composable (@Composable () -> Unit) -> Unit)
+)
+
+data class DemoPort(
+    val id: String,
+    /** Null lets the layout choose. */
+    val side: BorderSide? = null,
+    val placement: BorderPlacement = BorderPlacement.STRADDLE,
+    /** Ports on this port's border. */
+    val ports: List<DemoPort> = emptyList(),
+    val content: @Composable () -> Unit
 )
 
 

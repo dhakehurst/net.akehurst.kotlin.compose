@@ -469,6 +469,25 @@ To keep endpoint clipping deterministic across JVM/JS/Wasm, use the following ru
 - `COMPACT`: smaller area with acceptable crossing increase.
 - `CHANNEL_BIASED`: straighter parallel channels for near series-parallel graphs.
 
+### 7.6 Ports (nodes on the border of their owner)
+
+A node owns its ports: nodes placed on its border, for example UML/SysML ports, action pins or state entry/exit points. This is generic: a port can have any content and size, and the owner can be a leaf or a container. Set `GraphLayoutCompoundNode.ports = listOf(GraphLayoutCompoundPort(id, side, placement))` and register the port's content with `addNodeContent(portId)` like any node.
+
+- Port ids share the node id space, so edges connect to ports like any node. A port cannot contain nodes.
+- **Ports on ports** (for example SysML v2 nested ports): a port can have its own `ports`, placed on its border by the same rules. The outer port grows to fit them, and its owner keeps room for the parts that stick out. A free port on a port is not put on the side facing into the owner; it can be pinned to any side. The outer port's side takes the edges of its own ports into account.
+- **Shapes**: every node and port is treated as a rectangle (its bounding box). Ports and edge ends on other outlines, such as circles, are future work.
+- **Visible outside and inside**: edges may connect a port to nodes outside its owner and to the owner's children. A port stays on its owner when the owner is collapsed.
+- **Side**: when `side` is null the layout chooses it, facing the nodes the port is connected to (inside or outside, on average, relative to the owner's shape). A caller can pin a side.
+- **Placement**: `STRADDLE` (default) centres the port on the border line; `INSIDE` and `OUTSIDE` put it just inside or just outside, touching the border.
+- **Position along the side**: chosen by the layout, as close as possible to the connected nodes, in that order, without overlaps. On a container, left and right ports stay below the header.
+- **Room**: the owner grows so each side fits its ports; the layout keeps room around the owner for the part that sticks out, and a container keeps its children clear of the part that reaches in, with a channel for edges.
+- **Layout outside**: for ordering, an edge to a port counts as an edge to its owner.
+- **Layout inside**: a child connected to a port on the left side is placed at the left of its layer, and at the right for a right-side port (`ChildLayoutInput.horizontalPullById`; `SugiyamaChildLayout` uses it).
+- The layout runs twice when some sides are free: the first pass chooses the sides, the second makes room for them.
+- **Routing**: an edge leaves a port straight out through its side, or straight in when the other end is the owner or inside it. An edge between two nodes in the same container stays inside that container.
+
+The layout never adds boundary points to containers on its own (§13, Q2): a diagram that needs them uses explicit ports.
+
 ## 8. Layout quality criteria
 
 The result should make it easy to see:
@@ -601,11 +620,17 @@ These are algorithmic profiles, not domain profiles. The implemented ones are th
 ## 13. Open questions
 
 1. Should containers be explicit graph objects or inferred from input data?
+   **Answer:** explicit, as now (a container is a node with its own child graph).
 2. Should cross-boundary edges always use boundary ports?
+   **Answer:** no, and there is no option to turn them on. Diagrams that need them (for example SysML internal block diagrams) use explicit ports (§7.6).
 3. Should profile selection be static or auto-selected from graph metrics?
+   **Answer:** static: the caller chooses a `ChildLayoutAlgorithm` per container. An "auto" algorithm may be added later as an optional choice.
 4. Should orthogonal readability always win over compactness?
+   **Answer:** yes. Orthogonal (`RECTILINEAR`) routing is the default, and nodes are spread out for clean routes, unless the caller fixes the size (not supported yet: width and height hints are minimums). Leaf sizes come from the measured Compose content.
 5. How should first-pass fallback insets be tuned before Compose measurements are available?
+   **Answer:** left to the implementation (defaults in `CompoundLayoutConfig`).
 6. Should collapsed containers show summary metadata (for example, descendant count, edge count)?
+   Not answered yet.
 
 ## 14. Recommended first implementation scope
 
