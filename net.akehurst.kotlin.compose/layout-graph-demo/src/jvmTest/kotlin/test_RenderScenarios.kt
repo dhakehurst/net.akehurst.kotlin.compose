@@ -20,12 +20,14 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Renders every demo scenario to a PNG in build/scenario-renders, so the layout can be checked by eye.
+ * Renders every demo scenario to a PNG in .gradle-build/layout-graph-demo/scenario-renders
+ * (under the Gradle project root), so the layout can be checked by eye.
  */
 @OptIn(ExperimentalTestApi::class)
 class test_RenderScenarios {
 
-    private val outDir = File("build/scenario-renders").also { it.mkdirs() }
+    // Tests run in the module folder; the build output folder is .gradle-build/<module> under the root.
+    private val outDir = File("../.gradle-build/layout-graph-demo/scenario-renders").also { it.mkdirs() }
 
     @Test
     fun render_all_scenarios() = renderAll(debug = false)
