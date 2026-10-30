@@ -162,7 +162,9 @@ data class GraphLayoutCompoundPort(
     val side: BorderSide? = null,
     val placement: BorderPlacement = BorderPlacement.STRADDLE,
     val widthHint: Double? = null,
-    val heightHint: Double? = null
+    val heightHint: Double? = null,
+    /** Ports on this port's border (for example SysML v2 nested ports). They work like any port. */
+    val ports: List<GraphLayoutCompoundPort> = emptyList()
 )
 
 data class GraphLayoutCompoundEdge(
@@ -288,12 +290,16 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
             } else {
                 nodeOwnerByNodeId[node.id] = graph.id
             }
-            node.ports.forEach { port ->
-                // Port ids share the node id space, so edges can refer to them.
-                if (!allNodeIds.add(port.id)) {
-                    errors.add("Port id '${port.id}' of node '${node.id}' is already used by another node or port")
+            fun checkPorts(ownerId: String, ports: List<GraphLayoutCompoundPort>) {
+                ports.forEach { port ->
+                    // Port ids share the node id space, so edges can refer to them.
+                    if (!allNodeIds.add(port.id)) {
+                        errors.add("Port id '${port.id}' of '$ownerId' is already used by another node or port")
+                    }
+                    checkPorts(port.id, port.ports)
                 }
             }
+            checkPorts(node.id, node.ports)
         }
 
         graph.children.values.forEach { child ->

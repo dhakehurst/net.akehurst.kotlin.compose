@@ -473,7 +473,9 @@ To keep endpoint clipping deterministic across JVM/JS/Wasm, use the following ru
 
 A node owns its ports: nodes placed on its border, for example UML/SysML ports, action pins or state entry/exit points. This is generic: a port can have any content and size, and the owner can be a leaf or a container. Set `GraphLayoutCompoundNode.ports = listOf(GraphLayoutCompoundPort(id, side, placement))` and register the port's content with `addNodeContent(portId)` like any node.
 
-- Port ids share the node id space, so edges connect to ports like any node. A port cannot have ports or contain nodes.
+- Port ids share the node id space, so edges connect to ports like any node. A port cannot contain nodes.
+- **Ports on ports** (for example SysML v2 nested ports): a port can have its own `ports`, placed on its border by the same rules. The outer port grows to fit them, and its owner keeps room for the parts that stick out. A free port on a port is not put on the side facing into the owner; it can be pinned to any side. The outer port's side takes the edges of its own ports into account.
+- **Shapes**: every node and port is treated as a rectangle (its bounding box). Ports and edge ends on other outlines, such as circles, are future work.
 - **Visible outside and inside**: edges may connect a port to nodes outside its owner and to the owner's children. A port stays on its owner when the owner is collapsed.
 - **Side**: when `side` is null the layout chooses it, facing the nodes the port is connected to (inside or outside, on average, relative to the owner's shape). A caller can pin a side.
 - **Placement**: `STRADDLE` (default) centres the port on the border line; `INSIDE` and `OUTSIDE` put it just inside or just outside, touching the border.

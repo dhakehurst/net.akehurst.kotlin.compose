@@ -436,6 +436,42 @@ object DemoScenarios {
         )
     )
 
+    /**
+     * Ports with ports of their own (SysML v2 nested ports): the complex port on Equation has Real and
+     * Imaginary ports on its border, each connected separately.
+     */
+    val portsWithPorts = DemoScenario(
+        id = "ports_with_ports",
+        title = "Ports with ports",
+        nodes = listOf(
+            DemoNode(
+                "Equation",
+                ports = listOf(
+                    DemoPort(
+                        "Complex",
+                        ports = listOf(
+                            DemoPort("Real") { Port("re") },
+                            DemoPort("Imaginary") { Port("im") }
+                        )
+                    ) { Port("c: ComplexNumber") },
+                    DemoPort("Result") { Port("result") }
+                ),
+                content = { children -> Component("Equation", children) }
+            ),
+            DemoNode("Solver", containerId = "Equation", content = { Block("Solver") }),
+            DemoNode("RealSource", content = { Block("RealSource") }),
+            DemoNode("ImaginarySource", content = { Block("ImaginarySource") }),
+            DemoNode("Display", content = { Block("Display") })
+        ),
+        edges = listOf(
+            DemoEdge("e_pp_1", "RealSource", "Real"),
+            DemoEdge("e_pp_2", "ImaginarySource", "Imaginary"),
+            DemoEdge("e_pp_3", "Complex", "Solver"),
+            DemoEdge("e_pp_4", "Solver", "Result"),
+            DemoEdge("e_pp_5", "Result", "Display")
+        )
+    )
+
     val all: List<DemoScenario> = listOf(
         flatChain,
         singleContainerTwoNodes,
@@ -452,7 +488,8 @@ object DemoScenarios {
         umlCompositeStructureDiagram,
         umlDeploymentDiagram,
         umlClassPackageCrossingRelations,
-        borderPlacedNodes
+        borderPlacedNodes,
+        portsWithPorts
     )
 
     /**

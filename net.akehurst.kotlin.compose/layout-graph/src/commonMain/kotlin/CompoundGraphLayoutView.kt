@@ -424,7 +424,7 @@ private fun NodeContent(
         val childNodes = layoutResult.nodeLayoutsById.values
             .filter { it.ownerGraphId == node.nodeId }
             // Border nodes last, so they are drawn on top of their host.
-            .sortedWith(compareBy({ if (it.borderHostId != null) 2 else if (it.isContainer) 0 else 1 }, { it.nodeId }))
+            .sortedWith(compareBy({ drawOrder(it, layoutResult) }, { it.nodeId }))
         // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
         // insets are computed in zoom-independent layout pixels.
         var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
@@ -548,6 +548,21 @@ internal fun resolveContainerChildHostMetrics(
 /**
  * @param childWidths measured width of each child, in the same order as [childNodes]
  */
+/**
+ * Containers first, then leaves, then ports; a port on a port after the port it is on,
+ * so each is drawn on top of what it sits on.
+ */
+private fun drawOrder(node: CompoundNodeLayout, layoutResult: CompoundLayoutResult): Int {
+    if (node.borderHostId == null) return if (node.isContainer) 0 else 1
+    var depth = 0
+    var host: String? = node.borderHostId
+    while (host != null && depth < 64) {
+        depth++
+        host = layoutResult.nodeLayoutsById[host]?.borderHostId
+    }
+    return 1 + depth
+}
+
 internal fun requiredChildHostWidth(
     childWidths: List<Double>,
     childNodes: List<CompoundNodeLayout>,
@@ -642,7 +657,7 @@ fun CompoundGraphLayoutView(
             .filter { it.ownerGraphId == state.root.id }
             .sortedWith(
                 compareBy<CompoundNodeLayout>(
-                    { if (it.borderHostId != null) 2 else if (it.isContainer) 0 else 1 },
+                    { drawOrder(it, layoutResult) },
                     { it.nodeId }
                 )
             )

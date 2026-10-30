@@ -186,6 +186,7 @@ class CompoundLayoutEngine(
     ): CompoundLayoutResult {
         val initialChildLayout = state.root.childLayout ?: config.defaultChildLayout
         val borderSizesById = mutableMapOf<String, Pair<Double, Double>>()
+        val borderFootprintsById = mutableMapOf<String, List<Double>>()
         val allEdges = mutableListOf<GraphLayoutCompoundEdge>()
         fun collectEdges(g: GraphLayoutCompoundGraph) {
             allEdges.addAll(g.edges.values)
@@ -201,7 +202,8 @@ class CompoundLayoutEngine(
             leafSizesByNodeId = leafSizesByNodeId,
             knownBorderSides = knownBorderSides,
             borderSizesById = borderSizesById,
-            allEdges = allEdges
+            allEdges = allEdges,
+            borderFootprintsById = borderFootprintsById
         )
         val nodeLayouts = mutableMapOf<String, CompoundNodeLayout>()
         val graphLayouts = mutableMapOf<String, CompoundGraphLayout>()
@@ -225,6 +227,7 @@ class CompoundLayoutEngine(
             index = index,
             knownBorderSides = knownBorderSides,
             borderSizesById = borderSizesById,
+            borderFootprintsById = borderFootprintsById,
             edgeDescriptors = edgeDescriptorsById.values,
             collapsedRedirectMap = collapsedRedirectMap,
             nodeLayouts = nodeLayouts,
@@ -307,7 +310,9 @@ class CompoundLayoutEngine(
         knownBorderSides: Map<String, BorderSide>,
         /** Collects the size of every port, for placing them after the layout. */
         borderSizesById: MutableMap<String, Pair<Double, Double>>,
-        allEdges: List<GraphLayoutCompoundEdge>
+        allEdges: List<GraphLayoutCompoundEdge>,
+        /** Collects how far each port's own ports stick out of it (left, top, right, bottom). */
+        borderFootprintsById: MutableMap<String, List<Double>>
     ): PlannedGraphLayout {
         val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
         // Only recurse into non-collapsed children; collapsed containers are treated as plain nodes.
@@ -322,7 +327,8 @@ class CompoundLayoutEngine(
                     leafSizesByNodeId = leafSizesByNodeId,
                     knownBorderSides = knownBorderSides,
                     borderSizesById = borderSizesById,
-                    allEdges = allEdges
+                    allEdges = allEdges,
+                    borderFootprintsById = borderFootprintsById
                 )
             }
 
@@ -331,7 +337,6 @@ class CompoundLayoutEngine(
 
         val nodes = graph.nodes.values.sortedBy { it.id }
         // Ports are not laid out with the nodes; they are placed on their owner's border afterwards.
-        val ports = nodes.flatMap { owner -> owner.ports.map { it to owner.id } }.sortedBy { it.first.id }
         val ownSizesById = nodes.associate { node ->
             val childPlan = childPlansById[node.id]
             val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
@@ -353,44 +358,53 @@ class CompoundLayoutEngine(
             node.id to (width to height)
         }
         // A port takes its measured content size, never smaller than its hints.
-        val portSizesById = ports.associate { (port, _) ->
+        val allPorts = mutableListOf<GraphLayoutCompoundPort>()
+        fun collectNested(list: List<GraphLayoutCompoundPort>) {
+            list.forEach { allPorts.add(it); collectNested(it.ports) }
+        }
+        nodes.forEach { collectNested(it.ports) }
+        val baseSizeById = allPorts.associate { port ->
             val measured = leafSizesByNodeId[port.id]
             val w = if (measured != null) max(port.widthHint ?: 0.0, measured.first) else (port.widthHint ?: config.defaultPortWidth)
             val h = if (measured != null) max(port.heightHint ?: 0.0, measured.second) else (port.heightHint ?: config.defaultPortHeight)
             port.id to (w to h)
         }
+        // A port with ports of its own grows to fit them, like any host; its footprint is how far they stick out.
+        val portSizesById = mutableMapOf<String, Pair<Double, Double>>()
+        fun sizeOf(port: GraphLayoutCompoundPort): Pair<Double, Double> = portSizesById[port.id] ?: run {
+            val base = baseSizeById.getValue(port.id)
+            val size = if (port.ports.isEmpty()) {
+                borderFootprintsById[port.id] = listOf(0.0, 0.0, 0.0, 0.0)
+                base
+            } else {
+                val req = sideRequirements(port.ports, knownBorderSides, ::sizeOf, borderFootprintsById)
+                borderFootprintsById[port.id] = req.outside
+                max(base.first, max(req.needed(1), req.needed(3))) to max(base.second, max(req.needed(0), req.needed(2)))
+            }
+            portSizesById[port.id] = size
+            size
+        }
+        allPorts.forEach { sizeOf(it) }
         borderSizesById.putAll(portSizesById)
 
-        // A host must be long enough on each side for the border nodes there, and the layout reserves
+        // An owner must be long enough on each side for its ports there, and the layout reserves
         // room around it for the part of them that sticks out.
         val hostInsetsById = mutableMapOf<String, List<Double>>()
         val hostInnerInsetsById = mutableMapOf<String, List<Double>>()
         val hostMinSizeById = mutableMapOf<String, Pair<Double, Double>>()
-        ports.groupBy { it.second }.forEach { (hostId, onHost) ->
-            val insets = DoubleArray(4) // left, top, right, bottom
-            val inner = DoubleArray(4)
-            val lengths = DoubleArray(4)
-            val counts = IntArray(4)
-            onHost.forEach { (b, _) ->
-                val side = b.side ?: knownBorderSides[b.id] ?: return@forEach
-                val (w, h) = portSizesById.getValue(b.id)
-                val i = sideIndex(side)
-                val depth = if (side == BorderSide.TOP || side == BorderSide.BOTTOM) h else w
-                val length = if (side == BorderSide.TOP || side == BorderSide.BOTTOM) w else h
-                insets[i] = max(insets[i], outsideDepth(depth, b.placement))
-                // Plus a channel for edges between the ports and the children (wider than the router keeps clear of both).
-                inner[i] = max(inner[i], depth - outsideDepth(depth, b.placement) + 2 * config.edgeRouter.margin + borderNodeGap)
-                lengths[i] += length
-                counts[i]++
-            }
-            fun needed(i: Int) = if (counts[i] == 0) 0.0 else lengths[i] + borderNodeGap * (counts[i] + 1)
-            hostInsetsById[hostId] = insets.toList()
-            // In a container, children keep clear of the border nodes, and left and right border nodes
-            // stay beside the child area (not beside a header).
+        nodes.filter { it.ports.isNotEmpty() }.forEach { owner ->
+            val hostId = owner.id
+            val req = sideRequirements(owner.ports, knownBorderSides, ::sizeOf, borderFootprintsById)
+            hostInsetsById[hostId] = req.outside
+            // In a container, children keep clear of the ports, with a channel for edges between them
+            // (wider than the router keeps clear of both), and left and right ports stay beside the child
+            // area (not beside a header).
             val hostIsContainer = hostId in childPlansById
             val headerHeight = if (hostIsContainer) (containerMetricsByNodeId[hostId] ?: fallbackContainerMetrics(childPlansById[hostId])).originY else 0.0
-            if (hostIsContainer) hostInnerInsetsById[hostId] = inner.toList()
-            hostMinSizeById[hostId] = max(needed(1), needed(3)) to (max(needed(0), needed(2)) + headerHeight)
+            if (hostIsContainer) {
+                hostInnerInsetsById[hostId] = req.inside.mapIndexed { i, d -> if (req.counts[i] == 0) 0.0 else d + 2 * config.edgeRouter.margin + borderNodeGap }
+            }
+            hostMinSizeById[hostId] = max(req.needed(1), req.needed(3)) to (max(req.needed(0), req.needed(2)) + headerHeight)
         }
         val nodeSizesById = nodes.associate { node ->
             val inner = hostInnerInsetsById[node.id] ?: listOf(0.0, 0.0, 0.0, 0.0)
@@ -430,7 +444,10 @@ class CompoundLayoutEngine(
         // a port on the left side is pulled to the left, and to the right for a port on the right.
         val pullById = mutableMapOf<String, Double>()
         allEdges.forEach { edge ->
-            listOf(edge.sourceId to edge.targetId, edge.targetId to edge.sourceId).forEach { (portId, otherId) ->
+            listOf(edge.sourceId to edge.targetId, edge.targetId to edge.sourceId).forEach { (endId, otherId) ->
+                // The port on the container itself (for a port on a port, the outer one).
+                var portId = endId
+                while (index.borderHostByNodeId[portId] in index.portsById) portId = index.borderHostByNodeId.getValue(portId)
                 if (index.borderHostByNodeId[portId] != graph.id) return@forEach
                 val port = index.portsById.getValue(portId)
                 val sign = when (port.side ?: knownBorderSides[portId]) {
@@ -577,6 +594,49 @@ class CompoundLayoutEngine(
         BorderSide.BOTTOM -> 3
     }
 
+    /** What a set of ports needs from the node they are on, per side (left, top, right, bottom). */
+    private class SideRequirements(
+        /** How far they stick out of the node. */
+        val outside: List<Double>,
+        /** How far they reach into the node. */
+        val inside: List<Double>,
+        val lengths: List<Double>,
+        val counts: List<Int>,
+        private val gap: Double
+    ) {
+        /** The length a side needs for its ports, with gaps between them and at the corners. */
+        fun needed(i: Int) = if (counts[i] == 0) 0.0 else lengths[i] + gap * (counts[i] + 1)
+    }
+
+    /** Ports whose side is not known yet (free, before the first pass chooses it) are left out. */
+    private fun sideRequirements(
+        ports: List<GraphLayoutCompoundPort>,
+        knownBorderSides: Map<String, BorderSide>,
+        sizeOf: (GraphLayoutCompoundPort) -> Pair<Double, Double>,
+        footprints: Map<String, List<Double>>
+    ): SideRequirements {
+        val outside = DoubleArray(4)
+        val inside = DoubleArray(4)
+        val lengths = DoubleArray(4)
+        val counts = IntArray(4)
+        ports.forEach { port ->
+            val side = port.side ?: knownBorderSides[port.id] ?: return@forEach
+            val (w, h) = sizeOf(port)
+            val fp = footprints[port.id] ?: listOf(0.0, 0.0, 0.0, 0.0)
+            val i = sideIndex(side)
+            val horizontal = side == BorderSide.TOP || side == BorderSide.BOTTOM
+            val depth = if (horizontal) h else w
+            // Along the side, the port's own ports on its ends take room too.
+            val length = if (horizontal) w + fp[0] + fp[2] else h + fp[1] + fp[3]
+            val out = outsideDepth(depth, port.placement)
+            outside[i] = max(outside[i], out + fp[i])
+            inside[i] = max(inside[i], depth - out + fp[(i + 2) % 4])
+            lengths[i] += length
+            counts[i]++
+        }
+        return SideRequirements(outside.toList(), inside.toList(), lengths.toList(), counts.toList(), borderNodeGap)
+    }
+
     /** How far a border node of the given depth sticks out of its host. */
     private fun outsideDepth(depth: Double, placement: BorderPlacement): Double = when (placement) {
         BorderPlacement.STRADDLE -> depth / 2.0
@@ -595,6 +655,7 @@ class CompoundLayoutEngine(
         index: CompoundGraphIndex,
         knownBorderSides: Map<String, BorderSide>,
         borderSizesById: Map<String, Pair<Double, Double>>,
+        borderFootprintsById: Map<String, List<Double>>,
         edgeDescriptors: Collection<EdgeDescriptor>,
         collapsedRedirectMap: Map<String, String>,
         nodeLayouts: MutableMap<String, CompoundNodeLayout>,
@@ -610,8 +671,14 @@ class CompoundLayoutEngine(
 
         fun centreOf(id: String): Pair<Double, Double>? {
             val resolved = collapsedRedirectMap[id] ?: id
-            // Another border node is not placed yet; its host stands in for it.
-            val n = nodeLayouts[resolved] ?: index.borderHostByNodeId[resolved]?.let { nodeLayouts[it] } ?: return null
+            // A port that is not placed yet: the nearest placed node it is on stands in for it.
+            var id2: String? = resolved
+            var n: CompoundNodeLayout? = null
+            while (id2 != null && n == null) {
+                n = nodeLayouts[id2]
+                id2 = index.borderHostByNodeId[id2]
+            }
+            if (n == null) return null
             return (n.globalX + n.width / 2.0) to (n.globalY + n.height / 2.0)
         }
 
@@ -622,88 +689,107 @@ class CompoundLayoutEngine(
             if (e.targetId in index.borderHostByNodeId) centreOf(e.sourceId)?.let { otherEnds.getOrPut(e.targetId) { mutableListOf() }.add(it) }
         }
 
+        // A port's own ports connect through it, so their other ends count for it too.
+        fun endsWithNested(id: String): List<Pair<Double, Double>> =
+            otherEnds[id].orEmpty() + index.portsById[id]?.ports.orEmpty().flatMap { endsWithNested(it.id) }
+
         data class Item(val node: GraphLayoutCompoundPort, val ownerGraphId: String, val host: CompoundNodeLayout, val side: BorderSide, val ideal: Double)
 
-        val items = mutableListOf<Item>()
-        val countBySide = mutableMapOf<Pair<String, BorderSide>, Int>()
-        // Connected border nodes first, so unconnected ones can go to the least used side.
-        val ordered = borderNodes.sortedWith(compareBy({ if (otherEnds[it.first.id].isNullOrEmpty()) 1 else 0 }, { it.first.id }))
-        ordered.forEach { (node, hostId, ownerGraphId) ->
-            val host = nodeLayouts[hostId] ?: return@forEach
-            val hostCx = host.globalX + host.width / 2.0
-            val hostCy = host.globalY + host.height / 2.0
-            val ends = otherEnds[node.id].orEmpty()
-            val meanX = if (ends.isEmpty()) hostCx else ends.sumOf { it.first } / ends.size
-            val meanY = if (ends.isEmpty()) hostCy else ends.sumOf { it.second } / ends.size
-            val side = node.side ?: knownBorderSides[node.id] ?: if (ends.isEmpty()) {
-                listOf(BorderSide.RIGHT, BorderSide.LEFT, BorderSide.BOTTOM, BorderSide.TOP)
-                    .minBy { countBySide[hostId to it] ?: 0 }
-            } else {
-                // Compare directions relative to the host's shape, so a wide host prefers top and bottom less.
-                val dx = (meanX - hostCx) / max(host.width / 2.0, 1.0)
-                val dy = (meanY - hostCy) / max(host.height / 2.0, 1.0)
-                if (abs(dx) >= abs(dy)) {
-                    if (dx >= 0) BorderSide.RIGHT else BorderSide.LEFT
+        fun placeLevel(levelNodes: List<Triple<GraphLayoutCompoundPort, String, String>>) {
+            val items = mutableListOf<Item>()
+            val countBySide = mutableMapOf<Pair<String, BorderSide>, Int>()
+            // Connected border nodes first, so unconnected ones can go to the least used side.
+            val ordered = levelNodes.sortedWith(compareBy({ if (endsWithNested(it.first.id).isEmpty()) 1 else 0 }, { it.first.id }))
+            ordered.forEach { (node, hostId, ownerGraphId) ->
+                val host = nodeLayouts[hostId] ?: return@forEach
+                val hostCx = host.globalX + host.width / 2.0
+                val hostCy = host.globalY + host.height / 2.0
+                val ends = endsWithNested(node.id)
+                val meanX = if (ends.isEmpty()) hostCx else ends.sumOf { it.first } / ends.size
+                val meanY = if (ends.isEmpty()) hostCy else ends.sumOf { it.second } / ends.size
+                val chosen = node.side ?: knownBorderSides[node.id] ?: if (ends.isEmpty()) {
+                    listOf(BorderSide.RIGHT, BorderSide.LEFT, BorderSide.BOTTOM, BorderSide.TOP)
+                        .minBy { countBySide[hostId to it] ?: 0 }
                 } else {
-                    if (dy >= 0) BorderSide.BOTTOM else BorderSide.TOP
+                    // Compare directions relative to the host's shape, so a wide host prefers top and bottom less.
+                    val dx = (meanX - hostCx) / max(host.width / 2.0, 1.0)
+                    val dy = (meanY - hostCy) / max(host.height / 2.0, 1.0)
+                    if (abs(dx) >= abs(dy)) {
+                        if (dx >= 0) BorderSide.RIGHT else BorderSide.LEFT
+                    } else {
+                        if (dy >= 0) BorderSide.BOTTOM else BorderSide.TOP
+                    }
+                }
+                // A port on a port is not put on the side facing into the outer port's owner unless pinned there.
+                val hostSide = host.borderSide
+                val side = if (node.side == null && hostSide != null && sideIndex(chosen) == (sideIndex(hostSide) + 2) % 4) hostSide else chosen
+                countBySide[hostId to side] = (countBySide[hostId to side] ?: 0) + 1
+                val ideal = if (side == BorderSide.TOP || side == BorderSide.BOTTOM) meanX else meanY
+                items.add(Item(node, ownerGraphId, host, side, ideal))
+            }
+
+            items.groupBy { it.host.nodeId to it.side }.entries.sortedBy { "${it.key.first}:${it.key.second}" }.forEach { (key, group) ->
+                val (_, side) = key
+                val host = group.first().host
+                val horizontal = side == BorderSide.TOP || side == BorderSide.BOTTOM
+                // Left and right border nodes of a container stay beside its child area, below any header.
+                val header = graphLayouts[host.nodeId]?.let { g -> g.globalOffsetY - g.shiftY - host.globalY } ?: 0.0
+                val lo = (if (horizontal) host.globalX else host.globalY + header) + borderNodeGap
+                val hi = (if (horizontal) host.globalX + host.width else host.globalY + host.height) - borderNodeGap
+                val sorted = group.sortedWith(compareBy({ it.ideal }, { it.node.id }))
+                fun footprint(item: Item) = borderFootprintsById[item.node.id] ?: listOf(0.0, 0.0, 0.0, 0.0)
+                // Along the side, a port's own ports on its ends take room too.
+                fun length(item: Item): Double = borderSizesById.getValue(item.node.id).let { if (horizontal) it.first else it.second } +
+                    footprint(item).let { if (horizontal) it[0] + it[2] else it[1] + it[3] }
+                // Start of each node along the side: as near its ideal centre as possible, without overlaps, within the side.
+                val starts = DoubleArray(sorted.size)
+                sorted.forEachIndexed { i, item ->
+                    val wanted = item.ideal - length(item) / 2.0
+                    starts[i] = if (i == 0) max(lo, wanted) else max(wanted, starts[i - 1] + length(sorted[i - 1]) + borderNodeGap)
+                }
+                for (i in sorted.indices.reversed()) {
+                    val limit = if (i == sorted.lastIndex) hi else starts[i + 1] - borderNodeGap
+                    starts[i] = min(starts[i], limit - length(sorted[i]))
+                }
+                for (i in sorted.indices) {
+                    // When there is not enough room (e.g. before the host was enlarged), keep the order from the start.
+                    starts[i] = if (i == 0) max(starts[i], lo) else max(starts[i], starts[i - 1] + length(sorted[i - 1]) + borderNodeGap)
+                }
+                sorted.forEachIndexed { i, item ->
+                    val (w, h) = borderSizesById.getValue(item.node.id)
+                    val depth = if (horizontal) h else w
+                    val out = outsideDepth(depth, item.node.placement)
+                    val x: Double
+                    val y: Double
+                    when (side) {
+                        BorderSide.TOP -> { x = starts[i] + footprint(item)[0]; y = host.globalY - out }
+                        BorderSide.BOTTOM -> { x = starts[i] + footprint(item)[0]; y = host.globalY + host.height + out - depth }
+                        BorderSide.LEFT -> { x = host.globalX - out; y = starts[i] + footprint(item)[1] }
+                        BorderSide.RIGHT -> { x = host.globalX + host.width + out - depth; y = starts[i] + footprint(item)[1] }
+                    }
+                    val graph = graphLayouts[item.ownerGraphId]
+                    nodeLayouts[item.node.id] = CompoundNodeLayout(
+                        nodeId = item.node.id,
+                        ownerGraphId = item.ownerGraphId,
+                        localX = x - (graph?.globalOffsetX ?: 0.0),
+                        localY = y - (graph?.globalOffsetY ?: 0.0),
+                        globalX = x,
+                        globalY = y,
+                        width = w,
+                        height = h,
+                        isContainer = false,
+                        borderHostId = item.host.nodeId,
+                        borderSide = side
+                    )
                 }
             }
-            countBySide[hostId to side] = (countBySide[hostId to side] ?: 0) + 1
-            val ideal = if (side == BorderSide.TOP || side == BorderSide.BOTTOM) meanX else meanY
-            items.add(Item(node, ownerGraphId, host, side, ideal))
         }
 
-        items.groupBy { it.host.nodeId to it.side }.entries.sortedBy { "${it.key.first}:${it.key.second}" }.forEach { (key, group) ->
-            val (_, side) = key
-            val host = group.first().host
-            val horizontal = side == BorderSide.TOP || side == BorderSide.BOTTOM
-            // Left and right border nodes of a container stay beside its child area, below any header.
-            val header = graphLayouts[host.nodeId]?.let { g -> g.globalOffsetY - g.shiftY - host.globalY } ?: 0.0
-            val lo = (if (horizontal) host.globalX else host.globalY + header) + borderNodeGap
-            val hi = (if (horizontal) host.globalX + host.width else host.globalY + host.height) - borderNodeGap
-            val sorted = group.sortedWith(compareBy({ it.ideal }, { it.node.id }))
-            fun length(item: Item): Double = borderSizesById.getValue(item.node.id).let { if (horizontal) it.first else it.second }
-            // Start of each node along the side: as near its ideal centre as possible, without overlaps, within the side.
-            val starts = DoubleArray(sorted.size)
-            sorted.forEachIndexed { i, item ->
-                val wanted = item.ideal - length(item) / 2.0
-                starts[i] = if (i == 0) max(lo, wanted) else max(wanted, starts[i - 1] + length(sorted[i - 1]) + borderNodeGap)
-            }
-            for (i in sorted.indices.reversed()) {
-                val limit = if (i == sorted.lastIndex) hi else starts[i + 1] - borderNodeGap
-                starts[i] = min(starts[i], limit - length(sorted[i]))
-            }
-            for (i in sorted.indices) {
-                // When there is not enough room (e.g. before the host was enlarged), keep the order from the start.
-                starts[i] = if (i == 0) max(starts[i], lo) else max(starts[i], starts[i - 1] + length(sorted[i - 1]) + borderNodeGap)
-            }
-            sorted.forEachIndexed { i, item ->
-                val (w, h) = borderSizesById.getValue(item.node.id)
-                val depth = if (horizontal) h else w
-                val out = outsideDepth(depth, item.node.placement)
-                val x: Double
-                val y: Double
-                when (side) {
-                    BorderSide.TOP -> { x = starts[i]; y = host.globalY - out }
-                    BorderSide.BOTTOM -> { x = starts[i]; y = host.globalY + host.height + out - depth }
-                    BorderSide.LEFT -> { x = host.globalX - out; y = starts[i] }
-                    BorderSide.RIGHT -> { x = host.globalX + host.width + out - depth; y = starts[i] }
-                }
-                val graph = graphLayouts[item.ownerGraphId]
-                nodeLayouts[item.node.id] = CompoundNodeLayout(
-                    nodeId = item.node.id,
-                    ownerGraphId = item.ownerGraphId,
-                    localX = x - (graph?.globalOffsetX ?: 0.0),
-                    localY = y - (graph?.globalOffsetY ?: 0.0),
-                    globalX = x,
-                    globalY = y,
-                    width = w,
-                    height = h,
-                    isContainer = false,
-                    borderHostId = item.host.nodeId,
-                    borderSide = side
-                )
-            }
+        // Ports first, then ports on those ports, and so on.
+        var level = borderNodes.toList()
+        while (level.isNotEmpty()) {
+            placeLevel(level)
+            level = level.flatMap { (port, _, graphId) -> port.ports.map { Triple(it, port.id, graphId) } }
         }
     }
 
@@ -887,6 +973,9 @@ class CompoundLayoutEngine(
      * Returns a map from nodeId → containerNodeId for every node that is hidden inside a
      * collapsed container.  Nodes in non-collapsed containers are not in the map.
      */
+    private fun allPortIds(ports: List<GraphLayoutCompoundPort>): List<String> =
+        ports.flatMap { listOf(it.id) + allPortIds(it.ports) }
+
     private fun buildCollapsedNodeRedirectMap(root: GraphLayoutCompoundGraph): Map<String, String> {
         val redirect = mutableMapOf<String, String>()
 
@@ -895,7 +984,7 @@ class CompoundLayoutEngine(
                 // Everything inside a collapsed ancestor → redirect to that ancestor container node.
                 graph.nodes.values.forEach { node ->
                     redirect[node.id] = collapsedContainerNodeId
-                    node.ports.forEach { redirect[it.id] = collapsedContainerNodeId }
+                    allPortIds(node.ports).forEach { redirect[it] = collapsedContainerNodeId }
                 }
                 graph.children.values.forEach { child -> walkCollapsed(child, collapsedContainerNodeId) }
             } else {
@@ -904,7 +993,7 @@ class CompoundLayoutEngine(
                         // Direct children of this collapsed graph redirect to the container node.
                         childGraph.nodes.values.forEach { node ->
                             redirect[node.id] = childId
-                            node.ports.forEach { redirect[it.id] = childId }
+                            allPortIds(node.ports).forEach { redirect[it] = childId }
                         }
                         childGraph.children.values.forEach { sub -> walkCollapsed(sub, childId) }
                     } else {
@@ -947,12 +1036,16 @@ class CompoundLayoutEngine(
             parentGraphByGraphId[graph.id] = parentGraphId
             graph.nodes.values.forEach { node ->
                 nodeOwnerByNodeId[node.id] = graph.id
-                node.ports.forEach { port ->
-                    // A port belongs to the same graph as its owner (it is drawn there).
-                    nodeOwnerByNodeId[port.id] = graph.id
-                    borderHostByNodeId[port.id] = node.id
-                    portsById[port.id] = port
+                fun addPorts(hostId: String, ports: List<GraphLayoutCompoundPort>) {
+                    ports.forEach { port ->
+                        // A port belongs to the same graph as its owner (it is drawn there).
+                        nodeOwnerByNodeId[port.id] = graph.id
+                        borderHostByNodeId[port.id] = hostId
+                        portsById[port.id] = port
+                        addPorts(port.id, port.ports)
+                    }
                 }
+                addPorts(node.id, node.ports)
             }
             graph.children.keys.sorted().forEach { childId ->
                 walk(graph.children.getValue(childId), graph.id)
@@ -970,7 +1063,8 @@ class CompoundLayoutEngine(
 
     private fun projectToLevelNode(graphId: String, borderOrNodeId: String, index: CompoundGraphIndex): String? {
         // For layout, an edge to a port counts as an edge to the node that owns it.
-        val nodeId = index.borderHostByNodeId[borderOrNodeId] ?: borderOrNodeId
+        var nodeId = borderOrNodeId
+        while (true) nodeId = index.borderHostByNodeId[nodeId] ?: break
         val ownerGraphId = index.nodeOwnerByNodeId[nodeId] ?: return null
         if (ownerGraphId == graphId) {
             return nodeId

@@ -39,6 +39,8 @@ data class DemoPort(
     /** Null lets the layout choose. */
     val side: BorderSide? = null,
     val placement: BorderPlacement = BorderPlacement.STRADDLE,
+    /** Ports on this port's border. */
+    val ports: List<DemoPort> = emptyList(),
     val content: @Composable () -> Unit
 )
 

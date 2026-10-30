@@ -171,6 +171,49 @@ class test_Ports {
     }
 
     @Test
+    fun ports_on_a_port_sit_on_its_outer_side_and_it_grows_to_fit_them() {
+        val root = GraphLayoutCompoundGraph("root")
+        val nested = listOf(port("Re"), port("Im"))
+        root.nodes["Host"] = node(
+            "Host",
+            ports = listOf(GraphLayoutCompoundPort("C", BorderSide.BOTTOM, widthHint = 20.0, heightHint = 20.0, ports = nested))
+        )
+        root.nodes["A"] = node("A")
+        root.nodes["B"] = node("B")
+        root.edges["e1"] = edge("e1", "Host", "A")
+        root.edges["e2"] = edge("e2", "Re", "A")
+        root.edges["e3"] = edge("e3", "Im", "B")
+        val r = layout(root)
+
+        val c = assertNotNull(r.nodeLayoutsById["C"])
+        val re = assertNotNull(r.nodeLayoutsById["Re"])
+        val im = assertNotNull(r.nodeLayoutsById["Im"])
+        assertEquals("C", re.borderHostId)
+        assertEquals(BorderSide.BOTTOM, re.borderSide)
+        assertEquals(BorderSide.BOTTOM, im.borderSide)
+        assertEquals(c.globalY + c.height, re.cy(), eps, "Re straddles the bottom of C")
+        assertTrue(c.width >= re.width + im.width, "C is wide enough for both (${c.width})")
+        assertFalse(re.globalX < im.globalX + im.width && im.globalX < re.globalX + re.width, "Re and Im do not overlap")
+        val a = assertNotNull(r.nodeLayoutsById["A"])
+        val b = assertNotNull(r.nodeLayoutsById["B"])
+        listOf(a, b).forEach { n -> assertTrue(n.globalY >= re.globalY + re.height - eps, "${n.nodeId} overlaps the nested ports") }
+    }
+
+    @Test
+    fun a_free_port_on_a_port_does_not_face_into_the_owner() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Above"] = node("Above")
+        root.nodes["Host"] = node(
+            "Host",
+            ports = listOf(GraphLayoutCompoundPort("C", BorderSide.BOTTOM, widthHint = 40.0, heightHint = 20.0, ports = listOf(port("N"))))
+        )
+        root.edges["e1"] = edge("e1", "Above", "Host")
+        root.edges["e2"] = edge("e2", "Above", "N")
+        val r = layout(root)
+        assertTrue(r.nodeLayoutsById.getValue("N").borderSide != BorderSide.TOP)
+    }
+
+    @Test
     fun layout_is_deterministic_with_ports() {
         fun build() = GraphLayoutCompoundGraph("root").also { root ->
             root.nodes["Host"] = node("Host", ports = listOf(port("P"), port("Q")))
