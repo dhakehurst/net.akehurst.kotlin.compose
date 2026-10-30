@@ -7,12 +7,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-class test_BorderNodes {
+class test_Ports {
 
     private val eps = 1e-6
 
-    private fun node(id: String, w: Double = 100.0, h: Double = 50.0, border: BorderAttachment? = null) =
-        GraphLayoutCompoundNode(id = id, widthHint = w, heightHint = h, border = border)
+    private fun node(id: String, w: Double = 100.0, h: Double = 50.0, ports: List<GraphLayoutCompoundPort> = emptyList()) =
+        GraphLayoutCompoundNode(id = id, widthHint = w, heightHint = h, ports = ports)
+
+    private fun port(id: String, side: BorderSide? = null, placement: BorderPlacement = BorderPlacement.STRADDLE) =
+        GraphLayoutCompoundPort(id, side, placement, widthHint = 20.0, heightHint = 20.0)
 
     private fun edge(id: String, s: String, t: String) = GraphLayoutCompoundEdge(id, s, t)
 
@@ -23,11 +26,10 @@ class test_BorderNodes {
     private fun CompoundNodeLayout.cy() = globalY + height / 2.0
 
     @Test
-    fun free_border_node_goes_on_the_side_facing_the_node_it_connects_to() {
+    fun free_port_goes_on_the_side_facing_the_node_it_connects_to() {
         // Sugiyama puts B below Host, so the port should be on Host's bottom side, centred on the border line.
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
+        root.nodes["Host"] = node("Host", ports = listOf(port("P")))
         root.nodes["B"] = node("B")
         root.edges["e1"] = edge("e1", "Host", "B")
         root.edges["e2"] = edge("e2", "P", "B")
@@ -44,8 +46,7 @@ class test_BorderNodes {
     @Test
     fun pinned_side_is_kept() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", side = BorderSide.LEFT))
+        root.nodes["Host"] = node("Host", ports = listOf(port("P", BorderSide.LEFT)))
         root.nodes["B"] = node("B")
         root.edges["e1"] = edge("e1", "Host", "B")
         root.edges["e2"] = edge("e2", "P", "B")
@@ -60,9 +61,10 @@ class test_BorderNodes {
     @Test
     fun inside_and_outside_placements_touch_the_border() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        root.nodes["In"] = node("In", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT, BorderPlacement.INSIDE))
-        root.nodes["Out"] = node("Out", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT, BorderPlacement.OUTSIDE))
+        root.nodes["Host"] = node(
+            "Host",
+            ports = listOf(port("In", BorderSide.RIGHT, BorderPlacement.INSIDE), port("Out", BorderSide.RIGHT, BorderPlacement.OUTSIDE))
+        )
         val r = layout(root)
 
         val host = assertNotNull(r.nodeLayoutsById["Host"])
@@ -75,10 +77,9 @@ class test_BorderNodes {
     }
 
     @Test
-    fun host_grows_to_fit_its_border_nodes_and_room_is_kept_around_it() {
+    fun owner_grows_to_fit_its_ports_and_room_is_kept_around_it() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host", 40.0, 40.0)
-        (1..4).forEach { i -> root.nodes["P$i"] = node("P$i", 20.0, 20.0, BorderAttachment("Host", BorderSide.TOP)) }
+        root.nodes["Host"] = node("Host", 40.0, 40.0, ports = (1..4).map { port("P$it", BorderSide.TOP) })
         root.nodes["Above"] = node("Above")
         root.edges["e"] = edge("e", "Above", "Host")
         val r = layout(root)
@@ -92,10 +93,9 @@ class test_BorderNodes {
     }
 
     @Test
-    fun children_of_a_container_host_keep_clear_of_its_border_nodes() {
+    fun children_of_a_container_keep_clear_of_its_ports() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", BorderSide.BOTTOM, BorderPlacement.INSIDE))
+        root.nodes["Host"] = node("Host", ports = listOf(port("P", BorderSide.BOTTOM, BorderPlacement.INSIDE)))
         val inner = GraphLayoutCompoundGraph("Host")
         inner.nodes["C"] = node("C", 60.0, 30.0)
         root.children["Host"] = inner
@@ -108,10 +108,9 @@ class test_BorderNodes {
     }
 
     @Test
-    fun edges_leave_a_border_node_through_its_side() {
+    fun edges_leave_a_port_through_its_side() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT))
+        root.nodes["Host"] = node("Host", ports = listOf(port("P", BorderSide.RIGHT)))
         root.nodes["B"] = node("B")
         val inner = GraphLayoutCompoundGraph("Host")
         inner.nodes["C"] = node("C", 30.0, 20.0)
@@ -130,23 +129,51 @@ class test_BorderNodes {
     }
 
     @Test
-    fun border_node_host_must_be_in_the_same_graph() {
+    fun port_ids_must_not_clash_with_node_ids() {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["Host"] = node("Host")
-        val inner = GraphLayoutCompoundGraph("Host")
-        inner.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
-        root.children["Host"] = inner
+        root.nodes["Host"] = node("Host", ports = listOf(port("B")))
+        root.nodes["B"] = node("B")
         val result = GraphLayoutCompoundGraphState(id = "s", root = root).validateInvariants()
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { "not in the same graph" in it }, result.errors.toString())
     }
 
     @Test
-    fun layout_is_deterministic_with_border_nodes() {
+    fun children_connected_to_left_and_right_ports_are_placed_on_that_side() {
+        // Without the ports, A and B would be ordered by id (A left of B). The ports put B left and A right.
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host", ports = listOf(port("L", BorderSide.LEFT), port("R", BorderSide.RIGHT)))
+        val inner = GraphLayoutCompoundGraph("Host")
+        inner.nodes["A"] = node("A", 40.0, 20.0)
+        inner.nodes["B"] = node("B", 40.0, 20.0)
+        root.children["Host"] = inner
+        root.edges["e1"] = edge("e1", "L", "B")
+        root.edges["e2"] = edge("e2", "A", "R")
+        val r = layout(root)
+
+        val a = assertNotNull(r.nodeLayoutsById["A"])
+        val b = assertNotNull(r.nodeLayoutsById["B"])
+        assertTrue(b.globalX < a.globalX, "B (${b.globalX}) should be left of A (${a.globalX})")
+    }
+
+    @Test
+    fun ports_stay_on_a_collapsed_owner() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host", ports = listOf(port("P", BorderSide.RIGHT)))
+        val inner = GraphLayoutCompoundGraph("Host", isCollapsed = true)
+        inner.nodes["C"] = node("C")
+        root.children["Host"] = inner
+        root.edges["e"] = edge("e", "C", "P")
+        val r = layout(root)
+
+        val host = assertNotNull(r.nodeLayoutsById["Host"])
+        val p = assertNotNull(r.nodeLayoutsById["P"])
+        assertEquals(host.globalX + host.width, p.cx(), eps)
+    }
+
+    @Test
+    fun layout_is_deterministic_with_ports() {
         fun build() = GraphLayoutCompoundGraph("root").also { root ->
-            root.nodes["Host"] = node("Host")
-            root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
-            root.nodes["Q"] = node("Q", 20.0, 20.0, BorderAttachment("Host"))
+            root.nodes["Host"] = node("Host", ports = listOf(port("P"), port("Q")))
             root.nodes["B"] = node("B")
             root.edges["e1"] = edge("e1", "P", "B")
             root.edges["e2"] = edge("e2", "B", "Q")

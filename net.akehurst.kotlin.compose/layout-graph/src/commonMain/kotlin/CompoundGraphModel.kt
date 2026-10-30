@@ -126,10 +126,10 @@ data class GraphLayoutCompoundNode(
     val heightHint: Double? = null,
     val containerPaddingHint: PaddingHint? = null,
     /**
-     * When set, this node is placed on the border of another node (its host) instead of being laid out
-     * with its siblings, for example a port. The node and its host must be in the same graph.
+     * Nodes owned by this node and placed on its border, for example ports. Any node can have them,
+     * leaf or container. Edges can connect to a port from outside this node and from its children.
      */
-    val border: BorderAttachment? = null
+    val ports: List<GraphLayoutCompoundPort> = emptyList()
 ) {
     val metadata: MutableMap<String, String> = mutableMapOf()
 }
@@ -148,15 +148,21 @@ enum class BorderPlacement {
 }
 
 /**
- * Places a node on the border of [hostId].
+ * A node on the border of the node that owns it, for example a port.
  *
- * When [side] is null the layout chooses the side from the node's edges (towards the nodes it connects to).
- * The position along the side is always chosen by the layout.
+ * Its id is a node id like any other: edges connect to it and its Compose content is registered with
+ * [GraphLayoutCompoundGraphState.addNodeContent]. Its size is measured from that content, with the hints
+ * as minimums.
+ *
+ * When [side] is null the layout chooses the side, facing the nodes the port connects to (inside or outside
+ * its owner). The position along the side is always chosen by the layout.
  */
-data class BorderAttachment(
-    val hostId: String,
+data class GraphLayoutCompoundPort(
+    val id: String,
     val side: BorderSide? = null,
-    val placement: BorderPlacement = BorderPlacement.STRADDLE
+    val placement: BorderPlacement = BorderPlacement.STRADDLE,
+    val widthHint: Double? = null,
+    val heightHint: Double? = null
 )
 
 data class GraphLayoutCompoundEdge(
@@ -273,12 +279,20 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
         }
 
         graph.nodes.values.forEach { node ->
-            allNodeIds.add(node.id)
+            if (!allNodeIds.add(node.id) && node.id !in nodeOwnerByNodeId) {
+                errors.add("Node id '${node.id}' is already used by a port")
+            }
             val existingOwner = nodeOwnerByNodeId[node.id]
             if (existingOwner != null) {
                 errors.add("Node '${node.id}' is contained by both '$existingOwner' and '${graph.id}'")
             } else {
                 nodeOwnerByNodeId[node.id] = graph.id
+            }
+            node.ports.forEach { port ->
+                // Port ids share the node id space, so edges can refer to them.
+                if (!allNodeIds.add(port.id)) {
+                    errors.add("Port id '${port.id}' of node '${node.id}' is already used by another node or port")
+                }
             }
         }
 
@@ -289,24 +303,6 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
 
     walk(root, emptyList())
 
-    val validatedBorderGraphs = mutableSetOf<String>()
-    fun validateBorders(graph: GraphLayoutCompoundGraph) {
-        if (!validatedBorderGraphs.add(graph.id)) return
-        graph.nodes.values.forEach { node ->
-            val border = node.border ?: return@forEach
-            val host = graph.nodes[border.hostId]
-            when {
-                border.hostId == node.id -> errors.add("Border node '${node.id}' cannot be on its own border")
-                host == null -> errors.add("Border node '${node.id}' host '${border.hostId}' is not in the same graph '${graph.id}'")
-                host.border != null -> errors.add("Border node '${node.id}' host '${border.hostId}' is itself a border node")
-            }
-            if (node.id in graph.children) {
-                errors.add("Border node '${node.id}' cannot contain other nodes")
-            }
-        }
-        graph.children.values.forEach(::validateBorders)
-    }
-    validateBorders(root)
 
     val validatedEdgeGraphs = mutableSetOf<String>()
 

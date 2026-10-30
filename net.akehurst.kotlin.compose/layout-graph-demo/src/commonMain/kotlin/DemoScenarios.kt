@@ -29,7 +29,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import net.akehurst.kotlin.compose.layout.graph.BorderAttachment
 import net.akehurst.kotlin.compose.layout.graph.BorderPlacement
 import net.akehurst.kotlin.compose.layout.graph.BorderSide
 import net.akehurst.kotlin.compose.layout.graph.SugiyamaChildLayout
@@ -331,10 +330,15 @@ object DemoScenarios {
         id = "uml_composite_structure_diagram",
         title = "UML composite structure diagram",
         nodes = listOf(
-            DemoNode("Controller", content = { children -> Component("Controller", children) }),
-            DemoNode("InputPort", containerId = "Controller", content = { Interface("InputPort") }),
+            DemoNode(
+                "Controller",
+                ports = listOf(
+                    DemoPort("InputPort") { Port("input") },
+                    DemoPort("OutputPort") { Port("output") }
+                ),
+                content = { children -> Component("Controller", children) }
+            ),
             DemoNode("Core", containerId = "Controller", content = { children -> Component("Core", children) }),
-            DemoNode("OutputPort", containerId = "Controller", content = { Interface("OutputPort") }),
             DemoNode("Sensor", content = { children -> Component("Sensor", children) }),
             DemoNode("Actuator", content = { children -> Component("Actuator", children) })
         ),
@@ -384,35 +388,51 @@ object DemoScenarios {
     )
 
     /**
-     * Nodes placed on the border of other nodes (ports), on a container and on a leaf node.
-     * In has a fixed side; the others are free. Status sits inside its host's border, fout outside.
+     * Ports owned by a container and by a leaf node. In and cfg have fixed sides; the others are free.
+     * cfg pulls Logger to the right inside Controller. status sits inside the border, fout outside.
      */
     val borderPlacedNodes = DemoScenario(
         id = "border_placed_nodes",
-        title = "Border-placed nodes (ports)",
+        title = "Ports (nodes on the border of their owner)",
         nodes = listOf(
-            DemoNode("Controller", content = { children -> Component("Controller", children) }),
+            DemoNode(
+                "Controller",
+                ports = listOf(
+                    DemoPort("In", side = BorderSide.LEFT) { Port("in") },
+                    DemoPort("Out") { Port("out") },
+                    DemoPort("Cfg", side = BorderSide.RIGHT) { Port("cfg") },
+                    DemoPort("Status", placement = BorderPlacement.INSIDE) { Port("status") }
+                ),
+                content = { children -> Component("Controller", children) }
+            ),
             DemoNode("Core", containerId = "Controller", content = { Block("Core") }),
+            DemoNode("Parser", containerId = "Controller", content = { Block("Parser") }),
             DemoNode("Logger", containerId = "Controller", content = { Block("Logger") }),
-            DemoNode("In", border = BorderAttachment("Controller", side = BorderSide.LEFT), content = { Port("in") }),
-            DemoNode("Out", border = BorderAttachment("Controller"), content = { Port("out") }),
-            DemoNode("Status", border = BorderAttachment("Controller", placement = BorderPlacement.INSIDE), content = { Port("status") }),
             DemoNode("Sensor", content = { Block("Sensor") }),
-            DemoNode("Filter", content = { Block("Filter") }),
-            DemoNode("fin", border = BorderAttachment("Filter"), content = { Port("fin") }),
-            DemoNode("fout", border = BorderAttachment("Filter", placement = BorderPlacement.OUTSIDE), content = { Port("fout") }),
+            DemoNode("Config", content = { Block("Config") }),
+            DemoNode(
+                "Filter",
+                ports = listOf(
+                    DemoPort("fin") { Port("fin") },
+                    DemoPort("fout", placement = BorderPlacement.OUTSIDE) { Port("fout") }
+                ),
+                content = { Block("Filter") }
+            ),
             DemoNode("Actuator", content = { Block("Actuator") }),
             DemoNode("Monitor", content = { Block("Monitor") })
         ),
         edges = listOf(
             DemoEdge("e_bp_1", "Sensor", "In"),
-            DemoEdge("e_bp_2", "In", "Core"),
-            DemoEdge("e_bp_3", "Core", "Out"),
-            DemoEdge("e_bp_4", "Out", "fin"),
-            DemoEdge("e_bp_5", "fout", "Actuator"),
-            DemoEdge("e_bp_6", "Core", "Logger"),
-            DemoEdge("e_bp_7", "Logger", "Status"),
-            DemoEdge("e_bp_8", "Status", "Monitor")
+            DemoEdge("e_bp_2", "In", "Parser"),
+            DemoEdge("e_bp_3", "Parser", "Core"),
+            DemoEdge("e_bp_4", "Core", "Out"),
+            DemoEdge("e_bp_5", "Out", "fin"),
+            DemoEdge("e_bp_6", "fout", "Actuator"),
+            DemoEdge("e_bp_7", "Parser", "Logger"),
+            DemoEdge("e_bp_8", "Config", "Cfg"),
+            DemoEdge("e_bp_9", "Cfg", "Logger"),
+            DemoEdge("e_bp_10", "Logger", "Status"),
+            DemoEdge("e_bp_11", "Status", "Monitor")
         )
     )
 

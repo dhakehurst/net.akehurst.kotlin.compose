@@ -38,9 +38,11 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             widthHint = node.widthHint?.toDouble(),
             heightHint = node.heightHint?.toDouble(),
             containerPaddingHint = node.paddingHint,
-            border = node.border
+            ports = node.ports.map { GraphLayoutCompoundPort(id = it.id, side = it.side, placement = it.placement) }
         )
         ownerGraphByNodeId[node.id] = ownerGraphId
+        // A port belongs to the same graph as the node that owns it.
+        node.ports.forEach { ownerGraphByNodeId[it.id] = ownerGraphId }
     }
 
     containerIds.sorted().forEach { containerId ->
@@ -68,6 +70,7 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         // Register Compose content for every node.
         nodes.sortedBy { it.id }.forEach { node ->
             node.content.let { state.addNodeContent(node.id, it) }
+            node.ports.forEach { port -> state.addNodeContent(port.id) { port.content() } }
         }
 
         // Register edge rendering content.

@@ -63,7 +63,9 @@ class SugiyamaLayout<NT : Any>(
     private val edgeRouting: EdgeRouting = EdgeRouting.DIRECT,
     private val portStrategy: PortStrategy = PortStrategy.UNIQUE,
     private val edgePriority: EdgePriority = EdgePriority.FEWEST_CROSSINGS,
-    private val nodeClearance: Double = 0.25 // as fraction of nodeSpacing
+    private val nodeClearance: Double = 0.25, // as fraction of nodeSpacing
+    /** Negative to keep a node at the left of its layer, positive to keep it at the right. */
+    private val horizontalPull: (NT) -> Double = { 0.0 }
 ) {
 
     private var dummyIdCounter = 0
@@ -149,6 +151,18 @@ class SugiyamaLayout<NT : Any>(
 
         // 4. Crossing Reduction (improved with multiple heuristics)
         reduceCrossingsImproved(layeredNodes, layeredEdges)
+
+        // 4b. Nodes pulled to one side (e.g. connected to a port on that side of their container) go to
+        // that end of their layer; the order found above is kept otherwise.
+        layeredNodes.forEach { layer ->
+            fun side(n: SNode<NT>) = n.originalNode?.let(horizontalPull)?.let { if (it < 0) -1 else if (it > 0) 1 else 0 } ?: 0
+            if (layer.any { side(it) != 0 }) {
+                val sorted = layer.sortedBy { side(it) } // stable
+                layer.clear()
+                layer.addAll(sorted)
+                layer.forEachIndexed { index, node -> node.posInLayer = index }
+            }
+        }
 
         // 5. Coordinate Assignment with port assignment
         return assignCoordinates(layeredNodes, layeredEdges, nodes, newEdges, reversedEdges, edges, selfLoops, multiEdges)
