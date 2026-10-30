@@ -1,0 +1,161 @@
+package net.akehurst.kotlin.compose.layout.graph
+
+import kotlin.math.abs
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class test_BorderNodes {
+
+    private val eps = 1e-6
+
+    private fun node(id: String, w: Double = 100.0, h: Double = 50.0, border: BorderAttachment? = null) =
+        GraphLayoutCompoundNode(id = id, widthHint = w, heightHint = h, border = border)
+
+    private fun edge(id: String, s: String, t: String) = GraphLayoutCompoundEdge(id, s, t)
+
+    private fun layout(root: GraphLayoutCompoundGraph, routing: EdgeRouting = EdgeRouting.RECTILINEAR) =
+        CompoundLayoutEngine().layout(GraphLayoutCompoundGraphState(id = "s", routing = routing, root = root))
+
+    private fun CompoundNodeLayout.cx() = globalX + width / 2.0
+    private fun CompoundNodeLayout.cy() = globalY + height / 2.0
+
+    @Test
+    fun free_border_node_goes_on_the_side_facing_the_node_it_connects_to() {
+        // Sugiyama puts B below Host, so the port should be on Host's bottom side, centred on the border line.
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
+        root.nodes["B"] = node("B")
+        root.edges["e1"] = edge("e1", "Host", "B")
+        root.edges["e2"] = edge("e2", "P", "B")
+        val r = layout(root)
+
+        val host = assertNotNull(r.nodeLayoutsById["Host"])
+        val p = assertNotNull(r.nodeLayoutsById["P"])
+        assertEquals(BorderSide.BOTTOM, p.borderSide)
+        assertEquals("Host", p.borderHostId)
+        assertEquals(host.globalY + host.height, p.cy(), eps, "straddles the bottom border")
+        assertTrue(p.globalX >= host.globalX - eps && p.globalX + p.width <= host.globalX + host.width + eps, "within the side")
+    }
+
+    @Test
+    fun pinned_side_is_kept() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", side = BorderSide.LEFT))
+        root.nodes["B"] = node("B")
+        root.edges["e1"] = edge("e1", "Host", "B")
+        root.edges["e2"] = edge("e2", "P", "B")
+        val r = layout(root)
+
+        val host = assertNotNull(r.nodeLayoutsById["Host"])
+        val p = assertNotNull(r.nodeLayoutsById["P"])
+        assertEquals(BorderSide.LEFT, p.borderSide)
+        assertEquals(host.globalX, p.cx(), eps)
+    }
+
+    @Test
+    fun inside_and_outside_placements_touch_the_border() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        root.nodes["In"] = node("In", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT, BorderPlacement.INSIDE))
+        root.nodes["Out"] = node("Out", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT, BorderPlacement.OUTSIDE))
+        val r = layout(root)
+
+        val host = assertNotNull(r.nodeLayoutsById["Host"])
+        val inside = assertNotNull(r.nodeLayoutsById["In"])
+        val outside = assertNotNull(r.nodeLayoutsById["Out"])
+        val right = host.globalX + host.width
+        assertEquals(right, inside.globalX + inside.width, eps)
+        assertEquals(right, outside.globalX, eps)
+        assertFalse(inside.globalY < outside.globalY + outside.height && outside.globalY < inside.globalY + inside.height, "they do not overlap")
+    }
+
+    @Test
+    fun host_grows_to_fit_its_border_nodes_and_room_is_kept_around_it() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host", 40.0, 40.0)
+        (1..4).forEach { i -> root.nodes["P$i"] = node("P$i", 20.0, 20.0, BorderAttachment("Host", BorderSide.TOP)) }
+        root.nodes["Above"] = node("Above")
+        root.edges["e"] = edge("e", "Above", "Host")
+        val r = layout(root)
+
+        val host = assertNotNull(r.nodeLayoutsById["Host"])
+        val ports = (1..4).map { assertNotNull(r.nodeLayoutsById["P$it"]) }.sortedBy { it.globalX }
+        assertTrue(host.width >= 4 * 20.0, "host width ${host.width}")
+        ports.zipWithNext().forEach { (a, b) -> assertTrue(a.globalX + a.width <= b.globalX + eps, "$a overlaps $b") }
+        val above = assertNotNull(r.nodeLayoutsById["Above"])
+        ports.forEach { p -> assertTrue(p.globalY >= above.globalY + above.height - eps, "port ${p.nodeId} overlaps Above") }
+    }
+
+    @Test
+    fun children_of_a_container_host_keep_clear_of_its_border_nodes() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", BorderSide.BOTTOM, BorderPlacement.INSIDE))
+        val inner = GraphLayoutCompoundGraph("Host")
+        inner.nodes["C"] = node("C", 60.0, 30.0)
+        root.children["Host"] = inner
+        root.edges["e"] = edge("e", "C", "P")
+        val r = layout(root)
+
+        val p = assertNotNull(r.nodeLayoutsById["P"])
+        val c = assertNotNull(r.nodeLayoutsById["C"])
+        assertTrue(c.globalY + c.height <= p.globalY + eps, "child $c overlaps border node $p")
+    }
+
+    @Test
+    fun edges_leave_a_border_node_through_its_side() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host", BorderSide.RIGHT))
+        root.nodes["B"] = node("B")
+        val inner = GraphLayoutCompoundGraph("Host")
+        inner.nodes["C"] = node("C", 30.0, 20.0)
+        root.children["Host"] = inner
+        root.edges["out"] = edge("out", "P", "B")
+        root.edges["in"] = edge("in", "C", "P")
+        val r = layout(root)
+
+        val p = assertNotNull(r.nodeLayoutsById["P"])
+        val outRoute = r.edgeRoutesByEdgeId.getValue("out")
+        assertEquals(p.globalX + p.width to p.cy(), outRoute.first(), "outward edge starts at the outer side")
+        assertTrue(outRoute[1].first > outRoute[0].first, "and goes right first")
+        val inRoute = r.edgeRoutesByEdgeId.getValue("in")
+        assertEquals(p.globalX to p.cy(), inRoute.last(), "inward edge ends at the inner side")
+        assertTrue(inRoute[inRoute.lastIndex - 1].first < inRoute.last().first, "arriving from the left")
+    }
+
+    @Test
+    fun border_node_host_must_be_in_the_same_graph() {
+        val root = GraphLayoutCompoundGraph("root")
+        root.nodes["Host"] = node("Host")
+        val inner = GraphLayoutCompoundGraph("Host")
+        inner.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
+        root.children["Host"] = inner
+        val result = GraphLayoutCompoundGraphState(id = "s", root = root).validateInvariants()
+        assertFalse(result.isValid)
+        assertTrue(result.errors.any { "not in the same graph" in it }, result.errors.toString())
+    }
+
+    @Test
+    fun layout_is_deterministic_with_border_nodes() {
+        fun build() = GraphLayoutCompoundGraph("root").also { root ->
+            root.nodes["Host"] = node("Host")
+            root.nodes["P"] = node("P", 20.0, 20.0, BorderAttachment("Host"))
+            root.nodes["Q"] = node("Q", 20.0, 20.0, BorderAttachment("Host"))
+            root.nodes["B"] = node("B")
+            root.edges["e1"] = edge("e1", "P", "B")
+            root.edges["e2"] = edge("e2", "B", "Q")
+        }
+        val a = layout(build())
+        val b = layout(build())
+        assertEquals(a.nodeLayoutsById, b.nodeLayoutsById)
+        assertEquals(a.edgeRoutesByEdgeId, b.edgeRoutesByEdgeId)
+        assertTrue(abs(a.nodeLayoutsById.getValue("P").cx() - a.nodeLayoutsById.getValue("Q").cx()) > eps ||
+            abs(a.nodeLayoutsById.getValue("P").cy() - a.nodeLayoutsById.getValue("Q").cy()) > eps, "P and Q are not on top of each other")
+    }
+}

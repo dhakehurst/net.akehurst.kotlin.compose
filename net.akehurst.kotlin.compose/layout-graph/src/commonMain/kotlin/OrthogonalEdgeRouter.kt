@@ -21,7 +21,14 @@ data class RouterNode(
      * (left, top, right, bottom). Edges avoid running inside the band between border and child area,
      * for example along a header.
      */
-    val childAreaInsets: List<Double> = listOf(0.0, 0.0, 0.0, 0.0)
+    val childAreaInsets: List<Double> = listOf(0.0, 0.0, 0.0, 0.0),
+    /**
+     * For a node on another node's border (e.g. a port): the host's id and the side the node is on.
+     * Its edges leave it straight out through that side, or straight in towards the host's inside
+     * when the other end is the host or inside it.
+     */
+    val borderHostId: String? = null,
+    val borderSide: BorderSide? = null
 )
 
 data class RouterEdge(
@@ -68,6 +75,20 @@ class OrthogonalEdgeRouter(
             return result
         }
 
+        // The direction an edge leaves a border node in, or null for an ordinary node.
+        fun exitDirection(id: String, otherId: String): Int? {
+            val n = nodesById[id] ?: return null
+            val host = n.borderHostId ?: return null
+            val outward = when (n.borderSide ?: return null) {
+                BorderSide.RIGHT -> 0
+                BorderSide.BOTTOM -> 1
+                BorderSide.LEFT -> 2
+                BorderSide.TOP -> 3
+            }
+            val inward = otherId == host || host in ancestors(otherId)
+            return if (inward) (outward + 2) % 4 else outward
+        }
+
         val routes = mutableMapOf<String, List<Pair<Double, Double>>>()
         edges.sortedBy { it.id }.forEach { edge ->
             val source = rectById[edge.sourceId] ?: return@forEach
@@ -96,7 +117,22 @@ class OrthogonalEdgeRouter(
                 val i = n.childAreaInsets
                 outer to Rect(outer.left + i[0], outer.top + i[1], outer.right - i[2], outer.bottom - i[3])
             }
-            val path = findPath(source, target, obstacles, bands, sourceNested.contains(edge.targetId) || targetNested.contains(edge.sourceId))
+            // The route stays inside the innermost container holding both ends. A border node whose
+            // edge goes inwards counts as inside its host.
+            fun inside(id: String, otherId: String): Set<String> {
+                val host = nodesById[id]?.borderHostId
+                val inward = host != null && (otherId == host || host in ancestors(otherId))
+                return if (inward) ancestors(id) + host!! else ancestors(id)
+            }
+            val confine = (inside(edge.sourceId, edge.targetId) intersect inside(edge.targetId, edge.sourceId))
+                .mapNotNull { rectById[it] }
+                .minByOrNull { it.width() * it.height() }
+            val path = findPath(
+                source, target, obstacles, bands,
+                sourceNested.contains(edge.targetId) || targetNested.contains(edge.sourceId),
+                exitDirection(edge.sourceId, edge.targetId), exitDirection(edge.targetId, edge.sourceId),
+                confine
+            )
             routes[edge.id] = path
         }
         return nudge(routes)
@@ -114,7 +150,32 @@ class OrthogonalEdgeRouter(
     // direction: 0 = +x, 1 = +y, 2 = -x, 3 = -y
     private data class State(val xi: Int, val yi: Int, val dir: Int)
 
-    private fun findPath(source: Rect, target: Rect, obstacles: List<Rect>, bands: List<Pair<Rect, Rect>>, nested: Boolean): List<Pair<Double, Double>> {
+    private val dxs = intArrayOf(1, 0, -1, 0)
+    private val dys = intArrayOf(0, 1, 0, -1)
+
+    /** The middle of the side of [r] that faces [dir]. */
+    private fun sideMiddle(r: Rect, dir: Int): Pair<Double, Double> = when (dir) {
+        0 -> r.right to r.cy
+        1 -> r.cx to r.bottom
+        2 -> r.left to r.cy
+        else -> r.cx to r.top
+    }
+
+    /** A point [distance] beyond the side of [r] that faces [dir]. */
+    private fun stub(r: Rect, dir: Int, distance: Double): Pair<Double, Double> =
+        sideMiddle(r, dir).let { (x, y) -> (x + dxs[dir] * distance) to (y + dys[dir] * distance) }
+
+    /**
+     * [sourceDir] and [targetDir], when given, fix the direction the route leaves the source in and
+     * the direction it leaves the target in (so it arrives the opposite way). The route then starts
+     * and ends with a straight piece out of that side.
+     */
+    private fun findPath(
+        source: Rect, target: Rect, obstacles: List<Rect>, bands: List<Pair<Rect, Rect>>, nested: Boolean,
+        sourceDir: Int? = null, targetDir: Int? = null,
+        /** When given, the route may not leave this rectangle. */
+        confine: Rect? = null
+    ): List<Pair<Double, Double>> {
         val inflated = obstacles.map { it.inflate(margin) }
         val xs = mutableSetOf<Double>()
         val ys = mutableSetOf<Double>()
@@ -123,6 +184,10 @@ class OrthogonalEdgeRouter(
             xs.add(r.left - margin); xs.add(r.right + margin)
             ys.add(r.top - margin); ys.add(r.bottom + margin)
         }
+        val startPoint = sourceDir?.let { stub(source, it, margin) } ?: (source.cx to source.cy)
+        val endPoint = targetDir?.let { stub(target, it, margin) } ?: (target.cx to target.cy)
+        listOfNotNull(sourceDir?.let { stub(source, it, 2 * margin) }, targetDir?.let { stub(target, it, 2 * margin) }, startPoint, endPoint)
+            .forEach { (x, y) -> xs.add(x); ys.add(y) }
         inflated.forEach { r -> xs.add(r.left); xs.add(r.right); ys.add(r.top); ys.add(r.bottom) }
         bands.forEach { (outer, inner) ->
             // Lines just inside the child area and just outside the border, so routes can keep clear of both.
@@ -147,23 +212,28 @@ class OrthogonalEdgeRouter(
         val xList = withMidpoints(xs.sorted())
         val yList = withMidpoints(ys.sorted())
 
-        fun blockedPoint(x: Double, y: Double) = inflated.any { it.containsStrict(x, y, eps) }
+        fun outsideConfine(x: Double, y: Double) =
+            confine != null && (x < confine.left - eps || x > confine.right + eps || y < confine.top - eps || y > confine.bottom + eps)
+        fun blockedPoint(x: Double, y: Double) = outsideConfine(x, y) || inflated.any { it.containsStrict(x, y, eps) }
         fun blockedSegment(x1: Double, y1: Double, x2: Double, y2: Double): Boolean {
             val mx = (x1 + x2) / 2.0
             val my = (y1 + y2) / 2.0
             return blockedPoint(mx, my) || blockedPoint(x1, y1) || blockedPoint(x2, y2)
         }
 
-        val sx = xList.indexOf(source.cx)
-        val sy = yList.indexOf(source.cy)
-        val tx = xList.indexOf(target.cx)
-        val ty = yList.indexOf(target.cy)
+        val sx = xList.indexOf(startPoint.first)
+        val sy = yList.indexOf(startPoint.second)
+        val tx = xList.indexOf(endPoint.first)
+        val ty = yList.indexOf(endPoint.second)
+        // Coming into the end point from outside the target, opposite to the way it would leave.
+        val arrivalDir = targetDir?.let { (it + 2) % 4 }
 
         // Dijkstra over (grid point, direction); cost = length + bendCost per turn.
         val dist = HashMap<State, Double>()
         val prev = HashMap<State, State>()
         val queue = MinQueue<State>()
         for (d in 0..3) {
+            if (sourceDir != null && d != sourceDir) continue
             val s = State(sx, sy, d)
             dist[s] = 0.0
             queue.add(0.0, s)
@@ -172,7 +242,7 @@ class OrthogonalEdgeRouter(
         while (queue.isNotEmpty()) {
             val (cost, state) = queue.poll()
             if (cost > (dist[state] ?: Double.MAX_VALUE) + eps) continue
-            if (state.xi == tx && state.yi == ty) {
+            if (state.xi == tx && state.yi == ty && (arrivalDir == null || state.dir == arrivalDir)) {
                 end = state; break
             }
             for (nd in 0..3) {
@@ -206,7 +276,8 @@ class OrthogonalEdgeRouter(
         }
         if (end == null) {
             // No free path: fall back to a single bend.
-            return clipEnds(listOf(source.cx to source.cy, target.cx to source.cy, target.cx to target.cy), source, target)
+            val fallback = listOf(startPoint, endPoint.first to startPoint.second, endPoint)
+            return clipEnds(fallback, source, target, sourceDir, targetDir)
         }
         val points = mutableListOf<Pair<Double, Double>>()
         var cur: State? = end
@@ -215,7 +286,7 @@ class OrthogonalEdgeRouter(
             cur = prev[cur]
         }
         points.reverse()
-        return clipEnds(simplify(points), source, target)
+        return clipEnds(simplify(points), source, target, sourceDir, targetDir)
     }
 
     private fun offCentreInside(r: Rect, x1: Double, y1: Double, x2: Double, y2: Double): Boolean {
@@ -257,12 +328,22 @@ class OrthogonalEdgeRouter(
 
     private fun same(a: Pair<Double, Double>, b: Pair<Double, Double>) = abs(a.first - b.first) < eps && abs(a.second - b.second) < eps
 
-    /** Moves the first and last point from the node centres to the node borders. */
-    private fun clipEnds(points: List<Pair<Double, Double>>, source: Rect, target: Rect): List<Pair<Double, Double>> {
+    /**
+     * Moves the first and last point from the node centres to the node borders. An end with a fixed
+     * direction already starts outside the node, so the middle of that side is added in front of it.
+     */
+    private fun clipEnds(
+        points: List<Pair<Double, Double>>, source: Rect, target: Rect,
+        sourceDir: Int? = null, targetDir: Int? = null
+    ): List<Pair<Double, Double>> {
         if (points.size < 2) return points
         val result = points.toMutableList()
-        result[0] = exitPoint(points[0], points[1], source)
-        result[result.lastIndex] = exitPoint(points[points.lastIndex], points[points.lastIndex - 1], target)
+        if (sourceDir == null) result[0] = exitPoint(points[0], points[1], source) else result.add(0, sideMiddle(source, sourceDir))
+        if (targetDir == null) {
+            result[result.lastIndex] = exitPoint(points[points.lastIndex], points[points.lastIndex - 1], target)
+        } else {
+            result.add(sideMiddle(target, targetDir))
+        }
         return simplify(result)
     }
 

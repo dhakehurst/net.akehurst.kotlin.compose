@@ -420,10 +420,11 @@ private fun NodeContent(
         val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
         // The child area's origin; children may be shifted right of it to centre them.
         val contentOriginX = containerGraphLayout?.let { it.globalOffsetX - it.centringX } ?: node.globalX
-        val contentOriginY = containerGraphLayout?.globalOffsetY ?: node.globalY
+        val contentOriginY = containerGraphLayout?.let { it.globalOffsetY - it.shiftY } ?: node.globalY
         val childNodes = layoutResult.nodeLayoutsById.values
             .filter { it.ownerGraphId == node.nodeId }
-            .sortedWith(compareBy({ if (it.isContainer) 0 else 1 }, { it.nodeId }))
+            // Border nodes last, so they are drawn on top of their host.
+            .sortedWith(compareBy({ if (it.borderHostId != null) 2 else if (it.isContainer) 0 else 1 }, { it.nodeId }))
         // Store the container's LayoutCoordinates (not boundsInRoot) so child-host
         // insets are computed in zoom-independent layout pixels.
         var containerCoordinates by remember(node.nodeId) { mutableStateOf<LayoutCoordinates?>(null) }
@@ -641,7 +642,7 @@ fun CompoundGraphLayoutView(
             .filter { it.ownerGraphId == state.root.id }
             .sortedWith(
                 compareBy<CompoundNodeLayout>(
-                    { if (it.isContainer) 0 else 1 },
+                    { if (it.borderHostId != null) 2 else if (it.isContainer) 0 else 1 },
                     { it.nodeId }
                 )
             )

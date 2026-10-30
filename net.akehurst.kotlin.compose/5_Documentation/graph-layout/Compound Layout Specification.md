@@ -469,6 +469,20 @@ To keep endpoint clipping deterministic across JVM/JS/Wasm, use the following ru
 - `COMPACT`: smaller area with acceptable crossing increase.
 - `CHANNEL_BIASED`: straighter parallel channels for near series-parallel graphs.
 
+### 7.6 Border-placed nodes
+
+A node can be placed on the border of another node (its host) instead of being laid out with its siblings, for example a port. This is generic: the node can have any content and size, and the host can be a leaf or a container. Set `GraphLayoutCompoundNode.border = BorderAttachment(hostId, side, placement)`.
+
+- The border node and its host must be in the same graph. A border node cannot contain other nodes, and its host cannot itself be a border node.
+- **Side**: when `side` is null the layout chooses it, facing the nodes the border node is connected to (on average, relative to the host's shape). A caller can pin a side.
+- **Placement**: `STRADDLE` (default) centres the node on the border line; `INSIDE` and `OUTSIDE` put it just inside or just outside, touching the border.
+- **Position along the side**: chosen by the layout, as close as possible to the connected nodes, in that order, without overlaps. On a container, left and right border nodes stay below the header.
+- **Room**: the host grows so each side fits its border nodes; the layout keeps room around the host for the part that sticks out, and a container keeps its children clear of the part that reaches in.
+- **Layout**: for ordering, an edge to a border node counts as an edge to its host. The layout runs twice when there are free sides: the first pass chooses the sides, the second makes room for them.
+- **Routing**: an edge leaves a border node straight out through its side, or straight in when the other end is the host or inside it. An edge between two nodes in the same container stays inside that container.
+
+The layout never adds boundary points to containers on its own (§13, Q2): a diagram that needs them uses explicit border nodes.
+
 ## 8. Layout quality criteria
 
 The result should make it easy to see:
@@ -601,11 +615,17 @@ These are algorithmic profiles, not domain profiles. The implemented ones are th
 ## 13. Open questions
 
 1. Should containers be explicit graph objects or inferred from input data?
+   **Answer:** explicit, as now (a container is a node with its own child graph).
 2. Should cross-boundary edges always use boundary ports?
+   **Answer:** no, and there is no option to turn them on. Diagrams that need them (for example SysML internal block diagrams) use explicit border-placed nodes (§7.6).
 3. Should profile selection be static or auto-selected from graph metrics?
+   **Answer:** static: the caller chooses a `ChildLayoutAlgorithm` per container. An "auto" algorithm may be added later as an optional choice.
 4. Should orthogonal readability always win over compactness?
+   **Answer:** yes. Orthogonal (`RECTILINEAR`) routing is the default, and nodes are spread out for clean routes, unless the caller fixes the size (not supported yet: width and height hints are minimums). Leaf sizes come from the measured Compose content.
 5. How should first-pass fallback insets be tuned before Compose measurements are available?
+   **Answer:** left to the implementation (defaults in `CompoundLayoutConfig`).
 6. Should collapsed containers show summary metadata (for example, descendant count, edge count)?
+   Not answered yet.
 
 ## 14. Recommended first implementation scope
 

@@ -29,6 +29,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import net.akehurst.kotlin.compose.layout.graph.BorderAttachment
+import net.akehurst.kotlin.compose.layout.graph.BorderPlacement
+import net.akehurst.kotlin.compose.layout.graph.BorderSide
 import net.akehurst.kotlin.compose.layout.graph.SugiyamaChildLayout
 import net.akehurst.kotlin.compose.layout.graph.TessellateChildLayout
 import net.akehurst.kotlin.compose.layout.graph.EdgeContentPosition
@@ -380,6 +383,39 @@ object DemoScenarios {
         )
     )
 
+    /**
+     * Nodes placed on the border of other nodes (ports), on a container and on a leaf node.
+     * In has a fixed side; the others are free. Status sits inside its host's border, fout outside.
+     */
+    val borderPlacedNodes = DemoScenario(
+        id = "border_placed_nodes",
+        title = "Border-placed nodes (ports)",
+        nodes = listOf(
+            DemoNode("Controller", content = { children -> Component("Controller", children) }),
+            DemoNode("Core", containerId = "Controller", content = { Block("Core") }),
+            DemoNode("Logger", containerId = "Controller", content = { Block("Logger") }),
+            DemoNode("In", border = BorderAttachment("Controller", side = BorderSide.LEFT), content = { Port("in") }),
+            DemoNode("Out", border = BorderAttachment("Controller"), content = { Port("out") }),
+            DemoNode("Status", border = BorderAttachment("Controller", placement = BorderPlacement.INSIDE), content = { Port("status") }),
+            DemoNode("Sensor", content = { Block("Sensor") }),
+            DemoNode("Filter", content = { Block("Filter") }),
+            DemoNode("fin", border = BorderAttachment("Filter"), content = { Port("fin") }),
+            DemoNode("fout", border = BorderAttachment("Filter", placement = BorderPlacement.OUTSIDE), content = { Port("fout") }),
+            DemoNode("Actuator", content = { Block("Actuator") }),
+            DemoNode("Monitor", content = { Block("Monitor") })
+        ),
+        edges = listOf(
+            DemoEdge("e_bp_1", "Sensor", "In"),
+            DemoEdge("e_bp_2", "In", "Core"),
+            DemoEdge("e_bp_3", "Core", "Out"),
+            DemoEdge("e_bp_4", "Out", "fin"),
+            DemoEdge("e_bp_5", "fout", "Actuator"),
+            DemoEdge("e_bp_6", "Core", "Logger"),
+            DemoEdge("e_bp_7", "Logger", "Status"),
+            DemoEdge("e_bp_8", "Status", "Monitor")
+        )
+    )
+
     val all: List<DemoScenario> = listOf(
         flatChain,
         singleContainerTwoNodes,
@@ -395,7 +431,8 @@ object DemoScenarios {
         umlUseCaseDiagram,
         umlCompositeStructureDiagram,
         umlDeploymentDiagram,
-        umlClassPackageCrossingRelations
+        umlClassPackageCrossingRelations,
+        borderPlacedNodes
     )
 
     /**
@@ -596,6 +633,30 @@ object DemoScenarios {
             textAlign = TextAlign.Center,
             maxLines = 1
         )
+    }
+
+    /** A plain leaf block with a name. */
+    @Composable
+    fun Block(name: String) = Box(
+        modifier = Modifier
+            .background(umlFill)
+            .border(1.5.dp, umlStroke)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = umlStroke, maxLines = 1)
+    }
+
+    /** A small labelled square, for nodes placed on another node's border. */
+    @Composable
+    fun Port(name: String) = Box(
+        modifier = Modifier
+            .background(umlFill)
+            .border(1.5.dp, umlStroke)
+            .padding(horizontal = 3.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = name, style = MaterialTheme.typography.labelSmall, color = umlStroke, maxLines = 1)
     }
 
     @Composable

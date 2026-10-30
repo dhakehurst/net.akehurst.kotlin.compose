@@ -124,10 +124,40 @@ data class GraphLayoutCompoundNode(
     val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
     val heightHint: Double? = null,
-    val containerPaddingHint: PaddingHint? = null
+    val containerPaddingHint: PaddingHint? = null,
+    /**
+     * When set, this node is placed on the border of another node (its host) instead of being laid out
+     * with its siblings, for example a port. The node and its host must be in the same graph.
+     */
+    val border: BorderAttachment? = null
 ) {
     val metadata: MutableMap<String, String> = mutableMapOf()
 }
+
+/** A side of a node's border. */
+enum class BorderSide { TOP, RIGHT, BOTTOM, LEFT }
+
+/** Where a border node sits relative to its host's border line. */
+enum class BorderPlacement {
+    /** Centred on the border line: half inside the host, half outside. */
+    STRADDLE,
+    /** Just inside the host, touching the border. */
+    INSIDE,
+    /** Just outside the host, touching the border. */
+    OUTSIDE
+}
+
+/**
+ * Places a node on the border of [hostId].
+ *
+ * When [side] is null the layout chooses the side from the node's edges (towards the nodes it connects to).
+ * The position along the side is always chosen by the layout.
+ */
+data class BorderAttachment(
+    val hostId: String,
+    val side: BorderSide? = null,
+    val placement: BorderPlacement = BorderPlacement.STRADDLE
+)
 
 data class GraphLayoutCompoundEdge(
     val id: String,
@@ -258,6 +288,25 @@ fun GraphLayoutCompoundGraphState.validateInvariants(): CompoundGraphValidationR
     }
 
     walk(root, emptyList())
+
+    val validatedBorderGraphs = mutableSetOf<String>()
+    fun validateBorders(graph: GraphLayoutCompoundGraph) {
+        if (!validatedBorderGraphs.add(graph.id)) return
+        graph.nodes.values.forEach { node ->
+            val border = node.border ?: return@forEach
+            val host = graph.nodes[border.hostId]
+            when {
+                border.hostId == node.id -> errors.add("Border node '${node.id}' cannot be on its own border")
+                host == null -> errors.add("Border node '${node.id}' host '${border.hostId}' is not in the same graph '${graph.id}'")
+                host.border != null -> errors.add("Border node '${node.id}' host '${border.hostId}' is itself a border node")
+            }
+            if (node.id in graph.children) {
+                errors.add("Border node '${node.id}' cannot contain other nodes")
+            }
+        }
+        graph.children.values.forEach(::validateBorders)
+    }
+    validateBorders(root)
 
     val validatedEdgeGraphs = mutableSetOf<String>()
 
