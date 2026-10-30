@@ -1,5 +1,6 @@
 package net.akehurst.kotlin.compose.layout.graph.demo
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -567,46 +569,33 @@ object DemoScenarios {
     }
 
     @Composable
-    fun Actor(name: String) = Box(
-        modifier = Modifier
-            .minWidthToContent(30.dp)
-            .background(umlFill)
-            .border(1.5.dp, umlStroke),
-        contentAlignment = Alignment.Center
+    fun Actor(name: String) = Column(
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .border(1.5.dp, umlStroke, CircleShape)
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .width(1.5.dp)
-                    .height(10.dp)
-                    .background(umlStroke)
-            )
-            Box(
-                modifier = Modifier
-                    .width(18.dp)
-                    .height(1.5.dp)
-                    .background(umlStroke)
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.5.dp)
-                    .height(8.dp)
-                    .background(umlStroke)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = name,
-                style = MaterialTheme.typography.labelSmall,
-                color = umlStroke,
-                textAlign = TextAlign.Center
-            )
+        // UML actor: a stick figure with the name below it, and no surrounding box.
+        Canvas(modifier = Modifier.size(width = 24.dp, height = 40.dp)) {
+            val stroke = 1.5.dp.toPx()
+            val w = size.width
+            val h = size.height
+            val headRadius = h * 0.13f
+            val headCentre = Offset(w / 2f, headRadius + stroke)
+            val neck = headCentre.y + headRadius
+            val hip = h * 0.66f
+            val arms = neck + (hip - neck) * 0.3f
+            drawCircle(umlStroke, radius = headRadius, center = headCentre, style = Stroke(stroke))
+            drawLine(umlStroke, Offset(w / 2f, neck), Offset(w / 2f, hip), stroke)
+            drawLine(umlStroke, Offset(stroke, arms), Offset(w - stroke, arms), stroke)
+            drawLine(umlStroke, Offset(w / 2f, hip), Offset(stroke, h - stroke), stroke)
+            drawLine(umlStroke, Offset(w / 2f, hip), Offset(w - stroke, h - stroke), stroke)
         }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelSmall,
+            color = umlStroke,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
     }
 
     @Composable
