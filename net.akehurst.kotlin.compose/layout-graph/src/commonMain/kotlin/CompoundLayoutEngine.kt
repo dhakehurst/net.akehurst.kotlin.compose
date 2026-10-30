@@ -14,6 +14,8 @@ data class CompoundLayoutConfig(
     val defaultNodeWidth: Double = 100.0,
     val defaultNodeHeight: Double = 56.0,
     val defaultChildLayout: ChildLayoutAlgorithm = SugiyamaChildLayout.DEFAULT,
+    /** Used for every edge when the state's routing is [EdgeRouting.RECTILINEAR]. */
+    val edgeRouter: OrthogonalEdgeRouter = OrthogonalEdgeRouter(),
     val defaultContainerChildHostMetrics: ContainerChildHostMetrics = ContainerChildHostMetrics(
         originX = 12.0,
         originY = 24.0,
@@ -165,6 +167,7 @@ class CompoundLayoutEngine(
         val parallelSlotByEdgeId = computeParallelEdgeSlotsByResolvedEndpoints(edgeDescriptorsById, collapsedRedirectMap)
         val resolvedEdgeEndpointsById = mutableMapOf<String, Pair<String, String>>()
 
+        val routerEdges = mutableListOf<RouterEdge>()
         edgeDescriptorsById.keys.sorted().forEach { edgeId ->
             val descriptor = edgeDescriptorsById.getValue(edgeId)
             val sourceId = collapsedRedirectMap[descriptor.sourceId] ?: descriptor.sourceId
@@ -174,6 +177,11 @@ class CompoundLayoutEngine(
             val target = nodeLayouts[targetId]
             if (source != null && target != null) {
                 resolvedEdgeEndpointsById[edgeId] = sourceId to targetId
+                if (state.routing == EdgeRouting.RECTILINEAR) {
+                    // All edges are routed together below, around unrelated nodes.
+                    routerEdges.add(RouterEdge(edgeId, sourceId, targetId))
+                    return@forEach
+                }
                 val isCrossBoundary =
                     source.ownerGraphId != descriptor.ownerGraphId ||
                         target.ownerGraphId != descriptor.ownerGraphId
@@ -189,6 +197,21 @@ class CompoundLayoutEngine(
                     )
                 }
             }
+        }
+
+        if (routerEdges.isNotEmpty()) {
+            val routerNodes = nodeLayouts.values.sortedBy { it.nodeId }.map { n ->
+                RouterNode(
+                    id = n.nodeId,
+                    x = n.globalX,
+                    y = n.globalY,
+                    width = n.width,
+                    height = n.height,
+                    containerId = graphLayouts[n.ownerGraphId]?.containerNodeId
+                )
+            }
+            edgeRoutesByEdgeId.keys.removeAll(routerEdges.map { it.id }.toSet())
+            edgeRoutesByEdgeId.putAll(config.edgeRouter.route(routerNodes, routerEdges))
         }
 
         val resultByGraphId = buildResultsByGraphId(
@@ -236,7 +259,7 @@ class CompoundLayoutEngine(
             val childPlan = childPlansById[node.id]
             val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
             val paddingHintWidth = node.containerPaddingHint?.let { it.left+it.right } ?: 0.0
-            val paddingHintHeight = node.containerPaddingHint?.let { it.bottom+it.top+it.bottom } ?: 0.0
+            val paddingHintHeight = node.containerPaddingHint?.let { it.top+it.bottom } ?: 0.0
             val widthHint = (node.widthHint ?:config.defaultNodeWidth)
             val heightHint = (node.heightHint ?:config.defaultNodeHeight)
             val width = max(

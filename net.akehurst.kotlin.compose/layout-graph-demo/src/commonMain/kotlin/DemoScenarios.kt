@@ -619,15 +619,15 @@ object DemoScenarios {
                 .padding(start = 6.dp, top = 6.dp)
                 .border(1.5.dp, umlStroke)
         )
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(end = 6.dp, bottom = 6.dp)
                 .background(umlFill)
                 .border(1.5.dp, umlStroke),
-            contentAlignment = Alignment.TopCenter
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            children()
+            // Name first, so the children host starts below it.
             Text(
                 text = name,
                 modifier = Modifier.padding(top = 4.dp),
@@ -635,6 +635,9 @@ object DemoScenarios {
                 color = umlStroke,
                 textAlign = TextAlign.Center
             )
+            Box(modifier = Modifier.fillMaxSize().padding(umlPadding)) {
+                children()
+            }
         }
     }
 

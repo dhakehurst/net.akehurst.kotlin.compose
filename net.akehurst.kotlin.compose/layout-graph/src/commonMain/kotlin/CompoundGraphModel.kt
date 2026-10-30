@@ -17,7 +17,7 @@ import net.akehurst.kotlin.compose.layout.graph.GraphLayoutCompoundGraphState
  */
 data class GraphLayoutCompoundGraphState(
     val id: String,
-    val routing: EdgeRouting = EdgeRouting.DIRECT,
+    val routing: EdgeRouting = EdgeRouting.RECTILINEAR,
     val root: GraphLayoutCompoundGraph = GraphLayoutCompoundGraph("root")
 ) {
 

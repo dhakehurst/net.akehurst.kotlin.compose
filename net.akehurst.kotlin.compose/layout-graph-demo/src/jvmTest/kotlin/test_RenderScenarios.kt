@@ -28,10 +28,19 @@ class test_RenderScenarios {
     private val outDir = File("build/scenario-renders").also { it.mkdirs() }
 
     @Test
-    fun render_all_scenarios() {
+    fun render_all_scenarios() = renderAll(debug = false)
+
+    /** Same renders with the debug overlay on (measured node bounds, edge endpoints, content origins). */
+    @Test
+    fun render_all_scenarios_debug() = renderAll(debug = true)
+
+    private fun renderAll(debug: Boolean) {
+        val dir = if (debug) File(outDir, "debug").also { it.mkdirs() } else outDir
         DemoScenarios.all.forEachIndexed { index, scenario ->
             runComposeUiTest {
                 val state = scenario.toCompoundGraphState()
+                state.showDebugOverlay.value = debug
+                state.showContentOrigins.value = debug
                 setContent {
                     Box(Modifier.size(1200.dp, 900.dp).background(Color.White).testTag("root")) {
                         CompoundGraphLayoutView(
@@ -45,7 +54,7 @@ class test_RenderScenarios {
                 waitForIdle()
                 val image = onNodeWithTag("root").captureToImage()
                 val name = "%02d_%s.png".format(index + 1, scenario.id)
-                ImageIO.write(image.toAwtImage(), "png", File(outDir, name))
+                ImageIO.write(image.toAwtImage(), "png", File(dir, name))
             }
         }
     }

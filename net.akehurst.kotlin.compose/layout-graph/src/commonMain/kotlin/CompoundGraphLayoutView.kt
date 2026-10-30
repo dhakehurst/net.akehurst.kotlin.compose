@@ -361,18 +361,10 @@ private fun composeLayout(
     // println("composeLayout: $nodeId")
     val placeables = childNodes.mapIndexed { i, childNode ->
         val measurable = measurables[i]
-        val contentWidth = measurable.maxIntrinsicWidth(constraints.maxWidth)
-        val contentHeight = measurable.maxIntrinsicHeight(constraints.maxHeight)
-       // println("measure child ${childNode.nodeId}: alg-w=${childNode.width}, alg-h=${childNode.height}")
-       // println("measure child ${childNode.nodeId}: nat-w=${contentWidth}, nat-h=${contentHeight}")
-        measurable.measure(
-            Constraints(
-                minWidth = max(contentWidth,childNode.width.roundToInt()),
-                maxWidth = max(contentWidth,childNode.width.roundToInt()),
-                minHeight = max(contentHeight,childNode.height.roundToInt()),
-                maxHeight = max(contentHeight,childNode.height.roundToInt()),
-            )
-        )
+        // maxIntrinsicWidth takes the available height, and maxIntrinsicHeight the chosen width.
+        val width = max(measurable.maxIntrinsicWidth(childNode.height.roundToInt()), childNode.width.roundToInt())
+        val height = max(measurable.maxIntrinsicHeight(width), childNode.height.roundToInt())
+        measurable.measure(Constraints.fixed(width, height))
     }
     val requiredChildWidth = requiredChildHostWidth(placeables.map { it.width.toDouble() }, childNodes, contentOriginX)
     val requiredChildHeight = requiredChildHostHeight(placeables.map { it.height.toDouble() }, childNodes, contentOriginY)
@@ -868,7 +860,9 @@ fun CompoundGraphLayoutView(
 
                         // Get the actual rendered node positions to properly attach edge endpoints
                         val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
-                        val drawRoute = if (endpoints != null && graphLayerCoordinates != null) {
+                        // Orthogonal routes already end on the node borders; moving their end points
+                        // to the rendered bounds would add diagonal segments.
+                        val drawRoute = if (state.routing == EdgeRouting.DIRECT && endpoints != null && graphLayerCoordinates != null) {
                             val (sourceNodeId, targetNodeId) = endpoints
                             val sourceCoords = nodeCoordinatesById[sourceNodeId]
                             val targetCoords = nodeCoordinatesById[targetNodeId]
