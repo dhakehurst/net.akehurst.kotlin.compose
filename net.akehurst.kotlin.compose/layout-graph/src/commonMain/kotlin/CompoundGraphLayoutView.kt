@@ -376,13 +376,16 @@ private fun composeLayout(
     val requiredChildWidth = requiredChildHostWidth(placeables.map { it.width.toDouble() }, childNodes, contentOriginX)
     val requiredChildHeight = requiredChildHostHeight(placeables.map { it.height.toDouble() }, childNodes, contentOriginY)
 
+    // Never report more than the constraints allow: Compose centres a layout that is larger than its
+    // constraints, which shifted every node away from the edges (drawn unshifted) when the diagram was
+    // bigger than the view. Children outside the reported size are still placed and drawn.
     val layoutWidth = when {
-        constraints.hasBoundedWidth -> max(requiredChildWidth.roundToInt(), constraints.maxWidth)
-         else -> requiredChildWidth.roundToInt()
+        constraints.hasBoundedWidth -> constraints.maxWidth
+        else -> requiredChildWidth.roundToInt().coerceAtLeast(constraints.minWidth)
     }
     val layoutHeight = when {
-        constraints.hasBoundedHeight -> max(requiredChildHeight.roundToInt(), constraints.maxHeight)
-        else -> requiredChildHeight.roundToInt()
+        constraints.hasBoundedHeight -> constraints.maxHeight
+        else -> requiredChildHeight.roundToInt().coerceAtLeast(constraints.minHeight)
     }
    // println("${nodeId}: constraints = $constraints")
    // println("${nodeId}: requiredChildWidth = $requiredChildWidth, requiredChildHeight = $requiredChildHeight")
