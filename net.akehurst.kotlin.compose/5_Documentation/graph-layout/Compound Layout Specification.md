@@ -631,6 +631,8 @@ These are algorithmic profiles, not domain profiles. The implemented ones are th
    **Answer:** left to the implementation (defaults in `CompoundLayoutConfig`).
 6. Should collapsed containers show summary metadata (for example, descendant count, edge count)?
    Not answered yet.
+7. Should layout spacing scale with screen density?
+   **Answer:** yes (2026-11-04). The layout works in dp, and the views convert to and from pixels. See `Density-Scaling.md`.
 
 ## 14. Recommended first implementation scope
 
