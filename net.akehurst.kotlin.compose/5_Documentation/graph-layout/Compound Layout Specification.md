@@ -632,7 +632,7 @@ These are algorithmic profiles, not domain profiles. The implemented ones are th
 6. Should collapsed containers show summary metadata (for example, descendant count, edge count)?
    Not answered yet.
 7. Should layout spacing scale with screen density?
-   Deferred (2026-10-31): spacing stays in pixels for now. See `Density-Scaling.md`.
+   **Answer:** yes (2026-11-04). The layout works in dp, and the views convert to and from pixels. See `Density-Scaling.md`.
 
 ## 14. Recommended first implementation scope
 

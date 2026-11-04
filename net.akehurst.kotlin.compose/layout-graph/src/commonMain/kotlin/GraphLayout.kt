@@ -72,6 +72,7 @@ data class GraphLayoutEdge(
     }
 
     var colour: Color = Color.Black
+    /** Line width, in dp. */
     var width: Float = 5f
 
     var content: List<@Composable () -> Unit> = emptyList(); private set
@@ -276,14 +277,17 @@ fun GraphLayoutView(
                     nodes.map { it.id },
                     placeables.map { Pair(it.width, it.height) },
                     graphState.edges.map { Triple(it.id, it.sourceId, it.targetId) },
-                    routing
+                    routing,
+                    density.density
                 )
                 if (layoutInput != layoutCache.input) {
                     val nodesById = graphState.nodesById
                     val placeableByNode = nodes.withIndex().associate { (idx, node) -> Pair(node, placeables[idx]) }
+                    // The layout works in dp; placeables are measured in pixels.
+                    val pxPerDp = density.density.toDouble()
                     val sgl = SugiyamaLayout<GraphLayoutNode>(
-                        nodeWidth = { node -> placeableByNode[node]!!.width.toDouble() },
-                        nodeHeight = { node -> placeableByNode[node]!!.height.toDouble() },
+                        nodeWidth = { node -> placeableByNode[node]!!.width / pxPerDp },
+                        nodeHeight = { node -> placeableByNode[node]!!.height / pxPerDp },
                         edgeRouting = routing
                     )
                     val edges = graphState.edges.mapNotNull {
@@ -291,7 +295,7 @@ fun GraphLayoutView(
                         val tgt = nodesById[it.targetId]
                         src?.let { tgt?.let { SugiyamaEdge(it.id, src, tgt) } }
                     }
-                    graphLayoutData = sgl.layoutGraph(nodes, edges) // cache for use laying out edges
+                    graphLayoutData = sgl.layoutGraph(nodes, edges).scaledBy(pxPerDp) // cache for use laying out edges
                     layoutCache.input = layoutInput
                 }
 
@@ -330,7 +334,7 @@ fun GraphLayoutView(
                             }
                         },
                         color = oe?.colour ?: Color.Black,
-                        style = Stroke(oe?.width ?: 5f)
+                        style = Stroke((oe?.width ?: 5f).dp.toPx())
                     )
                 }
             }
@@ -388,3 +392,11 @@ fun ScalableBox(
 private class GraphLayoutInputCache {
     var input: Any? = null
 }
+
+/** Every position and length multiplied by [f]. */
+private fun <NT : Any> SugiyamaLayoutData<NT>.scaledBy(f: Double) = SugiyamaLayoutData(
+    totalWidth = totalWidth * f,
+    totalHeight = totalHeight * f,
+    nodePositions = nodePositions.mapValues { (_, p) -> (p.first * f) to (p.second * f) },
+    edgeRoutes = edgeRoutes.mapValues { (_, route) -> route.map { (x, y) -> (x * f) to (y * f) } }
+)

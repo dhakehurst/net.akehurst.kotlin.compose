@@ -224,8 +224,8 @@ private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContent
         }
     }
 }
-private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float): Offset {
-    val distance = 18f
+/** @param distance how far START and END texts sit from the route end, in pixels */
+private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float, distance: Float): Offset {
     return when (position) {
         EdgeContentPosition.START -> Offset(
             x = cos(angleRadians) * distance,
@@ -319,6 +319,8 @@ private fun drawEdgeSymbol(
     anchor: EdgeAnchor,
     globalToViewportOffsetX: Double,
     globalToViewportOffsetY: Double,
+    /** Pixels per dp: the symbol's points and stroke width are in dp. */
+    scale: Float,
     drawPathOnCanvas: (Path, Color?, Stroke?) -> Unit
 ) {
     if (symbol.pathPoints.isEmpty()) return
@@ -329,8 +331,8 @@ private fun drawEdgeSymbol(
     val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat()
     val transformedPath = Path().apply {
         symbol.pathPoints.forEachIndexed { index, point ->
-            val x = anchorX + (point.x * cosTheta) - (point.y * sinTheta)
-            val y = anchorY + (point.x * sinTheta) + (point.y * cosTheta)
+            val x = anchorX + (point.x * scale * cosTheta) - (point.y * scale * sinTheta)
+            val y = anchorY + (point.x * scale * sinTheta) + (point.y * scale * cosTheta)
             if (index == 0) moveTo(x, y) else lineTo(x, y)
         }
         if (symbol.isClosed) close()
@@ -340,7 +342,7 @@ private fun drawEdgeSymbol(
         drawPathOnCanvas(transformedPath, symbol.fillColor, null)
     }
     if (symbol.strokeWidth > 0f && symbol.strokeColor.alpha > 0f) {
-        drawPathOnCanvas(transformedPath, symbol.strokeColor, Stroke(width = symbol.strokeWidth))
+        drawPathOnCanvas(transformedPath, symbol.strokeColor, Stroke(width = symbol.strokeWidth * scale))
     }
 }
 
@@ -649,8 +651,19 @@ fun CompoundGraphLayoutView(
     var measuredLeafSizes by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, Pair<Double, Double>>>(emptyMap())
     }
-    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredLeafSizes) {
-        CompoundLayoutEngine().layout(state, measuredContainerMetrics, measuredLeafSizes)
+    // The engine works in dp. Everything measured here is in pixels, so convert on the way in,
+    // and convert the result back to pixels for placing and drawing.
+    val density = LocalDensity.current.density
+    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredLeafSizes, density) {
+        val pxToDp = 1.0 / density
+        // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
+        // tiny differences can tip layout choices (for example which side an edge is routed on).
+        // Leaf sizes round up so content always fits.
+        CompoundLayoutEngine().layout(
+            state,
+            measuredContainerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
+            measuredLeafSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
+        ).scaledBy(density.toDouble())
     }
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
@@ -741,7 +754,6 @@ fun CompoundGraphLayoutView(
     }
 
     val stateForGestures by rememberUpdatedState(viewState)
-    val density = LocalDensity.current.density
 
     val edgeContentById = state.edgeContentById.toMap()
     val edgeTextPlacements = sortedEdgeIds.flatMap { edgeId ->
@@ -881,7 +893,7 @@ fun CompoundGraphLayoutView(
                                     color = tessellationBorderColor,
                                     start = Offset(px, (minGraphY + globalToViewportOffsetY).toFloat()),
                                     end = Offset(px, (maxGraphY + globalToViewportOffsetY).toFloat()),
-                                    strokeWidth = 1.5f
+                                    strokeWidth = 1.5.dp.toPx()
                                 )
                             }
                             yDividers.forEach { y ->
@@ -890,7 +902,7 @@ fun CompoundGraphLayoutView(
                                     color = tessellationBorderColor,
                                     start = Offset((minGraphX + globalToViewportOffsetX).toFloat(), py),
                                     end = Offset((maxGraphX + globalToViewportOffsetX).toFloat(), py),
-                                    strokeWidth = 1.5f
+                                    strokeWidth = 1.5.dp.toPx()
                                 )
                             }
                         }
@@ -977,7 +989,7 @@ fun CompoundGraphLayoutView(
                                     }
                                 },
                                 color = Color(0xFF444444),
-                                style = Stroke(width = 2f)
+                                style = Stroke(width = 2.dp.toPx())
                             )
                         }
 
@@ -988,11 +1000,11 @@ fun CompoundGraphLayoutView(
                             // Draw circle at start endpoint
                             val startX = (drawRoute[0].first + globalToViewportOffsetX).toFloat()
                             val startY = (drawRoute[0].second + globalToViewportOffsetY).toFloat()
-                            drawCircle(color = debugBlue, radius = 4f, center = Offset(startX, startY))
+                            drawCircle(color = debugBlue, radius = 4.dp.toPx(), center = Offset(startX, startY))
                             // Draw circle at end endpoint
                             val endX = (drawRoute[drawRoute.lastIndex].first + globalToViewportOffsetX).toFloat()
                             val endY = (drawRoute[drawRoute.lastIndex].second + globalToViewportOffsetY).toFloat()
-                            drawCircle(color = debugRed, radius = 4f, center = Offset(endX, endY))
+                            drawCircle(color = debugRed, radius = 4.dp.toPx(), center = Offset(endX, endY))
                         }
 
                         val edgeContent = edgeContentById[edgeId]
@@ -1002,7 +1014,8 @@ fun CompoundGraphLayoutView(
                                     symbol = symbol,
                                     anchor = routeAnchor(drawRoute, EdgeContentPosition.START),
                                     globalToViewportOffsetX = globalToViewportOffsetX,
-                                    globalToViewportOffsetY = globalToViewportOffsetY
+                                    globalToViewportOffsetY = globalToViewportOffsetY,
+                                    scale = density
                                 ) { path, color, stroke ->
                                     if (stroke == null) {
                                         drawPath(path = path, color = color ?: Color.Transparent)
@@ -1016,7 +1029,8 @@ fun CompoundGraphLayoutView(
                                     symbol = symbol,
                                     anchor = routeAnchor(drawRoute, EdgeContentPosition.END),
                                     globalToViewportOffsetX = globalToViewportOffsetX,
-                                    globalToViewportOffsetY = globalToViewportOffsetY
+                                    globalToViewportOffsetY = globalToViewportOffsetY,
+                                    scale = density
                                 ) { path, color, stroke ->
                                     if (stroke == null) {
                                         drawPath(path = path, color = color ?: Color.Transparent)
@@ -1031,18 +1045,18 @@ fun CompoundGraphLayoutView(
                             contentOrigins.forEach { origin ->
                                 val ox = (origin.first + globalToViewportOffsetX).toFloat()
                                 val oy = (origin.second + globalToViewportOffsetY).toFloat()
-                                val r = 6f
+                                val r = 6.dp.toPx()
                                 drawLine(
                                     color = Color(0xFFD32F2F),
                                     start = Offset(ox - r, oy),
                                     end = Offset(ox + r, oy),
-                                    strokeWidth = 1.5f
+                                    strokeWidth = 1.5.dp.toPx()
                                 )
                                 drawLine(
                                     color = Color(0xFFD32F2F),
                                     start = Offset(ox, oy - r),
                                     end = Offset(ox, oy + r),
-                                    strokeWidth = 1.5f
+                                    strokeWidth = 1.5.dp.toPx()
                                 )
                             }
                         }
@@ -1064,7 +1078,7 @@ fun CompoundGraphLayoutView(
                                     color = color,
                                     topLeft = Offset(rect.left, rect.top),
                                     size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
-                                    style = Stroke(width = 2f)
+                                    style = Stroke(width = 2.dp.toPx())
                                 )
                             }
                         }
@@ -1104,7 +1118,7 @@ fun CompoundGraphLayoutView(
                             edgeTextPlacements.forEachIndexed { index, placement ->
                                 val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
                                 val anchor = routeAnchor(route, placement.position)
-                                val textOffset = edgeTextOffset(placement.position, anchor.angleRadians)
+                                val textOffset = edgeTextOffset(placement.position, anchor.angleRadians, 18.dp.toPx())
                                 val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat() + textOffset.x
                                 val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat() + textOffset.y
                                 placeables[index].placeRelative(
@@ -1119,3 +1133,51 @@ fun CompoundGraphLayoutView(
         }
     }
 }
+
+// ── Unit conversion (engine works in dp, the view in pixels) ────────────────
+
+internal fun ContainerChildHostMetrics.scaledBy(f: Double) = ContainerChildHostMetrics(
+    originX = originX * f,
+    originY = originY * f,
+    insetRight = insetRight * f,
+    insetBottom = insetBottom * f
+)
+
+private fun ContainerChildHostMetrics.roundedToWholeDp() = ContainerChildHostMetrics(
+    originX = kotlin.math.round(originX),
+    originY = kotlin.math.round(originY),
+    insetRight = kotlin.math.round(insetRight),
+    insetBottom = kotlin.math.round(insetBottom)
+)
+
+/** Rounds up to a whole dp, ignoring floating-point noise (100.0000001 stays 100). */
+private fun ceilDp(v: Double): Double = kotlin.math.ceil(v - 1e-6)
+
+private fun CompoundRect.scaledBy(f: Double) = CompoundRect(left * f, top * f, right * f, bottom * f)
+
+private fun Pair<Double, Double>.scaledBy(f: Double) = (first * f) to (second * f)
+
+/** Every length and position in the result multiplied by [f]; ids and structure unchanged. */
+internal fun CompoundLayoutResult.scaledBy(f: Double): CompoundLayoutResult = copy(
+    localBounds = localBounds.scaledBy(f),
+    globalBounds = globalBounds.scaledBy(f),
+    localNodePositions = localNodePositions.mapValues { (_, p) -> p.scaledBy(f) },
+    globalNodePositions = globalNodePositions.mapValues { (_, p) -> p.scaledBy(f) },
+    childResults = childResults.mapValues { (_, r) -> r.scaledBy(f) },
+    nodeLayoutsById = nodeLayoutsById.mapValues { (_, n) ->
+        n.copy(
+            localX = n.localX * f, localY = n.localY * f,
+            globalX = n.globalX * f, globalY = n.globalY * f,
+            width = n.width * f, height = n.height * f
+        )
+    },
+    graphLayoutsById = graphLayoutsById.mapValues { (_, g) ->
+        g.copy(
+            localOffsetX = g.localOffsetX * f, localOffsetY = g.localOffsetY * f,
+            globalOffsetX = g.globalOffsetX * f, globalOffsetY = g.globalOffsetY * f,
+            contentWidth = g.contentWidth * f, contentHeight = g.contentHeight * f,
+            centringX = g.centringX * f, shiftY = g.shiftY * f
+        )
+    },
+    edgeRoutesByEdgeId = edgeRoutesByEdgeId.mapValues { (_, route) -> route.map { it.scaledBy(f) } }
+)

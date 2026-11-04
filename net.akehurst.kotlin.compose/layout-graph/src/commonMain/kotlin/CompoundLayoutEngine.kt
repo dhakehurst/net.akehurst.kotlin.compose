@@ -9,6 +9,10 @@ import kotlin.math.sqrt
  * Configures recursive compound layout sizing defaults.
  *
  * Container child-origin/inset geometry is provided as Compose-measured metrics at layout call sites.
+ *
+ * Units: the engine works in dp. Every length it takes (sizes, hints, padding, spacing, measured
+ * metrics) and every position and length it returns is in dp. [CompoundGraphLayoutView] converts
+ * measured pixel sizes to dp before calling the engine and the result back to pixels.
  */
 data class CompoundLayoutConfig(
     val defaultNodeWidth: Double = 100.0,

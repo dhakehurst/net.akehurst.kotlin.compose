@@ -63,6 +63,7 @@ enum class EdgeContentPosition {
  * Symbol attached to an edge endpoint.
  *
  * [pathPoints] are expressed in symbol-local coordinates with the attachment point at `(0, 0)`.
+ * [pathPoints] and [strokeWidth] are in dp.
  * The symbol's forward direction is positive X; the view rotates it to align with the edge tangent.
  */
 data class GraphLayoutEdgeSymbol(
@@ -112,6 +113,7 @@ data class GraphLayoutCompoundGraph(
     var isCollapsed: Boolean = false
 )
 
+/** Padding of a container, in dp. */
 data class PaddingHint(
     val top: Double = 0.0,
     val right: Double = 0.0,
