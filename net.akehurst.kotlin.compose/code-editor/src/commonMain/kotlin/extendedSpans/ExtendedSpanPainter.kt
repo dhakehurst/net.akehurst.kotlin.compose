@@ -35,8 +35,13 @@ abstract class ExtendedSpanPainter {
         builder: AnnotatedString.Builder
     ): SpanStyle
 
+    /**
+     * @param stringAnnotations the string annotations added by [decorate]. A TextFieldBuffer cannot hold
+     * string annotations, so they do not reach [layoutResult] and are passed in separately.
+     */
     abstract fun drawInstructionsFor(
-        layoutResult: TextLayoutResult
+        layoutResult: TextLayoutResult,
+        stringAnnotations: List<AnnotatedString.Range<String>>
     ): SpanDrawInstructions
 
     /**

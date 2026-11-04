@@ -115,9 +115,9 @@ class SquigglyUnderlineSpanPainter(
 //        }
     }
 
-    override fun drawInstructionsFor(layoutResult: TextLayoutResult): SpanDrawInstructions {
-        val text = layoutResult.layoutInput.text
-        val annotations = text.getStringAnnotations(TAG, start = 0, end = text.length)
+    override fun drawInstructionsFor(layoutResult: TextLayoutResult, stringAnnotations: List<AnnotatedString.Range<String>>): SpanDrawInstructions {
+        val textLength = layoutResult.layoutInput.text.length
+        val annotations = stringAnnotations.filter { it.tag == TAG && it.start < it.end && it.end <= textLength }
 
         return SpanDrawInstructions {
             val pathStyle = Stroke(

@@ -39,6 +39,13 @@ class ExtendedSpans(
     internal var drawInstructions = emptyList<SpanDrawInstructions>()
 
     /**
+     * The string annotations (added by the painters' decorate) of the text that is being laid out.
+     * Set this before layout when the text goes through a TextFieldBuffer, because the buffer
+     * drops string annotations. When empty, the annotations of the laid out text are used.
+     */
+    var stringAnnotations = emptyList<AnnotatedString.Range<String>>()
+
+    /**
      * Prepares [text] to be rendered by [painters].
      *
      * [RoundedCornerSpanPainter] and [SquigglyUnderlineSpanPainter] use this for removing background
@@ -82,8 +89,12 @@ class ExtendedSpans(
 
     fun onTextLayout(layoutResult: TextLayoutResult) {
         //layoutResult.checkIfExtendWasCalled()
+        val annotations = stringAnnotations.ifEmpty {
+            val text = layoutResult.layoutInput.text
+            text.getStringAnnotations(start = 0, end = text.length)
+        }
         drawInstructions = painters.fastMap {
-            it.drawInstructionsFor(layoutResult)
+            it.drawInstructionsFor(layoutResult, annotations)
         }
     }
 
