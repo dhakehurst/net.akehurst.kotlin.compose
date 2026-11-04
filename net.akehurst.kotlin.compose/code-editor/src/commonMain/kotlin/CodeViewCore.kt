@@ -19,6 +19,8 @@ package net.akehurst.kotlin.compose.editor
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -70,8 +72,29 @@ internal class CodeViewCore(initialText: String) {
     val textMarkersState = TextMarkerState()
     val extendedSpans = ExtendedSpans(ComposeEditorUtils.STRAIGHT, ComposeEditorUtils.SQUIGGLY)
 
-    /** True when the text [position] is on one of the lines currently in view. */
-    fun isInView(position: Int): Boolean = position in viewFirstLineStartTextPosition..viewLastLineFinishTextPosition
+    /** True when any part of the text from [position] for [length] characters is on a line currently in view. */
+    fun isInView(position: Int, length: Int): Boolean =
+        position <= viewLastLineFinishTextPosition && position + length >= viewFirstLineStartTextPosition
+
+    /**
+     * Keeps [lastAnnotatedText] up to date: it is recomputed whenever the text, the lines in view,
+     * the line styles or the visible text markers change.
+     */
+    @Composable
+    fun KeepAnnotatedTextUpdated(textMarkersVisible: () -> List<TextMarkerDefault>) {
+        val textFieldState = inputTextFieldState.collectAsState()
+        LaunchedEffect(textFieldState) {
+            snapshotFlow {
+                ComposeEditorUtils.annotateText(
+                    rawText = textFieldState.value.text.toString(),
+                    viewFirstLine = viewFirstLine,
+                    viewLastLine = viewLastLine,
+                    lineTokens = lineStyles,
+                    markers = textMarkersVisible()
+                )
+            }.collect { lastAnnotatedText = it }
+        }
+    }
 
     @Composable
     fun collectViewerState(textMarkersVisible: List<TextMarkerDefault>): CodeViewerState = CodeViewerState(

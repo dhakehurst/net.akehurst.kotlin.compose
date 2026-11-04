@@ -49,6 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import me.saket.extendedspans.ExtendedSpans
 import me.saket.extendedspans.drawBehind
@@ -192,8 +193,8 @@ class CodeEditorStateHolder(
     )
 
     private val _textMarkersVisible by derivedStateOf {
-        val userMarkers = _core.textMarkersState.markers.filter { _core.isInView(it.position) }
-        val findMarkers = _findReplaceState.getMatchMarkers().filter { _core.isInView(it.position) }
+        val userMarkers = _core.textMarkersState.markers.filter { _core.isInView(it.position, it.length) }
+        val findMarkers = _findReplaceState.getMatchMarkers().filter { _core.isInView(it.position, it.length) }
         findMarkers + userMarkers
     }
 
@@ -384,9 +385,11 @@ class CodeEditorStateHolder(
     fun onInputScroll(i: ScrollState) = _core.onInputScroll()
 
     fun onInputTextLayout(textLayoutResult: TextLayoutResult) {
-        _autocompleteState.close()
         _core.onInputTextLayout(textLayoutResult)
     }
+
+    @Composable
+    internal fun KeepAnnotatedTextUpdated() = _core.KeepAnnotatedTextUpdated { _textMarkersVisible }
 
     fun cursorPos(): IntOffset {
         // update the drawn cursor position
@@ -532,17 +535,16 @@ fun CodeEditorView(
         if (findVisible) editorState._findReplaceState.updateMatches()
     }
 
-    // Asynchronously update lastAnnotatedText outside the layout pass ---
-    LaunchedEffect(state.viewerState.inputTextFieldState.value.text) {
-        val cleanText = state.viewerState.inputTextFieldState.value.text.toString()
-        val cleanAnnotatedString = ComposeEditorUtils.annotateText(
-            rawText = cleanText,
-            viewFirstLine = state.viewerState.viewFirstLine,
-            viewLastLine = state.viewerState.viewLastLine,
-            lineTokens = state.viewerState.lineTokens,
-            markers = state.viewerState.textMarkersVisible
-        )
-        editorState.lastAnnotatedText = cleanAnnotatedString
+    // update lastAnnotatedText outside the layout pass
+    editorState.KeepAnnotatedTextUpdated()
+
+    // close the autocomplete popup when the text or the cursor changes (not on every layout,
+    // which also happens when styles or markers change)
+    val textFieldState = state.viewerState.inputTextFieldState
+    LaunchedEffect(editorState, textFieldState) {
+        snapshotFlow { textFieldState.value.text.toString() to textFieldState.value.selection }
+            .drop(1)
+            .collect { editorState._autocompleteState.close() }
     }
 
 
