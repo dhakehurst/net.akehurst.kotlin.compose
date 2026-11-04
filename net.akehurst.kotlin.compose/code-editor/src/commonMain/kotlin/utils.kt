@@ -102,7 +102,9 @@ object ComposeEditorUtils {
         annotatedTextChange: (AnnotatedString) -> Unit
     ) {
         val rawText = buffer.asCharSequence()
-        if (rawText.isNotEmpty()) {
+        if (rawText.isEmpty()) {
+            viewerState.extendedSpans.stringAnnotations = emptyList()
+        } else {
             val annotatedText = if (ghostState?.show == true) {
                 val replaceWholeText = ghostState.replaceWholeText
                 val ghostTextStr = ghostState.ghostText
@@ -147,6 +149,8 @@ object ComposeEditorUtils {
             annotatedText.paragraphStyles.forEach { range ->
                 buffer.addStyle(range.item, range.start, range.end)
             }
+            // the buffer cannot hold string annotations, so pass the underline annotations to the painters directly
+            viewerState.extendedSpans.stringAnnotations = annotatedText.getStringAnnotations(0, annotatedText.length)
 
             //annotatedTextChange.invoke(annotatedText)
         }
@@ -179,7 +183,7 @@ object ComposeEditorUtils {
                     val offsetFinish = (marker.position + marker.length).coerceIn(0, rawText.length)
                     //println("Style at: ${offsetStart} .. ${offsetFinish}")
                     val ss = when (marker.decoration) {
-                        TextDecorationStyle.NONE -> null
+                        TextDecorationStyle.NONE -> marker.style
                         TextDecorationStyle.STRAIGHT -> STRAIGHT.decorate(marker.style, offsetStart, offsetFinish, builder = this)
                         TextDecorationStyle.SQUIGGLY -> SQUIGGLY.decorate(marker.style, offsetStart, offsetFinish, builder = this)
                     }
