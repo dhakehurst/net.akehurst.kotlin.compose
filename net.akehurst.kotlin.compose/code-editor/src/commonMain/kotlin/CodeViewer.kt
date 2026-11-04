@@ -67,11 +67,14 @@ class CodeViewerStateHolder(
         }
 
     private val _textMarkersVisible by derivedStateOf {
-        _core.textMarkersState.markers.filter { _core.isInView(it.position) }
+        _core.textMarkersState.markers.filter { _core.isInView(it.position, it.length) }
     }
 
     @Composable
     fun collectAsState(): CodeViewerState = _core.collectViewerState(_textMarkersVisible)
+
+    @Composable
+    internal fun KeepAnnotatedTextUpdated() = _core.KeepAnnotatedTextUpdated { _textMarkersVisible }
 
     @Composable
     fun collectVisibleMarginItemsAsState(viewFirstLine: Int, viewLastLine: Int, lineScrollOffset: Float, textLayoutResult: TextLayoutResult?): MarginItemListState =
@@ -148,6 +151,7 @@ fun CodeViewerView(
         )
     }
     val state: CodeViewerState = editorState.collectAsState()
+    editorState.KeepAnnotatedTextUpdated()
     val marginItemsState = editorState.collectVisibleMarginItemsAsState( //TODO: maybe pass the CodeEditorState !
         state.viewFirstLine,
         state.viewLastLine,
