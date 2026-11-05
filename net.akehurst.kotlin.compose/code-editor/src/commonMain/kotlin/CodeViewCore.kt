@@ -65,6 +65,15 @@ internal class CodeViewCore(initialText: String) {
         private set
     var lineScrollOffset by mutableStateOf(0f)
         private set
+
+    // viewFirstLine/viewLastLine count layout lines, which differ from text lines when lines wrap;
+    // line styles are keyed by text line (split on EOL), so they need these
+    var viewFirstTextLine by mutableStateOf(0)
+        private set
+    var viewLastTextLine by mutableStateOf(0)
+        private set
+    private var lastLayoutText: String? = null
+    private var lastLayoutLineMetrics: LineMetrics? = null
     private var viewFirstLineStartTextPosition by mutableStateOf(0)
     private var viewLastLineFinishTextPosition by mutableStateOf(0)
 
@@ -87,8 +96,8 @@ internal class CodeViewCore(initialText: String) {
             snapshotFlow {
                 ComposeEditorUtils.annotateText(
                     rawText = textFieldState.value.text.toString(),
-                    viewFirstLine = viewFirstLine,
-                    viewLastLine = viewLastLine,
+                    viewFirstLine = viewFirstTextLine,
+                    viewLastLine = viewLastTextLine,
                     lineTokens = lineStyles,
                     markers = textMarkersVisible()
                 )
@@ -104,6 +113,8 @@ internal class CodeViewCore(initialText: String) {
         lastTextLayoutResult = lastTextLayoutResult,
         viewFirstLine = viewFirstLine,
         viewLastLine = viewLastLine,
+        viewFirstTextLine = viewFirstTextLine,
+        viewLastTextLine = viewLastTextLine,
         lineScrollOffset = lineScrollOffset,
         lineTokens = lineStyles,
         textMarkersVisible = textMarkersVisible,
@@ -148,6 +159,21 @@ internal class CodeViewCore(initialText: String) {
         viewLastLineFinishTextPosition = textLayoutResult.getLineEnd(viewLastLine)
         val topOfFirstLine = textLayoutResult.getLineTop(viewFirstLine)
         lineScrollOffset = st - topOfFirstLine
+        val lineMetrics = lineMetricsFor(textLayoutResult.layoutInput.text.text)
+        viewFirstTextLine = lineMetrics.lineForPosition(viewFirstLineStartTextPosition)
+        viewLastTextLine = lineMetrics.lineForPosition(viewLastLineFinishTextPosition)
+    }
+
+    private fun lineMetricsFor(text: String): LineMetrics {
+        val cached = lastLayoutLineMetrics
+        return if (cached != null && text == lastLayoutText) {
+            cached
+        } else {
+            LineMetrics(text).also {
+                lastLayoutText = text
+                lastLayoutLineMetrics = it
+            }
+        }
     }
 
     fun setAllLineStyles(value: Map<Int, List<EditorSegmentStyle>>) {

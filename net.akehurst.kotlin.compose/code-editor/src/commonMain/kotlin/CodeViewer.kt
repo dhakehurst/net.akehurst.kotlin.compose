@@ -48,6 +48,10 @@ data class CodeViewerState(
     val lastTextLayoutResult: TextLayoutResult?,
     val viewFirstLine: Int,
     val viewLastLine: Int,
+    /** first text line (split on EOL) in view; differs from [viewFirstLine] when lines wrap */
+    val viewFirstTextLine: Int,
+    /** last text line (split on EOL) in view; differs from [viewLastLine] when lines wrap */
+    val viewLastTextLine: Int,
     val lineScrollOffset: Float,
     val lineTokens: Map<Int, List<EditorSegmentStyle>>,
     val textMarkersVisible: List<TextMarkerDefault>,
