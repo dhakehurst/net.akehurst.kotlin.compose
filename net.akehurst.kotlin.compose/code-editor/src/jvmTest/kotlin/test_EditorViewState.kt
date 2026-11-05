@@ -30,6 +30,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.dp
+import net.akehurst.kotlin.compose.editor.api.simple.EditorSegmentStyleSimple
 import net.akehurst.kotlin.compose.editor.api.TextDecorationStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -115,5 +116,42 @@ class test_EditorViewState {
         waitForIdle()
         val styled = state.annotatedText.spanStyles.filter { it.item.background == MARKER_COLOR }
         assertEquals(listOf(5 to 10), styled.map { it.start to it.end }, "annotatedText does not include the new marker")
+    }
+    @Test
+    fun line_styles_follow_wrapped_lines_when_scrolled() = runComposeUiTest {
+        // every line is long enough to wrap onto several rows of a narrow editor
+        val lines = (0 until 40).map { n -> "line $n " + "word ".repeat(30) }
+        val text = lines.joinToString("\n")
+        val state = CodeEditorStateHolder(initialText = text)
+        // colour the whole of the last line red, and nothing else
+        val last = lines.size - 1
+        state.lineStyles = mapOf(last to listOf(EditorSegmentStyleSimple(0, lines[last].length, SpanStyle(color = MARKER_COLOR))))
+        var scrollState: ScrollState? = null
+        var viewerState: net.akehurst.kotlin.compose.viewer.CodeViewerState? = null
+        setContent {
+            viewerState = state.collectAsState().viewerState
+            scrollState = viewerState!!.inputScrollState
+            Box(Modifier.size(300.dp, 200.dp).background(Color.White).testTag("editor")) {
+                CodeEditorView(editorState = state)
+            }
+        }
+        waitForIdle()
+        runOnUiThread { scrollState!!.dispatchRawDelta(scrollState!!.maxValue.toFloat()) }
+        waitForIdle()
+        assertTrue(scrollState!!.value > 0, "the editor did not scroll")
+        val layout = viewerState!!
+        assertTrue(layout.viewFirstLine > layout.viewFirstTextLine, "lines did not wrap, so the test does not check anything")
+
+        val lastStart = text.length - lines[last].length
+        val styled = state.annotatedText.spanStyles.filter { it.item.color == MARKER_COLOR }
+        assertEquals(listOf(lastStart to text.length), styled.map { it.start to it.end }, "the last line's style is not on the last line")
+
+        val pixels = onNodeWithTag("editor").captureToImage().toPixelMap()
+        var count = 0
+        for (x in 0 until pixels.width) for (y in 0 until pixels.height) {
+            val c = pixels[x, y]
+            if (c.red > 0.6f && c.green < 0.4f && c.blue < 0.4f) count++
+        }
+        assertTrue(count > 100, "expected the last line, which is in view, to be drawn red, found $count red pixels")
     }
 }

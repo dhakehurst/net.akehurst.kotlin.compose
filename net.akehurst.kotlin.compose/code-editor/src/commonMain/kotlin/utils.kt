@@ -120,8 +120,9 @@ object ComposeEditorUtils {
                 val actualGhostPosition = if (replaceWholeText) originalLength else ghostState.ghostPosition.coerceIn(0, originalLength)
                 annotateTextWithGhost(
                     rawText = rawText,
-                    viewFirstLine = viewerState.viewFirstLine,
-                    viewLastLine = viewerState.viewLastLine + ghostNewLines,
+                    // the view's text lines count the ghost text's lines, the line styles do not
+                    viewFirstLine = (viewerState.viewFirstTextLine - ghostNewLines).coerceAtLeast(0),
+                    viewLastLine = viewerState.viewLastTextLine,
                     lineTokens = viewerState.lineTokens,
                     markers = viewerState.textMarkersVisible,
                     ghostPosition = actualGhostPosition,
@@ -133,8 +134,8 @@ object ComposeEditorUtils {
             } else {
                 annotateText(
                     rawText = rawText,
-                    viewFirstLine = viewerState.viewFirstLine,
-                    viewLastLine = viewerState.viewLastLine,
+                    viewFirstLine = viewerState.viewFirstTextLine,
+                    viewLastLine = viewerState.viewLastTextLine,
                     lineTokens = viewerState.lineTokens,
                     markers = viewerState.textMarkersVisible
                 )
