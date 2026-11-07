@@ -91,8 +91,17 @@ data class GraphLayoutEdgeText(
 data class GraphLayoutEdgeContent(
     val startSymbol: GraphLayoutEdgeSymbol? = null,
     val endSymbol: GraphLayoutEdgeSymbol? = null,
-    val texts: List<GraphLayoutEdgeText> = emptyList()
-)
+    val texts: List<GraphLayoutEdgeText> = emptyList(),
+    /** Colour of the edge line. Null uses [CompoundGraphLayoutColors.edgeLine] of the view. */
+    val lineColor: Color? = null,
+    /** Width of the edge line, in dp. */
+    val lineWidth: Float = DEFAULT_LINE_WIDTH
+) {
+    companion object {
+        /** The line width the view has always used, in dp. */
+        const val DEFAULT_LINE_WIDTH = 2f
+    }
+}
 
 /**
  * Core compound graph structure consumed by the layout engine.
