@@ -29,6 +29,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
@@ -44,11 +45,78 @@ import kotlin.math.exp
 import androidx.compose.foundation.Canvas
 import kotlin.math.min
 
-// ── Error indicator defaults ────────────────────────────────────────────────
+// ── Colours ─────────────────────────────────────────────────────────────────
 
-private val errorRed = Color(0xFFD32F2F)
-private val errorRedBg = Color(0x22D32F2F)
-private val tessellationBorderColor = Color(0xFF3F7ACC)
+/**
+ * Colours used by [CompoundGraphLayoutView] for the things it draws itself.
+ * Node content and edge symbols/labels are drawn by the caller and keep their own colours.
+ *
+ * The defaults are the colours the view has always used, so a light theme looks as before.
+ */
+data class CompoundGraphLayoutColors(
+    /** Edge line colour, used when [GraphLayoutEdgeContent.lineColor] is null. */
+    val edgeLine: Color = Color(0xFF444444),
+    /** Text and border of the placeholder shown for a node or edge with no content. */
+    val error: Color = Color(0xFFD32F2F),
+    /** Background of the placeholder shown for a node or edge with no content. */
+    val errorBackground: Color = Color(0x22D32F2F),
+    /** Dividing lines between the regions of a tessellated container. */
+    val tessellationBorder: Color = Color(0xFF3F7ACC),
+    /** Debug overlay: marker at the start of each edge. */
+    val debugEdgeStart: Color = Color(0xFF2196F3),
+    /** Debug overlay: marker at the end of each edge. */
+    val debugEdgeEnd: Color = Color(0xFFD32F2F),
+    /** Debug overlay: outlines of the measured node bounds, used in turn. Must not be empty. */
+    val debugNodeBounds: List<Color> = listOf(
+        Color(0xB36200EE),
+        Color(0xB303DAC6),
+        Color(0xB3FF6D00),
+        Color(0xB32196F3),
+        Color(0xB3D32F2F),
+        Color(0xB34CAF50),
+    ),
+    /** Content-origin overlay: cross at the content origin of each container. */
+    val contentOrigin: Color = Color(0xFFD32F2F),
+) {
+    init {
+        require(debugNodeBounds.isNotEmpty()) { "debugNodeBounds must not be empty" }
+    }
+}
+
+/** Where [CompoundGraphLayoutView] puts the graph when it is first laid out. */
+enum class InitialViewPlacement {
+    /** The view state is left as given (by default the graph's top left corner is at the view's top left). */
+    AS_GIVEN,
+    /** Centred in the view, at zoom 1. */
+    CENTRE,
+    /** Zoomed out so the whole graph fits the view (never zoomed in beyond 1), and centred. */
+    FIT_AND_CENTRE
+}
+
+/**
+ * The view state that puts a graph of [graphWidth] x [graphHeight] in a view of [viewWidth] x [viewHeight]
+ * (all in pixels) as [placement] says, or null for [InitialViewPlacement.AS_GIVEN].
+ */
+internal fun initialViewState(
+    placement: InitialViewPlacement,
+    graphWidth: Float, graphHeight: Float,
+    viewWidth: Float, viewHeight: Float
+): GraphLayoutViewState? {
+    val zoom = when (placement) {
+        InitialViewPlacement.AS_GIVEN -> return null
+        InitialViewPlacement.CENTRE -> 1f
+        InitialViewPlacement.FIT_AND_CENTRE -> {
+            val fit = min(viewWidth / graphWidth.coerceAtLeast(1f), viewHeight / graphHeight.coerceAtLeast(1f))
+            fit.coerceIn(minViewZoom, 1f)
+        }
+    }
+    return GraphLayoutViewState(
+        zoom = zoom,
+        offset = Offset((viewWidth - graphWidth * zoom) / 2f, (viewHeight - graphHeight * zoom) / 2f)
+    )
+}
+
+private val LocalCompoundGraphLayoutColors = staticCompositionLocalOf { CompoundGraphLayoutColors() }
 
 /**
  * Shown when a node has no entry in [GraphLayoutCompoundGraphState.nodeContentById].
@@ -56,17 +124,18 @@ private val tessellationBorderColor = Color(0xFF3F7ACC)
  */
 @Composable
 private fun MissingNodeContent(nodeId: String) {
+    val colors = LocalCompoundGraphLayoutColors.current
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(errorRedBg)
-            .border(2.dp, errorRed)
+            .background(colors.errorBackground)
+            .border(2.dp, colors.error)
             .padding(4.dp)
     ) {
         Text(
             text = "⚠ no content\n$nodeId",
-            color = errorRed,
+            color = colors.error,
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center
         )
@@ -79,16 +148,17 @@ private fun MissingNodeContent(nodeId: String) {
  */
 @Composable
 private fun MissingEdgeContent(edgeId: String) {
+    val colors = LocalCompoundGraphLayoutColors.current
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .background(errorRedBg)
-            .border(1.dp, errorRed)
+            .background(colors.errorBackground)
+            .border(1.dp, colors.error)
             .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
         Text(
             text = "⚠ $edgeId",
-            color = errorRed,
+            color = colors.error,
             style = MaterialTheme.typography.labelSmall
         )
     }
@@ -225,6 +295,97 @@ private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContent
     }
 }
 /** @param distance how far START and END texts sit from the route end, in pixels */
+/** The point [distance] along [route] from its start, with the direction of the segment it is on. */
+internal fun pointAlongRoute(route: List<Pair<Double, Double>>, distance: Double): Pair<Pair<Double, Double>, Float> {
+    if (route.isEmpty()) return (0.0 to 0.0) to 0f
+    if (route.size == 1) return route.first() to 0f
+    var remaining = distance.coerceAtLeast(0.0)
+    for (i in 0 until route.lastIndex) {
+        val a = route[i]
+        val b = route[i + 1]
+        val dx = b.first - a.first
+        val dy = b.second - a.second
+        val len = sqrt(dx * dx + dy * dy)
+        if (remaining <= len || i == route.lastIndex - 1) {
+            val r = if (len <= 1e-9) 0.0 else (remaining / len).coerceIn(0.0, 1.0)
+            return (a.first + dx * r to a.second + dy * r) to atan2(dy.toFloat(), dx.toFloat())
+        }
+        remaining -= len
+    }
+    return route.last() to 0f
+}
+
+private fun routeLength(route: List<Pair<Double, Double>>): Double = route.zipWithNext { a, b ->
+    val dx = b.first - a.first
+    val dy = b.second - a.second
+    sqrt(dx * dx + dy * dy)
+}.sum()
+
+/** An edge label to place: its route, where on the route it goes, its size, and its usual centre. */
+internal data class EdgeLabelToPlace(
+    val route: List<Pair<Double, Double>>,
+    val position: EdgeContentPosition,
+    val width: Float,
+    val height: Float,
+    val defaultCentre: Offset
+)
+
+/**
+ * Centres for edge labels, in the coordinates of the routes.
+ *
+ * Each label goes at its usual centre unless that overlaps a label placed before it. Then it slides along
+ * its own route, in steps of [step], to the nearest centre where it overlaps neither a placed label nor one
+ * of [obstacles] (the nodes). If there is no such place it keeps its usual centre.
+ * With [avoidOverlap] false every label keeps its usual centre.
+ */
+internal fun placeEdgeLabels(
+    labels: List<EdgeLabelToPlace>,
+    obstacles: List<Rect>,
+    step: Float,
+    edgeTextDistance: Float,
+    avoidOverlap: Boolean
+): List<Offset> {
+    if (!avoidOverlap) return labels.map { it.defaultCentre }
+    val placed = mutableListOf<Rect>()
+    fun box(centre: Offset, l: EdgeLabelToPlace) =
+        Rect(centre.x - l.width / 2f, centre.y - l.height / 2f, centre.x + l.width / 2f, centre.y + l.height / 2f)
+    // Touching edges are not an overlap.
+    fun Rect.hits(o: Rect) = left < o.right - 0.5f && o.left < right - 0.5f && top < o.bottom - 0.5f && o.top < bottom - 0.5f
+    return labels.map { l ->
+        val default = box(l.defaultCentre, l)
+        val centre = if (placed.none { it.hits(default) }) {
+            l.defaultCentre
+        } else {
+            val length = routeLength(l.route)
+            val d0 = when (l.position) {
+                EdgeContentPosition.START -> min(edgeTextDistance.toDouble(), length)
+                EdgeContentPosition.MIDDLE -> length / 2.0
+                EdgeContentPosition.END -> max(length - edgeTextDistance, 0.0)
+            }
+            val safeStep = step.coerceAtLeast(1f).toDouble()
+            val maxK = (length / safeStep).toInt() + 1
+            var found: Offset? = null
+            for (k in 1..maxK) {
+                for (sign in intArrayOf(1, -1)) {
+                    val d = d0 + sign * k * safeStep
+                    if (d < 0.0 || d > length) continue
+                    val (p, _) = pointAlongRoute(l.route, d)
+                    val c = Offset(p.first.toFloat(), p.second.toFloat())
+                    val b = box(c, l)
+                    if (placed.none { it.hits(b) } && obstacles.none { it.hits(b) }) {
+                        found = c
+                        break
+                    }
+                }
+                if (found != null) break
+            }
+            found ?: l.defaultCentre
+        }
+        placed += box(centre, l)
+        centre
+    }
+}
+
 private fun edgeTextOffset(position: EdgeContentPosition, angleRadians: Float, distance: Float): Offset {
     return when (position) {
         EdgeContentPosition.START -> Offset(
@@ -642,6 +803,36 @@ fun CompoundGraphLayoutView(
      * Use this to invalidate the cached layout after toggling collapse state.
      */
     layoutKey: Any = Unit,
+    /** Colours for the edge lines, placeholders and overlays the view draws itself. */
+    colors: CompoundGraphLayoutColors = CompoundGraphLayoutColors(),
+    /**
+     * Where to put the graph when it is first laid out. Other than [InitialViewPlacement.AS_GIVEN],
+     * the view calls [updateView] once the graph is measured, and again while measurement changes the
+     * layout, until the user pans or zooms. It is done again for a new [state] id.
+     */
+    initialView: InitialViewPlacement = InitialViewPlacement.AS_GIVEN,
+    /**
+     * When true, an edge label that would overlap another edge label slides along its own edge to the
+     * nearest place where it overlaps no other label and no node. Labels that do not overlap stay put.
+     */
+    avoidLabelOverlap: Boolean = true,
+) {
+    CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun CompoundGraphLayoutViewContent(
+    state: GraphLayoutCompoundGraphState,
+    viewState: GraphLayoutViewState,
+    updateView: (offset: Offset, zoom: Float) -> Unit,
+    modifier: Modifier,
+    layoutKey: Any,
+    colors: CompoundGraphLayoutColors,
+    initialView: InitialViewPlacement,
+    avoidLabelOverlap: Boolean,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -755,6 +946,24 @@ fun CompoundGraphLayoutView(
 
     val stateForGestures by rememberUpdatedState(viewState)
 
+    // Initial placement: follows the layout until the user moves the view.
+    // The gesture handlers are not restarted for a new state, so they record which graph was moved.
+    var movedStateId by remember { mutableStateOf<String?>(null) }
+    val currentStateId by rememberUpdatedState(state.id)
+    val userMovedView = movedStateId == state.id
+    var viewportSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val currentUpdateView by rememberUpdatedState(updateView)
+    val graphWidth = (maxX - minX).toFloat()
+    val graphHeight = (maxY - minY).toFloat()
+    LaunchedEffect(state.id, initialView, layoutResult, viewportSize, userMovedView) {
+        if (userMovedView || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
+        val placed = initialViewState(
+            initialView, graphWidth, graphHeight,
+            viewportSize.width.toFloat(), viewportSize.height.toFloat()
+        ) ?: return@LaunchedEffect
+        if (placed != stateForGestures) currentUpdateView(placed.offset, placed.zoom)
+    }
+
     val edgeContentById = state.edgeContentById.toMap()
     val edgeTextPlacements = sortedEdgeIds.flatMap { edgeId ->
         val content = edgeContentById[edgeId]
@@ -770,6 +979,7 @@ fun CompoundGraphLayoutView(
     Box(
         modifier = modifier
             .clip(RectangleShape)
+            .onSizeChanged { viewportSize = it }
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val sg = stateForGestures
@@ -780,6 +990,7 @@ fun CompoundGraphLayoutView(
                         zoomChange = zoom
                     )
                     if (next != sg) {
+                        movedStateId = currentStateId
                         updateView(next.offset, next.zoom)
                     }
                 }
@@ -800,6 +1011,7 @@ fun CompoundGraphLayoutView(
                                 targetZoom = stateForGestures.zoom * scale
                             )
                             if (next != stateForGestures) {
+                                movedStateId = currentStateId
                                 updateView(next.offset, next.zoom)
                             }
                         }
@@ -890,7 +1102,7 @@ fun CompoundGraphLayoutView(
                             xDividers.forEach { x ->
                                 val px = (x + globalToViewportOffsetX).toFloat()
                                 drawLine(
-                                    color = tessellationBorderColor,
+                                    color = colors.tessellationBorder,
                                     start = Offset(px, (minGraphY + globalToViewportOffsetY).toFloat()),
                                     end = Offset(px, (maxGraphY + globalToViewportOffsetY).toFloat()),
                                     strokeWidth = 1.5.dp.toPx()
@@ -899,7 +1111,7 @@ fun CompoundGraphLayoutView(
                             yDividers.forEach { y ->
                                 val py = (y + globalToViewportOffsetY).toFloat()
                                 drawLine(
-                                    color = tessellationBorderColor,
+                                    color = colors.tessellationBorder,
                                     start = Offset((minGraphX + globalToViewportOffsetX).toFloat(), py),
                                     end = Offset((maxGraphX + globalToViewportOffsetX).toFloat(), py),
                                     strokeWidth = 1.5.dp.toPx()
@@ -979,6 +1191,7 @@ fun CompoundGraphLayoutView(
                             route
                         }
 
+                        val edgeContent = edgeContentById[edgeId]
                         if (drawRoute.size >= 2) {
                             drawPath(
                                 path = Path().apply {
@@ -988,26 +1201,23 @@ fun CompoundGraphLayoutView(
                                         if (0 == index) moveTo(x, y) else lineTo(x, y)
                                     }
                                 },
-                                color = Color(0xFF444444),
-                                style = Stroke(width = 2.dp.toPx())
+                                color = edgeContent?.lineColor ?: colors.edgeLine,
+                                style = Stroke(width = (edgeContent?.lineWidth ?: GraphLayoutEdgeContent.DEFAULT_LINE_WIDTH).dp.toPx())
                             )
                         }
 
                         // Draw debug endpoint circles if enabled
                         if (state.showDebugOverlay.value && drawRoute.size >= 2) {
-                            val debugBlue = Color(0xFF2196F3)
-                            val debugRed = Color(0xFFD32F2F)
                             // Draw circle at start endpoint
                             val startX = (drawRoute[0].first + globalToViewportOffsetX).toFloat()
                             val startY = (drawRoute[0].second + globalToViewportOffsetY).toFloat()
-                            drawCircle(color = debugBlue, radius = 4.dp.toPx(), center = Offset(startX, startY))
+                            drawCircle(color = colors.debugEdgeStart, radius = 4.dp.toPx(), center = Offset(startX, startY))
                             // Draw circle at end endpoint
                             val endX = (drawRoute[drawRoute.lastIndex].first + globalToViewportOffsetX).toFloat()
                             val endY = (drawRoute[drawRoute.lastIndex].second + globalToViewportOffsetY).toFloat()
-                            drawCircle(color = debugRed, radius = 4.dp.toPx(), center = Offset(endX, endY))
+                            drawCircle(color = colors.debugEdgeEnd, radius = 4.dp.toPx(), center = Offset(endX, endY))
                         }
 
-                        val edgeContent = edgeContentById[edgeId]
                         if (edgeContent != null) {
                             edgeContent.startSymbol?.let { symbol ->
                                 drawEdgeSymbol(
@@ -1047,13 +1257,13 @@ fun CompoundGraphLayoutView(
                                 val oy = (origin.second + globalToViewportOffsetY).toFloat()
                                 val r = 6.dp.toPx()
                                 drawLine(
-                                    color = Color(0xFFD32F2F),
+                                    color = colors.contentOrigin,
                                     start = Offset(ox - r, oy),
                                     end = Offset(ox + r, oy),
                                     strokeWidth = 1.5.dp.toPx()
                                 )
                                 drawLine(
-                                    color = Color(0xFFD32F2F),
+                                    color = colors.contentOrigin,
                                     start = Offset(ox, oy - r),
                                     end = Offset(ox, oy + r),
                                     strokeWidth = 1.5.dp.toPx()
@@ -1063,14 +1273,7 @@ fun CompoundGraphLayoutView(
 
                         if (state.showDebugOverlay.value) {
                             // ── DEBUG: Draw measured node bounds ────────────────────────
-                            val debugColors = listOf(
-                                Color(0xB36200EE),
-                                Color(0xB303DAC6),
-                                Color(0xB3FF6D00),
-                                Color(0xB32196F3),
-                                Color(0xB3D32F2F),
-                                Color(0xB34CAF50),
-                            )
+                            val debugColors = colors.debugNodeBounds
                             nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
                                 val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
                                 val color = debugColors[index % debugColors.size]
@@ -1114,13 +1317,31 @@ fun CompoundGraphLayoutView(
                         val placeables = measurables.map { m ->
                             m.measure(Constraints(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0, maxHeight = Constraints.Infinity))
                         }
+                        val edgeTextDistance = 18.dp.toPx()
+                        val labels = edgeTextPlacements.mapIndexed { index, placement ->
+                            val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
+                            val anchor = routeAnchor(route, placement.position)
+                            val textOffset = edgeTextOffset(placement.position, anchor.angleRadians, edgeTextDistance)
+                            EdgeLabelToPlace(
+                                route = route,
+                                position = placement.position,
+                                width = placeables[index].width.toFloat(),
+                                height = placeables[index].height.toFloat(),
+                                defaultCentre = Offset(
+                                    anchor.point.first.toFloat() + textOffset.x,
+                                    anchor.point.second.toFloat() + textOffset.y
+                                )
+                            )
+                        }
+                        val nodeRects = layoutResult.nodeLayoutsById.values
+                            .filter { !it.isContainer }
+                            .sortedBy { it.nodeId }
+                            .map { Rect(it.globalX.toFloat(), it.globalY.toFloat(), (it.globalX + it.width).toFloat(), (it.globalY + it.height).toFloat()) }
+                        val centres = placeEdgeLabels(labels, nodeRects, 4.dp.toPx(), edgeTextDistance, avoidLabelOverlap)
                         layout(viewportWidth, viewportHeight) {
-                            edgeTextPlacements.forEachIndexed { index, placement ->
-                                val route = layoutResult.edgeRoutesByEdgeId[placement.edgeId].orEmpty()
-                                val anchor = routeAnchor(route, placement.position)
-                                val textOffset = edgeTextOffset(placement.position, anchor.angleRadians, 18.dp.toPx())
-                                val anchorX = (anchor.point.first + globalToViewportOffsetX).toFloat() + textOffset.x
-                                val anchorY = (anchor.point.second + globalToViewportOffsetY).toFloat() + textOffset.y
+                            centres.forEachIndexed { index, centre ->
+                                val anchorX = centre.x + globalToViewportOffsetX.toFloat()
+                                val anchorY = centre.y + globalToViewportOffsetY.toFloat()
                                 placeables[index].placeRelative(
                                     x = (anchorX - (placeables[index].width / 2f)).roundToInt(),
                                     y = (anchorY - (placeables[index].height / 2f)).roundToInt()

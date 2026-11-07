@@ -329,9 +329,25 @@ data class GraphLayoutEdgeText(
 data class GraphLayoutEdgeContent(
     val startSymbol: GraphLayoutEdgeSymbol? = null,
     val endSymbol: GraphLayoutEdgeSymbol? = null,
-    val texts: List<GraphLayoutEdgeText> = emptyList()
+    val texts: List<GraphLayoutEdgeText> = emptyList(),
+    val lineColor: Color? = null,   // null: CompoundGraphLayoutColors.edgeLine of the view
+    val lineWidth: Float = 2f       // dp
 )
 ```
+
+View options of `CompoundGraphLayoutView` (all default to the earlier look and behaviour):
+
+- `colors: CompoundGraphLayoutColors` — the colours the view draws itself: default edge line colour,
+  missing-content placeholders (`error`, `errorBackground`), tessellation dividers, and the debug and
+  content-origin overlays. Pass colours from the app theme to match light and dark themes.
+- `initialView: InitialViewPlacement` — `AS_GIVEN` (default: the view state is left as passed in),
+  `CENTRE` (zoom 1, centred), or `FIT_AND_CENTRE` (zoomed out so the graph fits, never zoomed in beyond 1,
+  and not below the view's minimum zoom of 0.5, then centred). The view calls `updateView` with the placement
+  until the user pans or zooms.
+- `avoidLabelOverlap: Boolean = true` — an edge label that would overlap an earlier edge label slides along
+  its own edge to the nearest place where it overlaps no label and no leaf node. Labels that do not overlap
+  are not moved. The layout does not reserve space for labels, so in a tight layout a moved label can still
+  cover part of another edge's line.
 
 This mirrors the pattern of the earlier flat-state API while extending it so both node visuals and edge visuals are externally supplied and remain stable across recomputations. The algorithm receives only `root: GraphLayoutCompoundGraph`; the renderer looks up node composables and edge rendering entries by the same stable IDs present in the layout result and applies them to the computed node bounds and edge routes. This keeps the boundary clean without preventing the library from being used as a Compose layout engine.
 
