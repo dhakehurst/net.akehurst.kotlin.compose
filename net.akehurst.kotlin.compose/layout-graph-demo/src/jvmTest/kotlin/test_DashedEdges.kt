@@ -110,8 +110,10 @@ class test_DashedEdges {
         val solidLine = pixels(solid.img, lineColour)
         val dashedLine = pixels(dashed.img, lineColour)
         assertTrue(dashedLine.isNotEmpty(), "$routing: no $name line drawn")
-        // Same geometry: every dash lies on the solid line.
-        val offLine = dashedLine - solidLine
+        // Same geometry: every dash lies on the solid line. On a slanted line the dash ends are anti-aliased
+        // differently, so the solid render only has to be drawn there, not in exactly the line colour.
+        val background = Color.Black.toArgb()
+        val offLine = dashedLine.filter { (x, y) -> solid.img.getRGB(x, y) == background }
         assertTrue(offLine.isEmpty(), "$routing: ${offLine.size} $name pixels are not on the solid route, e.g. ${offLine.take(5)}")
         // It has gaps.
         assertTrue(dashedLine.size < solidLine.size * 0.85, "$routing: $name line has no gaps (${dashedLine.size} of ${solidLine.size} pixels)")
