@@ -95,7 +95,14 @@ data class GraphLayoutEdgeContent(
     /** Colour of the edge line. Null uses [CompoundGraphLayoutColors.edgeLine] of the view. */
     val lineColor: Color? = null,
     /** Width of the edge line, in dp. */
-    val lineWidth: Float = DEFAULT_LINE_WIDTH
+    val lineWidth: Float = DEFAULT_LINE_WIDTH,
+    /**
+     * Dash pattern of the edge line, in dp: on, off, on, off, ...
+     * For example `listOf(6f, 4f)` for dashed or `listOf(1.5f, 3f)` for dotted.
+     * The pattern runs along the whole route, bends included. Start and end symbols stay solid.
+     * Null draws a solid line.
+     */
+    val lineDash: List<Float>? = null
 ) {
     companion object {
         /** The line width the view has always used, in dp. */

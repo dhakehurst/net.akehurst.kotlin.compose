@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -1202,7 +1203,12 @@ private fun CompoundGraphLayoutViewContent(
                                     }
                                 },
                                 color = edgeContent?.lineColor ?: colors.edgeLine,
-                                style = Stroke(width = (edgeContent?.lineWidth ?: GraphLayoutEdgeContent.DEFAULT_LINE_WIDTH).dp.toPx())
+                                style = Stroke(
+                                    width = (edgeContent?.lineWidth ?: GraphLayoutEdgeContent.DEFAULT_LINE_WIDTH).dp.toPx(),
+                                    pathEffect = edgeContent?.lineDash?.let { dash ->
+                                        PathEffect.dashPathEffect(FloatArray(dash.size) { dash[it].dp.toPx() }, phase = 0f)
+                                    }
+                                )
                             )
                         }
 
