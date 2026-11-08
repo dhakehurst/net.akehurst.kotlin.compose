@@ -35,6 +35,9 @@ kotlin {
     js {
         binaries.executable()
     }
+    wasmJs {
+        binaries.executable()
+    }
     sourceSets {
         commonMain {
             dependencies {
@@ -46,4 +49,8 @@ kotlin {
             }
         }
     }
+}
+// Fix implicit task dependency for Gradle 9 strict validation
+tasks.named("jsBrowserProductionWebpack") {
+    dependsOn("jsProductionLibraryCompileSync")
 }
