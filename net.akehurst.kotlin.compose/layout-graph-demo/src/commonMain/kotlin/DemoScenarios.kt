@@ -43,6 +43,7 @@ object DemoScenarios {
 
     private val umlFill = Color.White
     private val umlStroke = Color.Black
+    private val umlAccent = Color(0xFF1E88E5)
     private val umlPadding = 5.dp
     private const val compoundStateCornerRadiusDp = 12
 
@@ -472,6 +473,50 @@ object DemoScenarios {
         )
     )
 
+    /**
+     * Dashed and dotted edge lines. Like EDITH's types class diagram, the association created by a
+     * composition connection is dashed in an accent colour; a dependency is dotted.
+     */
+    val dashedAndDottedEdges = DemoScenario(
+        id = "dashed_and_dotted_edges",
+        title = "Dashed and dotted edges",
+        nodes = listOf(
+            DemoNode("Vehicle", content = { Class("Vehicle") }),
+            DemoNode("Engine", content = { Class("Engine") }),
+            DemoNode("Wheel", content = { Class("Wheel") }),
+            DemoNode("Fuel", content = { Class("Fuel") })
+        ),
+        edges = listOf(
+            DemoEdge(
+                "e_dash_engine", "Vehicle", "Engine",
+                content = GraphLayoutEdgeContent(
+                    endSymbol = arrowHead(umlAccent),
+                    texts = listOf(edgeLabel("engine")),
+                    lineColor = umlAccent,
+                    lineDash = listOf(6f, 4f)
+                )
+            ),
+            DemoEdge(
+                "e_dash_wheels", "Vehicle", "Wheel",
+                content = GraphLayoutEdgeContent(
+                    endSymbol = arrowHead(umlAccent),
+                    texts = listOf(edgeLabel("wheels")),
+                    lineColor = umlAccent,
+                    lineDash = listOf(6f, 4f)
+                )
+            ),
+            DemoEdge(
+                "e_dot_fuel", "Engine", "Fuel",
+                content = GraphLayoutEdgeContent(
+                    endSymbol = arrowHead(umlStroke),
+                    texts = listOf(edgeLabel("uses")),
+                    lineDash = listOf(1.5f, 3f)
+                )
+            ),
+            DemoEdge("e_solid_wheel_fuel", "Wheel", "Fuel", content = labelledEdge("solid"))
+        )
+    )
+
     val all: List<DemoScenario> = listOf(
         flatChain,
         singleContainerTwoNodes,
@@ -489,7 +534,8 @@ object DemoScenarios {
         umlDeploymentDiagram,
         umlClassPackageCrossingRelations,
         borderPlacedNodes,
-        portsWithPorts
+        portsWithPorts,
+        dashedAndDottedEdges
     )
 
     /**
