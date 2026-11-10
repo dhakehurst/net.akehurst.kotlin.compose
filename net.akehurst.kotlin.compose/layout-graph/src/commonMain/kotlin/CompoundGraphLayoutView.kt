@@ -1023,9 +1023,6 @@ private fun CompoundGraphLayoutViewContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .onGloballyPositioned { coordinates ->
-                    graphLayerCoordinates = coordinates
-                }
                 .graphicsLayer(
                     translationX = viewState.offset.x,
                     translationY = viewState.offset.y,
@@ -1035,10 +1032,16 @@ private fun CompoundGraphLayoutViewContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer(
-                    transformOrigin = TransformOrigin(0f, 0f),
-                    scaleX = viewState.zoom,
-                    scaleY = viewState.zoom,
-                )
+                        transformOrigin = TransformOrigin(0f, 0f),
+                        scaleX = viewState.zoom,
+                        scaleY = viewState.zoom,
+                    )
+                    // Taken inside the pan and zoom layers, so node bounds measured against it are in the
+                    // same space the edge canvas draws in. Outside them, the view offset and zoom would be
+                    // applied to DIRECT edge ends twice.
+                    .onGloballyPositioned { coordinates ->
+                        graphLayerCoordinates = coordinates
+                    }
             ) {
                 // ── Layer 1: Node content (recursive) ───────────────────────────
                 // Container composables receive their children as a composable argument,
