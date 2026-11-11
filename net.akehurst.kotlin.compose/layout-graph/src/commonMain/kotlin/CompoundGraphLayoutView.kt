@@ -170,7 +170,7 @@ private fun EdgeTextBubble(text: GraphLayoutEdgeText) {
     text.content()
 }
 
-private data class EdgeAnchor(
+internal data class EdgeAnchor(
     val point: Pair<Double, Double>,
     val angleRadians: Float
 )
@@ -250,7 +250,7 @@ private fun nodeBoundsInLayer(
     return graphLayerCoordinates.localBoundingBoxOf(nodeCoordinates, clipBounds = false)
 }
 
-private fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContentPosition): EdgeAnchor {
+internal fun routeAnchor(route: List<Pair<Double, Double>>, position: EdgeContentPosition): EdgeAnchor {
     if (route.isEmpty()) return EdgeAnchor(0.0 to 0.0, 0f)
     if (route.size == 1) return EdgeAnchor(route.first(), 0f)
 
@@ -476,7 +476,7 @@ private fun rectExitPoint(
     return (center.first + tExit * dx) to (center.second + tExit * dy)
 }
 
-private fun drawEdgeSymbol(
+internal fun drawEdgeSymbol(
     symbol: GraphLayoutEdgeSymbol,
     anchor: EdgeAnchor,
     globalToViewportOffsetX: Double,
