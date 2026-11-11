@@ -12,7 +12,7 @@ A selection of Kotlin Multiplatform Compose components, for JVM (desktop), JS an
 | `code-editor` | DSL code editor and read-only code viewer, with autocomplete and find/replace |
 | `components` | Splitter, Table, Tree, Vertical Tabs, Combo, Titled Box, Text Input dialog, alert dialog with issues, mutable state-flow holders |
 | `layout-multipane` | Multipane layout: tabbed panes in nested splits, with drag-and-drop between panes |
-| `layout-graph` | Graph layout: Sugiyama layout and compound (nested) graph layout with a pluggable child layout algorithm |
+| `layout-graph` | Graph layout: Sugiyama layout and compound (nested) graph layout with a pluggable child layout algorithm. Also ladder diagrams (package `...layout.ladder`): rails, rungs, bars and groups, for sequence-diagram-like pictures |
 
 These modules are demos only and are not published: `code-editor-demo-js` and `layout-graph-demo`.
 
@@ -38,7 +38,7 @@ The JVM window demos live in each module's `src/jvmDemo` source set and run with
 ./gradlew :components:runTableViewDemo
 ./gradlew :components:runTreeViewDemo
 ./gradlew :layout-multipane:runMultiPaneLayoutDemo
-./gradlew :layout-graph-demo:run                     # compound graph layout scenarios
+./gradlew :layout-graph-demo:run                     # compound graph layout and ladder scenarios
 ./gradlew :code-editor-demo-js:jsBrowserDevelopmentRun   # code editor in the browser, then open the printed URL
 ```
 

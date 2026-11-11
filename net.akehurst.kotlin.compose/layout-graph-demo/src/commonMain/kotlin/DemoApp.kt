@@ -30,13 +30,17 @@ import net.akehurst.kotlin.compose.layout.graph.GraphLayoutCompoundGraphState
 import net.akehurst.kotlin.compose.layout.graph.GraphLayoutViewState
 import net.akehurst.kotlin.compose.layout.graph.collapsibleChildGraphs
 import net.akehurst.kotlin.compose.layout.graph.toggleCollapsed
+import net.akehurst.kotlin.compose.layout.graph.InitialViewPlacement
+import net.akehurst.kotlin.compose.layout.ladder.LadderLayoutView
 
 @Composable
 fun DemoApp() {
     val scenarios = DemoScenarios.all
     var selectedScenarioId by remember { mutableStateOf(scenarios.first().id) }
     var overlay by remember { mutableStateOf(DebugOverlaySettings()) }
+    var selectedLadderId by remember { mutableStateOf<String?>(null) }
     val selectedScenario = scenarios.first { it.id == selectedScenarioId }
+    val selectedLadder = LadderDemoScenarios.all.firstOrNull { it.id == selectedLadderId }
 
     // Compound state lives here so the sidebar can toggle collapse on it.
     val compoundState = remember(selectedScenarioId) { selectedScenario.toCompoundGraphState() }
@@ -60,8 +64,19 @@ fun DemoApp() {
             scenarios.forEach { scenario ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
-                        selected = selectedScenarioId == scenario.id,
-                        onClick = { selectedScenarioId = scenario.id }
+                        selected = selectedLadder == null && selectedScenarioId == scenario.id,
+                        onClick = { selectedScenarioId = scenario.id; selectedLadderId = null }
+                    )
+                    Text(scenario.title)
+                }
+            }
+
+            Text("Ladder", style = MaterialTheme.typography.titleMedium)
+            LadderDemoScenarios.all.forEach { scenario ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = selectedLadderId == scenario.id,
+                        onClick = { selectedLadderId = scenario.id }
                     )
                     Text(scenario.title)
                 }
@@ -104,7 +119,9 @@ fun DemoApp() {
                 .border(width = 1.dp, color = Color(0xFFD8D8D8))
                 .padding(8.dp)
         ) {
-            LiveLayoutCanvas(
+            if (selectedLadder != null) {
+                LiveLadderCanvas(selectedLadder)
+            } else LiveLayoutCanvas(
                 title = selectedScenario.title,
                 scenarioId = selectedScenario.id,
                 compoundState = compoundState,
@@ -155,6 +172,31 @@ private fun LiveLayoutCanvas(
                 viewState = GraphLayoutViewState(zoom = zoom, offset = offset)
             },
             modifier = Modifier.weight(1f).fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun LiveLadderCanvas(scenario: LadderDemoScenario) {
+    val state = remember(scenario.id) { scenario.toState() }
+    var viewState by remember(scenario.id) { mutableStateOf(GraphLayoutViewState()) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = scenario.title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        Text(
+            text = "id=${scenario.id}  mode=ladder",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        LadderLayoutView(
+            state = state,
+            viewState = viewState,
+            updateView = { offset: Offset, zoom: Float -> viewState = GraphLayoutViewState(zoom = zoom, offset = offset) },
+            modifier = Modifier.weight(1f).fillMaxSize(),
+            initialView = InitialViewPlacement.CENTRE
         )
     }
 }
