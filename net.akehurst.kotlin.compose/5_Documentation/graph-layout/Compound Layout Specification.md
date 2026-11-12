@@ -168,7 +168,7 @@ data class GraphLayoutCompoundNode(
   1. `widthHint`/`heightHint` if provided — first-pass fixed size.
   2. `CompoundLayoutConfig.defaultNodeWidth` / `defaultNodeHeight` — when no hint is provided.
   3. Compose-measured size — triggers an automatic re-layout pass once the node composable is measured (see §5.9.1).
-- **Container node size** is computed from child bounds inflated by Compose-measured child-host insets (`ContainerChildHostMetrics`). `widthHint`/`heightHint` on a container act as a lower-bound floor: `size = max(hint ?: defaultSize, childContentSize + measuredInsets)`.
+- **Container node size** is computed from child bounds inflated by Compose-measured child-host insets (`ContainerChildHostMetrics`). The container's own content is measured like a leaf's (what it draws, not counting its children; the children host has no intrinsic size), with `widthHint`/`heightHint` as minimums: `size = max(measuredContent ?: hint ?: defaultSize, hint, childContentSize + measuredInsets)`. A collapsed container is therefore as large as what it draws, and an expanded one is at least that size.
 - `widthHint` and `heightHint` are always optional. Callers that omit them receive the engine default on the first layout pass.
 
 ```kotlin
