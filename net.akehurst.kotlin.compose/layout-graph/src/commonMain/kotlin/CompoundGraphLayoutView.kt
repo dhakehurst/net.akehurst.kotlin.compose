@@ -27,7 +27,12 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -521,17 +526,16 @@ private fun composeLayout(
     childNodes: List<CompoundNodeLayout>,
     contentOriginX: Double,
     contentOriginY: Double,
-    onLeafMeasured: (String, Pair<Double, Double>) -> Unit
+    onContentMeasured: (String, Pair<Double, Double>) -> Unit
 ): MeasurePolicy = MeasurePolicy { measurables, constraints ->
     // println("composeLayout: $nodeId")
     val placeables = childNodes.mapIndexed { i, childNode ->
         val measurable = measurables[i]
-        if (!childNode.isContainer) {
-            // The content's own size, reported so the next layout pass can size the node to fit it.
-            val naturalWidth = measurable.maxIntrinsicWidth(Constraints.Infinity)
-            val naturalHeight = measurable.maxIntrinsicHeight(naturalWidth)
-            onLeafMeasured(childNode.nodeId, naturalWidth.toDouble() to naturalHeight.toDouble())
-        }
+        // The content's own size, reported so the next layout pass can size the node to fit it.
+        // For a container this leaves out its children: the children host has no intrinsic size.
+        val naturalWidth = measurable.maxIntrinsicWidth(Constraints.Infinity)
+        val naturalHeight = measurable.maxIntrinsicHeight(naturalWidth)
+        onContentMeasured(childNode.nodeId, naturalWidth.toDouble() to naturalHeight.toDouble())
         // maxIntrinsicWidth takes the available height, and maxIntrinsicHeight the chosen width.
         val width = max(measurable.maxIntrinsicWidth(childNode.height.roundToInt()), childNode.width.roundToInt())
         val height = max(measurable.maxIntrinsicHeight(width), childNode.height.roundToInt())
@@ -566,6 +570,21 @@ private fun composeLayout(
 }
 
 /**
+ * Measures and places like [policy], but has no intrinsic size. Used for a container's children host,
+ * so the intrinsic size of a container's content is the size of what the content itself draws,
+ * not of its children (whose size comes from the layout).
+ */
+private fun withoutIntrinsicSize(policy: MeasurePolicy): MeasurePolicy = object : MeasurePolicy {
+    override fun MeasureScope.measure(measurables: List<Measurable>, constraints: Constraints): MeasureResult =
+        with(policy) { measure(measurables, constraints) }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int = 0
+    override fun IntrinsicMeasureScope.maxIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int = 0
+    override fun IntrinsicMeasureScope.minIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int = 0
+    override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int = 0
+}
+
+/**
  * Renders one node recursively. If the node is a container, its node-content lambda receives
  * a children composable that places direct child nodes (containers first, then leaves)
  * at their layout-computed local positions.
@@ -580,7 +599,7 @@ private fun NodeContent(
     layoutResult: CompoundLayoutResult,
     nodeCoordinatesById: MutableMap<String, LayoutCoordinates>,
     onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit,
-    onLeafMeasured: (String, Pair<Double, Double>) -> Unit,
+    onContentMeasured: (String, Pair<Double, Double>) -> Unit,
 ) {
     val content = state.nodeContentById[node.nodeId]
     if (node.isContainer) {
@@ -625,7 +644,9 @@ private fun NodeContent(
             }
         }
         // Sample on the next frame so the coordinate pair is attached before measuring.
-        LaunchedEffect(containerCoordinates, childHostCoordinates) {
+        // A new onChildHostMeasured (new state id or layout key) starts with no metrics, so they are
+        // reported again, although the coordinates are the same objects as before.
+        LaunchedEffect(containerCoordinates, childHostCoordinates, onChildHostMeasured) {
             val containerCoords = containerCoordinates
             val hostCoords = childHostCoordinates
             if (containerCoords != null && hostCoords != null) {
@@ -651,11 +672,11 @@ private fun NodeContent(
                                     layoutResult = layoutResult,
                                     nodeCoordinatesById = nodeCoordinatesById,
                                     onChildHostMeasured = onChildHostMeasured,
-                                    onLeafMeasured = onLeafMeasured
+                                    onContentMeasured = onContentMeasured
                                 )
                             }
                         },
-                        measurePolicy = composeLayout(node.nodeId, childNodes, contentOriginX, contentOriginY, onLeafMeasured)
+                        measurePolicy = withoutIntrinsicSize(composeLayout(node.nodeId, childNodes, contentOriginX, contentOriginY, onContentMeasured))
                     )
                 }
             }
@@ -840,13 +861,13 @@ private fun CompoundGraphLayoutViewContent(
     }
     var graphLayerCoordinates by remember(state.id, layoutKey) { mutableStateOf<LayoutCoordinates?>(null) }
     val nodeCoordinatesById = remember(state.id, layoutKey) { mutableStateMapOf<String, LayoutCoordinates>() }
-    var measuredLeafSizes by remember(state.id, layoutKey) {
+    var measuredContentSizes by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, Pair<Double, Double>>>(emptyMap())
     }
     // The engine works in dp. Everything measured here is in pixels, so convert on the way in,
     // and convert the result back to pixels for placing and drawing.
     val density = LocalDensity.current.density
-    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredLeafSizes, density) {
+    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredContentSizes, density) {
         val pxToDp = 1.0 / density
         // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
         // tiny differences can tip layout choices (for example which side an edge is routed on).
@@ -854,7 +875,7 @@ private fun CompoundGraphLayoutViewContent(
         CompoundLayoutEngine().layout(
             state,
             measuredContainerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
-            measuredLeafSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
+            measuredContentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
         ).scaledBy(density.toDouble())
     }
 
@@ -929,7 +950,8 @@ private fun CompoundGraphLayoutViewContent(
     val globalToViewportOffsetX = -minX
     val globalToViewportOffsetY = -minY
 
-    val onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit = remember {
+    // Keyed like measuredContainerMetrics, so a new layout key writes to the new state, not the first one.
+    val onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit = remember(state.id, layoutKey) {
         { nodeId, metrics ->
             if (measuredContainerMetrics[nodeId] != metrics) {
                 measuredContainerMetrics = measuredContainerMetrics + (nodeId to metrics)
@@ -937,10 +959,10 @@ private fun CompoundGraphLayoutViewContent(
         }
     }
 
-    val onLeafMeasured: (String, Pair<Double, Double>) -> Unit = remember(state.id, layoutKey) {
+    val onContentMeasured: (String, Pair<Double, Double>) -> Unit = remember(state.id, layoutKey) {
         { nodeId, size ->
-            if (measuredLeafSizes[nodeId] != size) {
-                measuredLeafSizes = measuredLeafSizes + (nodeId to size)
+            if (measuredContentSizes[nodeId] != size) {
+                measuredContentSizes = measuredContentSizes + (nodeId to size)
             }
         }
     }
@@ -1055,11 +1077,11 @@ private fun CompoundGraphLayoutViewContent(
                                 layoutResult = layoutResult,
                                 nodeCoordinatesById = nodeCoordinatesById,
                                 onChildHostMeasured = onChildHostMeasured,
-                                onLeafMeasured = onLeafMeasured
+                                onContentMeasured = onContentMeasured
                             )
                         }
                     },
-                    measurePolicy = composeLayout("root", rootNodes, -globalToViewportOffsetX, -globalToViewportOffsetY, onLeafMeasured)
+                    measurePolicy = composeLayout("root", rootNodes, -globalToViewportOffsetX, -globalToViewportOffsetY, onContentMeasured)
                 )
 
                 // ── Layer 2: Edge route lines ────────────────────────────────────

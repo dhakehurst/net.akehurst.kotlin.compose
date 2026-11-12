@@ -161,7 +161,10 @@ class CompoundLayoutEngine(
     fun layout(
         state: GraphLayoutCompoundGraphState,
         containerMetricsByNodeId: Map<String, ContainerChildHostMetrics> = emptyMap(),
-        /** Measured content size of leaf nodes (width to height). Hints act as minimums. */
+        /**
+         * Measured content size of nodes (width to height): leaves, ports and containers (for a container,
+         * what its content draws, not counting its children). Hints act as minimums.
+         */
         leafSizesByNodeId: Map<String, Pair<Double, Double>> = emptyMap()
     ): CompoundLayoutResult {
         val validation = state.validateInvariants()
@@ -346,9 +349,9 @@ class CompoundLayoutEngine(
             val metrics = containerMetricsByNodeId[node.id] ?: fallbackContainerMetrics(childPlan)
             val paddingHintWidth = node.containerPaddingHint?.let { it.left+it.right } ?: 0.0
             val paddingHintHeight = node.containerPaddingHint?.let { it.top+it.bottom } ?: 0.0
-            // A measured leaf takes its content size, never smaller than its hints.
-            // Until it is measured (and for expanded containers) the default size is used when there is no hint.
-            val measured = if (childPlan == null) leafSizesByNodeId[node.id] else null
+            // A measured node takes its content size, never smaller than its hints; an expanded container
+            // is also large enough for its children. Until it is measured the default size is used when there is no hint.
+            val measured = leafSizesByNodeId[node.id]
             val widthHint = if (measured != null) max(node.widthHint ?: 0.0, measured.first) else (node.widthHint ?: config.defaultNodeWidth)
             val heightHint = if (measured != null) max(node.heightHint ?: 0.0, measured.second) else (node.heightHint ?: config.defaultNodeHeight)
             val width = max(
