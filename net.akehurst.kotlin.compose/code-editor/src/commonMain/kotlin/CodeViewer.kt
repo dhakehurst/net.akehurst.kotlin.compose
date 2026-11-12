@@ -198,6 +198,7 @@ fun BasicCodeViewer(
             cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
             textStyle = textStyle,
             state = state.inputTextFieldState.value,
+            readOnly = true, // a viewer: text can be selected and copied, not changed
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind(state.extendedSpans, state.inputScrollState.value.toFloat()),
