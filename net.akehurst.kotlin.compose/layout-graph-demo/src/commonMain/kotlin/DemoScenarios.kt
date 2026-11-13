@@ -474,7 +474,7 @@ object DemoScenarios {
     )
 
     /**
-     * Dashed and dotted edge lines. Like EDITH's types class diagram, the association created by a
+     * Dashed and dotted edge lines. As in a typical class diagram, the association created by a
      * composition connection is dashed in an accent colour; a dependency is dotted.
      */
     val dashedAndDottedEdges = DemoScenario(
