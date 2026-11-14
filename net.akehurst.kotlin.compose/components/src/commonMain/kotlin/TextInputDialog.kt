@@ -24,11 +24,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Shape
 
 
 /**
  * A dialog asking for a single line of text.
  * @param label optional label shown in the text field; no label when null
+ * @param buttonShape shape of the Confirm/Dismiss buttons; defaults to [LocalAkehurstButtonShape] or the Material 3 button shape
  */
 @Composable
 fun TextInputDialog(
@@ -36,6 +38,7 @@ fun TextInputDialog(
     onDismissRequest: () -> Unit,
     onConfirmation: (String) -> Unit,
     label: String? = null,
+    buttonShape: Shape = akehurstButtonShape(),
 ) {
     // State to hold the text inside the TextField
     var inputText by remember { mutableStateOf("") }
@@ -52,7 +55,7 @@ fun TextInputDialog(
             )
         },
         onDismissRequest = { onDismissRequest() },
-        confirmButton = { Button(onClick = { onConfirmation(inputText) }) { Text("Confirm") } },
-        dismissButton = { Button(onClick = { onDismissRequest() }) { Text("Dismiss") } }
+        confirmButton = { Button(onClick = { onConfirmation(inputText) }, shape = buttonShape) { Text("Confirm") } },
+        dismissButton = { Button(onClick = { onDismissRequest() }, shape = buttonShape) { Text("Dismiss") } }
     )
 }

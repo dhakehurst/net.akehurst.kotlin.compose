@@ -27,10 +27,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
+/**
+ * @param buttonShape shape of the dropdown button; defaults to [LocalAkehurstButtonShape] or MaterialTheme.shapes.small (the Combo's previous look)
+ */
 @Composable
-fun <T> Combo(initValue: String, values: ()->Map<String, T>, onValueChange: (T) -> Unit) {
+fun <T> Combo(
+    initValue: String,
+    values: () -> Map<String, T>,
+    onValueChange: (T) -> Unit,
+    buttonShape: Shape = akehurstButtonShape(MaterialTheme.shapes.small),
+) {
     var expanded by remember { mutableStateOf(false) }
     var text by remember(initValue) { mutableStateOf(initValue) }
     // null until the user types, so the list initially shows all values
@@ -55,7 +64,7 @@ fun <T> Combo(initValue: String, values: ()->Map<String, T>, onValueChange: (T) 
                     Button(
                         onClick = { expanded = true },
                         contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                        shape = MaterialTheme.shapes.small,
+                        shape = buttonShape,
                         modifier = Modifier
                             .padding(0.dp)
                     ) {

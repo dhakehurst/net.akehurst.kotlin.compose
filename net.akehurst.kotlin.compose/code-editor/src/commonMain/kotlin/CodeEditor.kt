@@ -37,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
@@ -53,6 +54,8 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import me.saket.extendedspans.ExtendedSpans
 import me.saket.extendedspans.drawBehind
+import net.akehurst.kotlin.compose.components.LocalAkehurstButtonShape
+import net.akehurst.kotlin.compose.components.akehurstButtonShape
 import net.akehurst.kotlin.compose.components.flowHolder.mutableStateFlowHolderOf
 import net.akehurst.kotlin.compose.editor.api.*
 import net.akehurst.kotlin.compose.viewer.CodeViewerState
@@ -507,6 +510,7 @@ class CodeEditorStateHolder(
 
 /**
  * @param editorState the editor state; when null, a state is created and remembered by this composable
+ * @param buttonShape shape of the buttons the editor draws (find/replace bar); defaults to [LocalAkehurstButtonShape] or the Material 3 button shape
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -516,6 +520,7 @@ fun CodeEditorView(
     modifier: Modifier = Modifier,
     autocompleteModifier: Modifier = Modifier,
     marginItemHoverModifier: Modifier = Modifier,
+    buttonShape: Shape = akehurstButtonShape(),
 ) {
     val defaultTextColor = MaterialTheme.colorScheme.onBackground
     val editorState = editorState ?: remember {
@@ -581,6 +586,7 @@ fun CodeEditorView(
                 FindReplaceBar(
                     state = editorState._findReplaceState,
                     modifier = Modifier.align(Alignment.TopEnd).zIndex(2f),
+                    buttonShape = buttonShape,
                 )
             }
         }

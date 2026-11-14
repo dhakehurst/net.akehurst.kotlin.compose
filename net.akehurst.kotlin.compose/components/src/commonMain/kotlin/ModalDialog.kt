@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import net.akehurst.kotlin.compose.components.table.TableState
@@ -51,11 +52,15 @@ data class AlertInfo(
     val issues: Set<Issue<*>>,
 ) : ModalDialog
 
+/**
+ * @param buttonShape shape of the dialog's buttons; defaults to [LocalAkehurstButtonShape] or the Material 3 button shape
+ */
 @Composable
 fun AlertDialogWithIssues(
     alertInfo: AlertInfo,
     onDismissRequest: () -> Unit,
     onCloseRequest: () -> Unit,
+    buttonShape: Shape = akehurstButtonShape(),
 ) {
     AlertDialog(
         title = { Text(text = alertInfo.title) },
@@ -109,6 +114,6 @@ fun AlertDialogWithIssues(
             }
         },
         onDismissRequest = onDismissRequest,
-        confirmButton = { Button(onClick = onCloseRequest) { Text("Close") } },
+        confirmButton = { Button(onClick = onCloseRequest, shape = buttonShape) { Text("Close") } },
     )
 }

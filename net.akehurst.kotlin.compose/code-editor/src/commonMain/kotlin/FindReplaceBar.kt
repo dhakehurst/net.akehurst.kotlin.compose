@@ -14,15 +14,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.akehurst.kotlin.compose.components.LocalAkehurstButtonShape
+import net.akehurst.kotlin.compose.components.akehurstButtonShape
 
+/**
+ * @param buttonShape shape of the Replace/All buttons; defaults to [LocalAkehurstButtonShape] or the Material 3 button shape
+ */
 @Composable
-fun FindReplaceBar(state: FindReplaceStateCompose, modifier: Modifier = Modifier) {
+fun FindReplaceBar(
+    state: FindReplaceStateCompose,
+    modifier: Modifier = Modifier,
+    buttonShape: Shape = akehurstButtonShape(),
+) {
     val focusReq = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         snapshotFlow { Triple(state.searchQueryState.text.toString(), state.isCaseSensitive, state.isRegex) }
@@ -150,6 +160,7 @@ fun FindReplaceBar(state: FindReplaceStateCompose, modifier: Modifier = Modifier
                 Button(
                     onClick = { state.replaceCurrent() },
                     modifier = Modifier.height(28.dp),
+                    shape = buttonShape,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 ) { Text("Replace", style = TextStyle(fontSize = 12.sp)) }
@@ -157,6 +168,7 @@ fun FindReplaceBar(state: FindReplaceStateCompose, modifier: Modifier = Modifier
                 Button(
                     onClick = { state.replaceAll() },
                     modifier = Modifier.height(28.dp),
+                    shape = buttonShape,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 ) { Text("All", style = TextStyle(fontSize = 12.sp)) }
