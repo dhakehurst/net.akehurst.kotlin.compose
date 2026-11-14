@@ -19,7 +19,6 @@ package net.akehurst.kotlin.compose.components
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
-import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Shape
 
@@ -41,5 +40,4 @@ val LocalAkehurstButtonShape: ProvidableCompositionLocal<Shape?> = compositionLo
  * [LocalAkehurstButtonShape] when provided, otherwise [fallback].
  */
 @Composable
-@ReadOnlyComposable
 fun akehurstButtonShape(fallback: Shape = ButtonDefaults.shape): Shape = LocalAkehurstButtonShape.current ?: fallback
