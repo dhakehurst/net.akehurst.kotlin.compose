@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import net.akehurst.kotlin.compose.layout.graph.BorderPlacement
 import net.akehurst.kotlin.compose.layout.graph.BorderSide
 import net.akehurst.kotlin.compose.layout.graph.ChildLayoutAlgorithm
+import net.akehurst.kotlin.compose.layout.graph.EdgeRouting
 import net.akehurst.kotlin.compose.layout.graph.GraphLayoutEdgeContent
 import net.akehurst.kotlin.compose.layout.graph.PaddingHint
 
@@ -14,7 +15,10 @@ data class DemoScenario(
     val id: String,
     val title: String,
     val nodes: List<DemoNode>,
-    val edges: List<DemoEdge>
+    val edges: List<DemoEdge>,
+    val routing: EdgeRouting = EdgeRouting.RECTILINEAR,
+    /** Layout of the top-level nodes. Null uses the engine default. */
+    val rootLayout: ChildLayoutAlgorithm? = null
 )
 
 data class DemoNode(
@@ -49,7 +53,9 @@ data class DemoEdge(
     val id: String,
     val sourceId: String,
     val targetId: String,
-    val content: GraphLayoutEdgeContent = GraphLayoutEdgeContent()
+    val content: GraphLayoutEdgeContent = GraphLayoutEdgeContent(),
+    /** For [EdgeRouting.BUS]: only edges in the same group share a bus. */
+    val busGroup: String? = null
 )
 
 data class DebugOverlaySettings(

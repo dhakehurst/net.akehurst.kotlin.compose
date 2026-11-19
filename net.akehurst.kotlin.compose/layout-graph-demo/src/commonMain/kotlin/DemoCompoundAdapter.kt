@@ -3,7 +3,7 @@ package net.akehurst.kotlin.compose.layout.graph.demo
 import net.akehurst.kotlin.compose.layout.graph.*
 
 fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
-    val root = GraphLayoutCompoundGraph(id = "root")
+    val root = GraphLayoutCompoundGraph(id = "root", childLayout = rootLayout)
     val graphById = mutableMapOf(root.id to root)
     val parentGraphByGraphId = mutableMapOf<String, String?>()
     parentGraphByGraphId[root.id] = null
@@ -62,11 +62,12 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
         owner.edges[edge.id] = GraphLayoutCompoundEdge(
             id = edge.id,
             sourceId = edge.sourceId,
-            targetId = edge.targetId
+            targetId = edge.targetId,
+            busGroup = edge.busGroup
         )
     }
 
-    return GraphLayoutCompoundGraphState(id = id, root = root).also { state ->
+    return GraphLayoutCompoundGraphState(id = id, routing = routing, root = root).also { state ->
         // Register Compose content for every node.
         nodes.sortedBy { it.id }.forEach { node ->
             node.content.let { state.addNodeContent(node.id, it) }
