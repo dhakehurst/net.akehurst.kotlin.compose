@@ -1024,11 +1024,23 @@ class SugiyamaLayout<NT : Any>(
 
         fun place(layer: List<SNode<NT>>, neighbours: Map<SNode<NT>, List<SNode<NT>>>) {
             if (layer.isEmpty()) return
-            val desired = layer.map { n ->
-                val ns = neighbours[n].orEmpty()
-                if (ns.isEmpty()) centre.getValue(n) else ns.sumOf { centre.getValue(it) } / ns.size
-            }
             fun gap(i: Int) = width(layer[i - 1]) / 2.0 + nodeSpacing + width(layer[i]) / 2.0
+            // A node with neighbours wants the barycentre of its neighbours.
+            val wanted: List<Double?> = layer.map { n ->
+                val ns = neighbours[n].orEmpty()
+                if (ns.isEmpty()) null else ns.sumOf { centre.getValue(it) } / ns.size
+            }
+            // A node without neighbours wants to sit next to its neighbour in the layer (the one to its left,
+            // or for those before the first connected node, the one to its right), so it travels with the layer.
+            val desired = DoubleArray(layer.size)
+            val firstKnown = wanted.indexOfFirst { it != null }
+            if (firstKnown < 0) {
+                layer.forEachIndexed { i, n -> desired[i] = centre.getValue(n) }
+            } else {
+                desired[firstKnown] = wanted[firstKnown]!!
+                for (i in firstKnown - 1 downTo 0) desired[i] = desired[i + 1] - gap(i + 1)
+                for (i in firstKnown + 1 until layer.size) desired[i] = wanted[i] ?: (desired[i - 1] + gap(i))
+            }
             // Push right from the left, and push left from the right; the average keeps order and spacing.
             val l = DoubleArray(layer.size)
             for (i in layer.indices) l[i] = if (i == 0) desired[0] else max(desired[i], l[i - 1] + gap(i))
