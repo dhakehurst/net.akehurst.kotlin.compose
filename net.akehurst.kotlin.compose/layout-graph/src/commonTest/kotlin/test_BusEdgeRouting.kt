@@ -127,6 +127,99 @@ class test_BusEdgeRouting {
         assertTrue(abs(c1.first - c2.first) > 10.0, "both branches enter C at the same point: $c1, $c2")
     }
 
+    private fun crossesInterior(route: List<Pair<Double, Double>>, n: RouterNode): Boolean =
+        route.zipWithNext().any { (a, b) ->
+            (0..40).any { i ->
+                val t = i / 40.0
+                val x = a.first + (b.first - a.first) * t
+                val y = a.second + (b.second - a.second) * t
+                x > n.x + e && x < n.x + n.width - e && y > n.y + e && y < n.y + n.height - e
+            }
+        }
+
+    @Test
+    fun no_bus_route_crosses_a_node_after_the_bus_moves() {
+        // C at the bottom; edges from P, P2, P3 (top row) and Q (a middle row) all end at C.
+        // R blocks Q's branch, so Q leaves the bus and the bus moves up, midway to the top row.
+        // P's branch from there up to P would then cross T: P must leave the bus too.
+        val nodes = listOf(
+            node("C", 500.0, 600.0),
+            node("P", 0.0, 0.0), node("P2", 700.0, 0.0), node("P3", 900.0, 0.0),
+            node("Q", 300.0, 400.0),
+            node("R", 320.0, 470.0, w = 60.0, h = 30.0),
+            node("T", 0.0, 150.0)
+        )
+        val edges = listOf("P", "P2", "P3", "Q").map { BusRouterEdge("e$it", it, "C") }
+        val result = BusEdgeRouter().route(nodes, edges)
+        result.routesByEdgeId.forEach { (id, route) ->
+            val ends = edges.first { it.id == id }.let { setOf(it.sourceId, it.targetId) }
+            nodes.filter { it.id !in ends }.forEach { other ->
+                assertTrue(!crossesInterior(route, other), "edge $id crosses ${other.id}: $route")
+            }
+        }
+        assertEquals(listOf(listOf("eP2", "eP3")), result.buses.map { it.edgeIds })
+    }
+
+    @Test
+    fun a_branch_does_not_run_through_the_node_of_another_branch() {
+        // P has edges to T (next row, straight below), X (next row) and C (three rows down, below T).
+        // C's branch from the bus would run down through T, which is an end of the same bus: C must leave the bus.
+        val nodes = listOf(
+            node("P", 0.0, 0.0), node("T", 0.0, 140.0), node("X", 200.0, 140.0), node("C", 0.0, 420.0)
+        )
+        val edges = listOf(BusRouterEdge("pt", "P", "T"), BusRouterEdge("px", "P", "X"), BusRouterEdge("pc", "P", "C"))
+        val result = BusEdgeRouter().route(nodes, edges)
+        assertEquals(listOf(listOf("pt", "px")), result.buses.map { it.edgeIds })
+        assertEquals(listOf("pc"), result.unroutedEdgeIds)
+    }
+
+    @Test
+    fun layered_bus_routes_never_cross_a_node() {
+        // Random layered graphs: no edge on a bus may run through a node that is not one of its ends.
+        val problems = mutableListOf<String>()
+        for (seed in 0 until 150) {
+            val rnd = kotlin.random.Random(seed)
+            val n = 6 + rnd.nextInt(8)
+            val root = GraphLayoutCompoundGraph("root", childLayout = SugiyamaChildLayout())
+            (0 until n).forEach { root.nodes["N$it"] = GraphLayoutCompoundNode("N$it", widthHint = 60.0 + rnd.nextInt(80), heightHint = 40.0) }
+            repeat(n + rnd.nextInt(n)) {
+                val a = rnd.nextInt(n); val b = rnd.nextInt(n)
+                if (a != b) root.edges["e$it"] = GraphLayoutCompoundEdge("e$it", "N$a", "N$b")
+            }
+            val r = CompoundLayoutEngine().layout(GraphLayoutCompoundGraphState("s$seed", routing = EdgeRouting.BUS, root = root))
+            val onBus = r.edgeBuses.flatMap { it.edgeIds }.toSet()
+            r.edgeRoutesByEdgeId.filterKeys { it in onBus }.forEach { (id, route) ->
+                val edge = root.edges.getValue(id)
+                r.nodeLayoutsById.values.filter { it.nodeId != edge.sourceId && it.nodeId != edge.targetId }.forEach { nl ->
+                    if (crossesInterior(route, RouterNode(nl.nodeId, nl.globalX, nl.globalY, nl.width, nl.height, null))) {
+                        problems += "seed $seed: edge $id crosses ${nl.nodeId}: $route"
+                    }
+                }
+            }
+        }
+        assertTrue(problems.isEmpty(), problems.take(10).joinToString("\n"))
+    }
+
+    @Test
+    fun buses_sharing_a_channel_are_spread_across_it() {
+        // P's bus (A, C) and Q's bus (B, D) lie in the same gap (y 50 to 200) and overlap along x.
+        val p = node("P", 150.0, 0.0)
+        val q = node("Q", 300.0, 0.0)
+        val nodes = listOf(p, q, node("A", 0.0, 200.0), node("B", 150.0, 200.0), node("C", 300.0, 200.0), node("D", 450.0, 200.0))
+        val edges = listOf(
+            BusRouterEdge("a", "A", "P"), BusRouterEdge("c", "C", "P"),
+            BusRouterEdge("b", "B", "Q"), BusRouterEdge("d", "D", "Q")
+        )
+        val result = BusEdgeRouter().route(nodes, edges)
+        assertEquals(setOf("P" to listOf("a", "c"), "Q" to listOf("b", "d")), result.buses.map { it.nodeId to it.edgeIds }.toSet())
+        // The horizontal (bus) segment of each route.
+        fun busY(id: String) = result.routesByEdgeId.getValue(id).zipWithNext().single { (s, t) -> abs(s.second - t.second) < e && abs(s.first - t.first) > e }.first.second
+        assertEquals(busY("a"), busY("c"))
+        assertEquals(busY("b"), busY("d"))
+        // Spread evenly over the gap: at a third and two thirds.
+        assertEquals(setOf(100.0, 150.0), setOf(busY("a"), busY("b")))
+    }
+
     @Test
     fun along_trunk_hint_runs_the_bus_down_from_the_bottom() {
         // Indented tree: P at top left, children in a column below, to the right of the trunk.

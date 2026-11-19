@@ -191,8 +191,14 @@ class BusEdgeRouter(
                 val minSize = if (hintsByNodeId[c.nodeId]?.allowSingleEdge == true) 1 else 2
                 if (members.size < minSize) null else Triple(c, members, members.keys.count { it in c.targetEnded })
             }
+            // Width of the gap between the node and its nearest member on that side: a wider gap leaves more room.
+            fun gap(c: Candidate, members: Map<String, String>): Double {
+                val f = Frame(c.side)
+                val nFace = f.box(rectById.getValue(c.nodeId))[1]
+                return members.values.minOf { f.box(rectById.getValue(it))[0] } - nFace
+            }
             val best = scored.maxWithOrNull(
-                compareBy<Triple<Candidate, Map<String, String>, Int>>({ it.second.size }, { it.third })
+                compareBy<Triple<Candidate, Map<String, String>, Int>>({ it.second.size }, { it.third }, { gap(it.first, it.second) })
                     .thenByDescending { it.first.nodeId }
                     .thenByDescending { it.first.side.ordinal }
             ) ?: break
@@ -235,7 +241,7 @@ class BusEdgeRouter(
             }
         }
 
-        // Obstacles for a group: every node that is not one of its ends, or a container of / inside one of them.
+        // Obstacles for a line: every node that is not one of [endIds], or a container of / inside one of them.
         fun obstaclesFor(endIds: Set<String>): List<Rect> {
             val related = endIds.flatMap { ancestors(it) }.toSet() + endIds
             return nodes.filter { n -> n.id !in related && ancestors(n.id).none { it in endIds } }
@@ -249,12 +255,26 @@ class BusEdgeRouter(
             return obstacles.any { o -> l < o.right - eps && r > o.left + eps && t < o.bottom - eps && btm > o.top + eps }
         }
 
-        data class Built(val busCoord: Double, val busLo: Double, val busHi: Double, val routes: Map<String, List<Pair<Double, Double>>>)
+        /**
+         * [busCoord] is the bus line's u; the bus runs along v from [busLo] to [busHi]. A bus across its trunk may move
+         * between [channelLo] and [channelHi] (u), the gap between the shared node and its nearest branch node.
+         */
+        data class Built(
+            val busCoord: Double, val busLo: Double, val busHi: Double, val routes: Map<String, List<Pair<Double, Double>>>,
+            val channelLo: Double = busCoord, val channelHi: Double = busCoord
+        )
 
         val routes = mutableMapOf<String, List<Pair<Double, Double>>>()
         val buses = mutableListOf<EdgeBus>()
         // Per group, after filtering: (group, frame, bus line in u/v) for spacing buses apart.
         val builtGroups = mutableListOf<Triple<Group, Built, MutableMap<String, String>>>()
+        val obstaclesByGroup = mutableMapOf<Group, Pair<List<Rect>, Map<String, List<Rect>>>>()
+
+        // Segments of a route from the shared node: across the trunk, (trunk, bus, branch); along it, (trunk, branch).
+        fun trunkOrBusHits(g: Group, pts: List<Pair<Double, Double>>, obstacles: List<Rect>) =
+            if (g.hint?.busAlongTrunk == true) hits(pts[0], pts[1], obstacles) else hits(pts[0], pts[1], obstacles) || hits(pts[1], pts[2], obstacles)
+        fun branchHits(g: Group, pts: List<Pair<Double, Double>>, obstacles: List<Rect>) =
+            if (g.hint?.busAlongTrunk == true) hits(pts[1], pts[2], obstacles) else hits(pts[2], pts[3], obstacles)
 
         groups.forEachIndexed { gi, g ->
             val f = Frame(g.side)
@@ -263,7 +283,10 @@ class BusEdgeRouter(
             val trunkV = if (g.hint?.trunkOffset != null) trunkV(n, g.hint) else slotByOwnerAndNode[busOwner to g.nodeId] ?: ((n[2] + n[3]) / 2.0)
             val members = g.members.toMutableMap()
             val minSize = if (g.hint?.allowSingleEdge == true) 1 else 2
-            val obstacles = obstaclesFor(members.values.toSet() + g.nodeId)
+            // The trunk and bus may touch only the shared node; a branch only the shared node and its own end.
+            // (Other members' nodes are obstacles too: a branch must not run through another branch's node.)
+            val trunkObstacles = obstaclesFor(setOf(g.nodeId))
+            val branchObstacles = members.values.toSet().associateWith { obstaclesFor(setOf(g.nodeId, it)) }
 
             fun build(): Built {
                 val list = members.entries.sortedBy { it.key }
@@ -290,21 +313,20 @@ class BusEdgeRouter(
                     lo = min(lo, v); hi = max(hi, v)
                     built[edgeId] = listOf(f.xy(n[1], trunkV), f.xy(c, trunkV), f.xy(c, v), f.xy(o[0], v))
                 }
-                return Built(c, lo, hi, built)
+                return Built(c, lo, hi, built, channelLo = n[1], channelHi = nearest)
             }
 
-            // Leave out members whose branch hits a node, then members that make the bus hit one.
+            // Leave out members whose branch hits a node, then members that make the trunk or bus hit one,
+            // until nothing hits (the bus moves when members leave, so check again each time).
             var built = build()
-            built.routes.forEach { (edgeId, pts) ->
-                val branchHits = if (g.hint?.busAlongTrunk == true) hits(pts[1], pts[2], obstacles) else hits(pts[2], pts[3], obstacles)
-                if (branchHits) members.remove(edgeId)
-            }
             while (members.size >= minSize) {
                 built = build()
-                val trunkAndBus = built.routes.values.flatMap { pts ->
-                    if (g.hint?.busAlongTrunk == true) listOf(pts[0] to pts[1]) else listOf(pts[0] to pts[1], pts[1] to pts[2])
+                val branchHitters = built.routes.filter { (edgeId, pts) -> branchHits(g, pts, branchObstacles.getValue(members.getValue(edgeId))) }.keys
+                if (branchHitters.isNotEmpty()) {
+                    members.keys.removeAll(branchHitters)
+                    continue
                 }
-                if (trunkAndBus.none { (a, b) -> hits(a, b, obstacles) }) break
+                if (built.routes.values.none { pts -> trunkOrBusHits(g, pts, trunkObstacles) }) break
                 // Drop the member furthest along the bus from the trunk.
                 val furthest = built.routes.entries.maxWithOrNull(compareBy<Map.Entry<String, List<Pair<Double, Double>>>> { (_, pts) ->
                     abs(f.v(pts.last().first, pts.last().second) - trunkV) + abs(f.u(pts.last().first, pts.last().second) - n[1])
@@ -313,40 +335,76 @@ class BusEdgeRouter(
             }
             if (members.size < minSize) return@forEachIndexed
             builtGroups.add(Triple(g, build(), members))
+            obstaclesByGroup[g] = trunkObstacles to branchObstacles
         }
 
-        // Buses across their trunk that lie on the same line and overlap are moved apart.
+        // Buses across their trunk that share a channel (the gap between rows or columns of nodes) and overlap
+        // along it are spread evenly across the part of the channel they share, so they are easy to tell apart.
+        // Absolute coordinates: y for a horizontal bus, x for a vertical one.
+        fun absU(side: BorderSide, u: Double) = if (side == BorderSide.BOTTOM || side == BorderSide.RIGHT) u else -u
+        data class Placed(val group: Group, val coord: Double, val chLo: Double, val chHi: Double, val lo: Double, val hi: Double)
         val spacedCoordByGroup = mutableMapOf<Group, Double>()
         builtGroups.filter { it.first.hint?.busAlongTrunk != true }
-            .groupBy { (g, b, _) ->
-                val horizontal = g.side == BorderSide.TOP || g.side == BorderSide.BOTTOM
-                val coord = Frame(g.side).xy(b.busCoord, 0.0).let { if (horizontal) it.second else it.first }
-                horizontal to (coord / busSpacing).toLong()
-            }
-            .values.forEach { list ->
-                if (list.size < 2) return@forEach
-                val levels = mutableListOf<MutableList<Pair<Double, Double>>>()
-                val levelOf = mutableMapOf<Group, Int>()
-                list.sortedWith(compareBy({ it.second.busLo }, { it.first.nodeId })).forEach { (g, b, _) ->
-                    val span = b.busLo to b.busHi
-                    val level = levels.indexOfFirst { spans -> spans.none { it.first <= span.second + busSpacing && span.first <= it.second + busSpacing } }
-                        .let { if (it < 0) { levels.add(mutableListOf()); levels.lastIndex } else it }
-                    levels[level].add(span)
-                    levelOf[g] = level
-                }
-                if (levels.size < 2) return@forEach
-                list.forEach { (g, b, _) ->
-                    spacedCoordByGroup[g] = b.busCoord + (levelOf.getValue(g) - (levels.size - 1) / 2.0) * busSpacing
+            .groupBy { it.first.side == BorderSide.TOP || it.first.side == BorderSide.BOTTOM }
+            .values.forEach { sameOrientation ->
+                val placed = sameOrientation.map { (g, b, _) ->
+                    val a = absU(g.side, b.channelLo); val z = absU(g.side, b.channelHi)
+                    Placed(g, absU(g.side, b.busCoord), min(a, z), max(a, z), b.busLo, b.busHi)
+                }.sortedWith(compareBy({ it.lo }, { it.group.nodeId }, { it.group.side.ordinal }))
+                fun related(p: Placed, q: Placed) =
+                    min(p.chHi, q.chHi) > max(p.chLo, q.chLo) + eps &&
+                        p.lo <= q.hi + busSpacing && q.lo <= p.hi + busSpacing
+                // Connected sets of related buses.
+                val seen = mutableSetOf<Int>()
+                placed.indices.forEach { start ->
+                    if (!seen.add(start)) return@forEach
+                    val cluster = mutableListOf(start)
+                    var k = 0
+                    while (k < cluster.size) {
+                        val i = cluster[k++]
+                        placed.indices.filter { it !in seen && related(placed[i], placed[it]) }.forEach { seen.add(it); cluster.add(it) }
+                    }
+                    if (cluster.size < 2) return@forEach
+                    val members = cluster.sorted().map { placed[it] }
+                    // Buses that overlap along their length need different lines.
+                    val levels = mutableListOf<MutableList<Placed>>()
+                    val levelOf = mutableMapOf<Group, Int>()
+                    members.forEach { p ->
+                        val level = levels.indexOfFirst { list -> list.none { it.lo <= p.hi + busSpacing && p.lo <= it.hi + busSpacing } }
+                            .let { if (it < 0) { levels.add(mutableListOf()); levels.lastIndex } else it }
+                        levels[level].add(p)
+                        levelOf[p.group] = level
+                    }
+                    if (levels.size < 2) return@forEach
+                    val shareLo = members.maxOf { it.chLo }
+                    val shareHi = members.minOf { it.chHi }
+                    val n = levels.size
+                    val step = (shareHi - shareLo) / (n + 1)
+                    members.forEach { p ->
+                        val level = levelOf.getValue(p.group)
+                        val coord = if (step >= busSpacing) {
+                            shareLo + step * (level + 1)
+                        } else {
+                            // Too narrow to spread: keep them [busSpacing] apart around the middle.
+                            (shareLo + shareHi) / 2.0 + (level - (n - 1) / 2.0) * busSpacing
+                        }
+                        spacedCoordByGroup[p.group] = absU(p.group.side, coord)
+                    }
                 }
             }
 
         builtGroups.forEach { (g, b, members) ->
             val f = Frame(g.side)
             val newCoord = spacedCoordByGroup[g]
-            b.routes.forEach { (edgeId, pts) ->
-                val moved = if (newCoord == null) pts else pts.mapIndexed { i, p ->
-                    if (i == 1 || i == 2) f.xy(newCoord, f.v(p.first, p.second)) else p
-                }
+            val movedRoutes = b.routes.mapValues { (_, pts) ->
+                if (newCoord == null) pts else pts.mapIndexed { i, p -> if (i == 1 || i == 2) f.xy(newCoord, f.v(p.first, p.second)) else p }
+            }
+            // Moving the bus apart from another must not take it into a node; then it stays where it was.
+            val (trunkObstacles, branchObstacles) = obstaclesByGroup.getValue(g)
+            val movedHits = newCoord != null && movedRoutes.any { (edgeId, pts) ->
+                trunkOrBusHits(g, pts, trunkObstacles) || branchHits(g, pts, branchObstacles.getValue(members.getValue(edgeId)))
+            }
+            (if (movedHits) b.routes else movedRoutes).forEach { (edgeId, moved) ->
                 val edge = sortedEdges.first { it.id == edgeId }
                 val fromShared = simplify(moved)
                 routes[edgeId] = if (edge.sourceId == g.nodeId) fromShared else fromShared.reversed()

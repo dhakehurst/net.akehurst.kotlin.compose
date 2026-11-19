@@ -522,26 +522,33 @@ object DemoScenarios {
         )
     )
 
-    /** A class hierarchy with [EdgeRouting.BUS]: generalisations (child to parent) share a trunk per parent. */
-    private fun busHierarchy(id: String, title: String, layout: ChildLayoutAlgorithm) = DemoScenario(
+    /**
+     * A class hierarchy with [EdgeRouting.BUS]: generalisations (child to parent) share a trunk per parent.
+     * With [withAssociations], two associations to Engine are in another bus group, so they get a bus of their own.
+     * The tree layouts leave them out: a tree layout takes every edge as a parent link.
+     */
+    private fun busHierarchy(id: String, title: String, layout: ChildLayoutAlgorithm, withAssociations: Boolean) = DemoScenario(
         id = id,
         title = title,
         routing = EdgeRouting.BUS,
         rootLayout = layout,
-        nodes = listOf("Vehicle", "Car", "Truck", "Bike", "Saloon", "Estate").map { name ->
+        nodes = (listOf("Vehicle", "Car", "Truck", "Bike", "Saloon", "Estate") + if (withAssociations) listOf("Engine") else emptyList()).map { name ->
             DemoNode(name, content = { Class(name) })
         },
         edges = listOf(
             "Car" to "Vehicle", "Truck" to "Vehicle", "Bike" to "Vehicle", "Saloon" to "Car", "Estate" to "Car"
         ).map { (child, parent) ->
-            DemoEdge("e_gen_${child}_$parent", child, parent, content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke)))
-        }
+            DemoEdge("e_gen_${child}_$parent", child, parent, content = GraphLayoutEdgeContent(endSymbol = openTriangleHead(umlStroke)), busGroup = "generalisation")
+        } + if (!withAssociations) emptyList() else listOf(
+            DemoEdge("e_assoc_car_engine", "Car", "Engine", content = labelledEdge("engine"), busGroup = "association"),
+            DemoEdge("e_assoc_truck_engine", "Truck", "Engine", content = labelledEdge("engine"), busGroup = "association")
+        )
     )
 
-    val busLayeredTopDown = busHierarchy("bus_layered_top_down", "Bus edges: layered, top-down", SugiyamaChildLayout.DEFAULT)
-    val busLayeredLeftRight = busHierarchy("bus_layered_left_right", "Bus edges: layered, left-right", SugiyamaChildLayout(direction = LayerDirection.LEFT_RIGHT))
-    val busTreeTrunkFromSide = busHierarchy("bus_tree_trunk_from_side", "Bus edges: indented tree, trunk from side", TreeChildLayout(trunkSide = TreeTrunkSide.SIDE))
-    val busTreeTrunkFromBottom = busHierarchy("bus_tree_trunk_from_bottom", "Bus edges: indented tree, trunk from bottom", TreeChildLayout(trunkSide = TreeTrunkSide.BOTTOM))
+    val busLayeredTopDown = busHierarchy("bus_layered_top_down", "Bus edges: layered, top-down", SugiyamaChildLayout.DEFAULT, withAssociations = true)
+    val busLayeredLeftRight = busHierarchy("bus_layered_left_right", "Bus edges: layered, left-right", SugiyamaChildLayout(direction = LayerDirection.LEFT_RIGHT), withAssociations = true)
+    val busTreeTrunkFromSide = busHierarchy("bus_tree_trunk_from_side", "Bus edges: indented tree, trunk from side", TreeChildLayout(trunkSide = TreeTrunkSide.SIDE), withAssociations = false)
+    val busTreeTrunkFromBottom = busHierarchy("bus_tree_trunk_from_bottom", "Bus edges: indented tree, trunk from bottom", TreeChildLayout(trunkSide = TreeTrunkSide.BOTTOM), withAssociations = false)
 
     val all: List<DemoScenario> = listOf(
         flatChain,

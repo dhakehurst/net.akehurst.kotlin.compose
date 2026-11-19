@@ -445,9 +445,10 @@ Containment must be explicit and acyclic.
 `BUS` routing (`BusEdgeRouter`, set on `GraphLayoutCompoundGraphState.routing`):
 - Edges merge at a node when they leave it through the same side, whatever their direction, when they have the same `GraphLayoutCompoundEdge.busGroup` (null is a group too), and when their symbols at that node are the same.
 - An edge joins a bus at one end only: the end with the bigger group; ties go to the target end. A group needs at least two edges, unless a bus hint allows one.
-- The bus lies midway between the shared node and the nearest node on its branches; buses on the same line that overlap are moved apart. Lines into the same side of a node are spread along it.
+- The bus lies midway between the shared node and the nearest node on its branches. Buses that share that gap and overlap along it are spread evenly across the part of the gap they share (if it is too narrow, `busSpacing` apart), unless that would take one into a node. Lines into the same side of a node are spread along it.
+- When several sides would do, the side with the most edges wins, then the target end, then the widest gap.
 - The symbol at the shared node is drawn once, by the first edge of the bus (`CompoundLayoutResult.edgeBuses`).
-- Edges whose branch or bus would cross another node, self loops, port edges, and edges between a container and its contents are routed as `RECTILINEAR`.
+- Edges whose trunk, bus or branch would cross another node (including the node at the end of another branch of the same bus), self loops, port edges, and edges between a container and its contents are routed as `RECTILINEAR`.
 - Not supported: one connector joining many nodes (a hyperedge); an edge in buses at both ends.
 
 Endpoint boundary attachment contract:
