@@ -34,6 +34,16 @@ class test_DensityIndependence {
      */
     private val toleranceDp = mapOf(1.5f to 6f, 2f to 2f) // measured here: 5 and 1; a little margin for other fonts
 
+    /**
+     * The indented tree demos stack one node per row, so the small difference in node height at 1.5x (font rounding,
+     * about 1.3dp per node) adds up row by row: measured 6.7dp at the fifth row.
+     */
+    private val treeToleranceDp = mapOf(1.5f to 8f, 2f to 2f)
+    private val treeScenarioIds = setOf("bus_tree_trunk_from_side", "bus_tree_trunk_from_bottom")
+
+    private fun tolerance(scenarioId: String, density: Float) =
+        (if (scenarioId in treeScenarioIds) treeToleranceDp else toleranceDp).getValue(density)
+
     private fun nodeBoundsInDp(scenario: DemoScenario, density: Float): Map<String, Rect> {
         var result: Map<String, Rect> = emptyMap()
         val tagged = scenario.copy(nodes = scenario.nodes.map { node ->
@@ -91,7 +101,7 @@ class test_DensityIndependence {
                     val rD = atD[id] ?: return@forEach
                     val diff = r1.differsFrom(rD)
                     worst[d] = maxOf(worst.getValue(d), diff)
-                    if (diff > toleranceDp.getValue(d)) problems += "${scenario.id} at ${d}x: $id is $rD dp, at 1x $r1 dp (off by $diff dp)"
+                    if (diff > tolerance(scenario.id, d)) problems += "${scenario.id} at ${d}x: $id is $rD dp, at 1x $r1 dp (off by $diff dp)"
                 }
             }
         }
