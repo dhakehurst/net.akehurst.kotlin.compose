@@ -189,7 +189,12 @@ data class GraphLayoutCompoundEdge(
     val id: String,
     val sourceId: String,
     val targetId: String,
-    val kind: EdgeKind = EdgeKind.ADJACENCY
+    val kind: EdgeKind = EdgeKind.ADJACENCY,
+    /**
+     * For [EdgeRouting.BUS]: only edges with the same bus group share a bus, for example to keep
+     * generalisations and associations apart. Null is a group of its own (edges with null share with each other).
+     */
+    val busGroup: String? = null
 ) {
     val metadata: MutableMap<String, String> = mutableMapOf()
 }

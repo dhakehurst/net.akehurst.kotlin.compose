@@ -232,14 +232,16 @@ data class ChildLayoutResult(
     val nodeTopLeftById: Map<String, Pair<Double, Double>>, // local coordinates
     val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>, // missing edges are routed by the engine
     val contentWidth: Double,
-    val contentHeight: Double
+    val contentHeight: Double,
+    val busHintsByNodeId: Map<String, BusHint> = emptyMap() // shape of a node's bus, for EdgeRouting.BUS
 )
 ```
 
 Built-in implementations:
 
-- `SugiyamaChildLayout(layerSpacing, nodeSpacing, edgeRouting)`, with the presets `DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT` and `CHANNEL_BIASED` in its companion object. These presets replace the former `CompoundLayoutProfile` enum.
+- `SugiyamaChildLayout(layerSpacing, nodeSpacing, edgeRouting, direction)`, where `direction` is `LayerDirection.TOP_DOWN` (default) or `LEFT_RIGHT` (layers are columns), with the presets `DEFAULT`, `HIERARCHY_BIASED`, `ORTHOGONAL_BIASED`, `COMPACT` and `CHANNEL_BIASED` in its companion object. These presets replace the former `CompoundLayoutProfile` enum.
 - `TessellateChildLayout`, which tiles the children and ignores edges.
+- `TreeChildLayout(parentEnd, trunkSide, ...)`, an indented tree: each node's children are placed one per row below it, shifted right, like a file explorer. `parentEnd` says which end of an edge is the parent: `TARGET` (default, as UML generalisation) or `SOURCE`. `trunkSide` is `SIDE` (trunk leaves the parent's right side into a bus beside the children) or `BOTTOM` (trunk runs straight down from the parent's bottom and the branches leave it sideways). It sets bus hints for `EdgeRouting.BUS`. A node with several parents goes under the first (by edge id).
 
 The engine-wide default is `CompoundLayoutConfig.defaultChildLayout`.
 
@@ -438,6 +440,15 @@ Containment must be explicit and acyclic.
 - `DIRECT`
 - `RECTILINEAR`
 - compound-aware rectilinear routing
+- `BUS`: rectilinear, but edges that meet a node on the same side share one trunk and a bus line, with a branch to each of their other ends (as UML generalisation trees). See below.
+
+`BUS` routing (`BusEdgeRouter`, set on `GraphLayoutCompoundGraphState.routing`):
+- Edges merge at a node when they leave it through the same side, whatever their direction, when they have the same `GraphLayoutCompoundEdge.busGroup` (null is a group too), and when their symbols at that node are the same.
+- An edge joins a bus at one end only: the end with the bigger group; ties go to the target end. A group needs at least two edges, unless a bus hint allows one.
+- The bus lies midway between the shared node and the nearest node on its branches; buses on the same line that overlap are moved apart. Lines into the same side of a node are spread along it.
+- The symbol at the shared node is drawn once, by the first edge of the bus (`CompoundLayoutResult.edgeBuses`).
+- Edges whose branch or bus would cross another node, self loops, port edges, and edges between a container and its contents are routed as `RECTILINEAR`.
+- Not supported: one connector joining many nodes (a hyperedge); an edge in buses at both ends.
 
 Endpoint boundary attachment contract:
 - All routed edges terminate at node/container boundaries, never at visual centers.

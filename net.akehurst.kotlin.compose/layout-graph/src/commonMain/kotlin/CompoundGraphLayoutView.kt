@@ -926,6 +926,16 @@ private fun CompoundGraphLayoutViewContent(
     val sortedEdgeIds = remember(layoutResult) {
         layoutResult.edgeRoutesByEdgeId.keys.sorted()
     }
+    // On a bus the symbol at the shared node is drawn once, by the bus's first edge.
+    // Edge id to true when its start symbol is hidden, false when its end symbol is.
+    val hiddenBusSymbolEnds = remember(layoutResult) {
+        layoutResult.edgeBuses.flatMap { bus ->
+            bus.edgeIds.drop(1).mapNotNull { edgeId ->
+                val ends = layoutResult.edgeEndpointsByEdgeId[edgeId] ?: return@mapNotNull null
+                edgeId to (ends.first == bus.nodeId)
+            }
+        }.toMap()
+    }
     val tessellatedGraphIds = remember(state.id, layoutKey) {
         fun collect(graph: GraphLayoutCompoundGraph): List<String> {
             val include = if (graph.childLayout == TessellateChildLayout && !graph.isCollapsed) {
@@ -1287,7 +1297,7 @@ private fun CompoundGraphLayoutViewContent(
                         }
 
                         if (edgeContent != null) {
-                            edgeContent.startSymbol?.let { symbol ->
+                            edgeContent.startSymbol?.takeIf { hiddenBusSymbolEnds[edgeId] != true }?.let { symbol ->
                                 drawEdgeSymbol(
                                     symbol = symbol,
                                     anchor = routeAnchor(drawRoute, EdgeContentPosition.START),
@@ -1302,7 +1312,7 @@ private fun CompoundGraphLayoutViewContent(
                                     }
                                 }
                             }
-                            edgeContent.endSymbol?.let { symbol ->
+                            edgeContent.endSymbol?.takeIf { hiddenBusSymbolEnds[edgeId] != false }?.let { symbol ->
                                 drawEdgeSymbol(
                                     symbol = symbol,
                                     anchor = routeAnchor(drawRoute, EdgeContentPosition.END),

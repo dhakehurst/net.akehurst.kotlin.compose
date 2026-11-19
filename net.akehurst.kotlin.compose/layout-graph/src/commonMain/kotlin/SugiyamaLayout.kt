@@ -19,7 +19,13 @@ data class SugiyamaLayoutData<NT : Any>(
 
 enum class EdgeRouting {
     DIRECT,
-    RECTILINEAR
+    RECTILINEAR,
+    /**
+     * Like [RECTILINEAR], but edges that meet a node on the same side share one trunk and a bus line,
+     * with a branch to each of their other ends (see [BusEdgeRouter]).
+     * Only [CompoundGraphLayoutView] supports it; a [SugiyamaLayout] on its own routes such edges as [DIRECT].
+     */
+    BUS
 }
 
 enum class EdgePriority {

@@ -41,7 +41,12 @@ data class ChildLayoutResult(
     val nodeTopLeftById: Map<String, Pair<Double, Double>>,
     val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>,
     val contentWidth: Double,
-    val contentHeight: Double
+    val contentHeight: Double,
+    /**
+     * For [EdgeRouting.BUS]: how the bus of a node's edges should be drawn, by node id, when the placement
+     * calls for a particular shape. Nodes without a hint get a bus across the side facing their other ends.
+     */
+    val busHintsByNodeId: Map<String, BusHint> = emptyMap()
 )
 
 /**
@@ -53,6 +58,14 @@ fun interface ChildLayoutAlgorithm {
     fun layout(input: ChildLayoutInput): ChildLayoutResult
 }
 
+/** Which way the layers of a [SugiyamaChildLayout] follow each other. */
+enum class LayerDirection {
+    /** Layers are rows, from top to bottom. */
+    TOP_DOWN,
+    /** Layers are columns, from left to right. */
+    LEFT_RIGHT
+}
+
 /**
  * Layered (Sugiyama) layout of a graph level.
  * The companion object holds the named presets that used to be `CompoundLayoutProfile`.
@@ -60,7 +73,12 @@ fun interface ChildLayoutAlgorithm {
 data class SugiyamaChildLayout(
     val layerSpacing: Double = 100.0,
     val nodeSpacing: Double = 100.0,
-    val edgeRouting: EdgeRouting = EdgeRouting.DIRECT
+    val edgeRouting: EdgeRouting = EdgeRouting.DIRECT,
+    /**
+     * [LayerDirection.LEFT_RIGHT] lays the graph out as for TOP_DOWN with width and height swapped, then turns it
+     * (so [layerSpacing] is then horizontal). [ChildLayoutInput.horizontalPullById] is ignored then.
+     */
+    val direction: LayerDirection = LayerDirection.TOP_DOWN
 ) : ChildLayoutAlgorithm {
 
     companion object {
@@ -71,7 +89,27 @@ data class SugiyamaChildLayout(
         val CHANNEL_BIASED = SugiyamaChildLayout(layerSpacing = 95.0, nodeSpacing = 130.0, edgeRouting = EdgeRouting.DIRECT)
     }
 
-    override fun layout(input: ChildLayoutInput): ChildLayoutResult {
+    override fun layout(input: ChildLayoutInput): ChildLayoutResult = when (direction) {
+        LayerDirection.TOP_DOWN -> layoutTopDown(input)
+        LayerDirection.LEFT_RIGHT -> {
+            fun <T> Pair<T, T>.swap() = second to first
+            val turned = layoutTopDown(
+                input.copy(
+                    nodeSizesById = input.nodeSizesById.mapValues { it.value.swap() },
+                    horizontalPullById = emptyMap()
+                )
+            )
+            ChildLayoutResult(
+                nodeSizesById = turned.nodeSizesById.mapValues { it.value.swap() },
+                nodeTopLeftById = turned.nodeTopLeftById.mapValues { it.value.swap() },
+                edgeRoutesByEdgeId = turned.edgeRoutesByEdgeId.mapValues { (_, route) -> route.map { it.swap() } },
+                contentWidth = turned.contentHeight,
+                contentHeight = turned.contentWidth
+            )
+        }
+    }
+
+    private fun layoutTopDown(input: ChildLayoutInput): ChildLayoutResult {
         val nodes = input.nodes
         val nodeSizesById = input.nodeSizesById
         val nodesById = nodes.associateBy { it.id }

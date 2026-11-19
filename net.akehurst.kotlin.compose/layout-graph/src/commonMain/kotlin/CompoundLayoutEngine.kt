@@ -23,6 +23,8 @@ data class CompoundLayoutConfig(
     val defaultChildLayout: ChildLayoutAlgorithm = SugiyamaChildLayout.DEFAULT,
     /** Used for every edge when the state's routing is [EdgeRouting.RECTILINEAR]. */
     val edgeRouter: OrthogonalEdgeRouter = OrthogonalEdgeRouter(),
+    /** Used when the state's routing is [EdgeRouting.BUS]; edges it does not put on a bus go to [edgeRouter]. */
+    val busRouter: BusEdgeRouter = BusEdgeRouter(),
     val defaultContainerChildHostMetrics: ContainerChildHostMetrics = ContainerChildHostMetrics(
         originX = 12.0,
         originY = 24.0,
@@ -95,7 +97,9 @@ data class CompoundLayoutResult(
     val nodeLayoutsById: Map<String, CompoundNodeLayout>,
     val graphLayoutsById: Map<String, CompoundGraphLayout>,
     val edgeRoutesByEdgeId: Map<String, List<Pair<Double, Double>>>,
-    val edgeEndpointsByEdgeId: Map<String, Pair<String, String>> = emptyMap()
+    val edgeEndpointsByEdgeId: Map<String, Pair<String, String>> = emptyMap(),
+    /** For [EdgeRouting.BUS]: the edges drawn with a shared trunk and bus. */
+    val edgeBuses: List<EdgeBus> = emptyList()
 )
 
 private enum class BoundarySide {
@@ -134,7 +138,8 @@ private data class PlannedGraphLayout(
      */
     val hostInsetsById: Map<String, List<Double>> = emptyMap(),
     /** Room kept inside a container host for the part of its border nodes that reaches in (left, top, right, bottom). */
-    val hostInnerInsetsById: Map<String, List<Double>> = emptyMap()
+    val hostInnerInsetsById: Map<String, List<Double>> = emptyMap(),
+    val busHintsByNodeId: Map<String, BusHint> = emptyMap()
 )
 
 private data class EdgeDescriptor(
@@ -252,7 +257,7 @@ class CompoundLayoutEngine(
             val target = nodeLayouts[targetId]
             if (source != null && target != null) {
                 resolvedEdgeEndpointsById[edgeId] = sourceId to targetId
-                if (state.routing == EdgeRouting.RECTILINEAR) {
+                if (state.routing == EdgeRouting.RECTILINEAR || state.routing == EdgeRouting.BUS) {
                     // All edges are routed together below, around unrelated nodes.
                     routerEdges.add(RouterEdge(edgeId, sourceId, targetId))
                     return@forEach
@@ -267,6 +272,7 @@ class CompoundLayoutEngine(
             }
         }
 
+        var edgeBuses: List<EdgeBus> = emptyList()
         if (routerEdges.isNotEmpty()) {
             val routerNodes = nodeLayouts.values.sortedBy { it.nodeId }.map { n ->
                 RouterNode(
@@ -287,7 +293,27 @@ class CompoundLayoutEngine(
                 )
             }
             edgeRoutesByEdgeId.keys.removeAll(routerEdges.map { it.id }.toSet())
-            edgeRoutesByEdgeId.putAll(config.edgeRouter.route(routerNodes, routerEdges))
+            var orthogonalEdges: List<RouterEdge> = routerEdges
+            if (state.routing == EdgeRouting.BUS) {
+                val edgesById = allEdges.associateBy { it.id }
+                val busResult = config.busRouter.route(
+                    nodes = routerNodes,
+                    edges = routerEdges.map { e ->
+                        val group = edgesById[e.id]?.busGroup
+                        val content = state.edgeContentById[e.id]
+                        // Edges share a bus at a node only when they look the same there.
+                        BusRouterEdge(e.id, e.sourceId, e.targetId, sourceKey = group to content?.startSymbol, targetKey = group to content?.endSymbol)
+                    },
+                    hintsByNodeId = collectBusHints(rootPlan)
+                )
+                edgeRoutesByEdgeId.putAll(busResult.routesByEdgeId)
+                edgeBuses = busResult.buses
+                val unrouted = busResult.unroutedEdgeIds.toSet()
+                orthogonalEdges = routerEdges.filter { it.id in unrouted }
+            }
+            if (orthogonalEdges.isNotEmpty()) {
+                edgeRoutesByEdgeId.putAll(config.edgeRouter.route(routerNodes, orthogonalEdges))
+            }
         }
 
         val resultByGraphId = buildResultsByGraphId(
@@ -304,9 +330,14 @@ class CompoundLayoutEngine(
             nodeLayoutsById = nodeLayouts,
             graphLayoutsById = graphLayouts,
             edgeRoutesByEdgeId = edgeRoutesByEdgeId,
-            edgeEndpointsByEdgeId = resolvedEdgeEndpointsById
+            edgeEndpointsByEdgeId = resolvedEdgeEndpointsById,
+            edgeBuses = edgeBuses
         )
     }
+
+    /** The bus hints of a plan and all the plans inside it. */
+    private fun collectBusHints(plan: PlannedGraphLayout): Map<String, BusHint> =
+        plan.busHintsByNodeId + plan.childPlansById.keys.sorted().flatMap { collectBusHints(plan.childPlansById.getValue(it)).entries }.associate { it.key to it.value }
 
     private fun planGraph(
         graph: GraphLayoutCompoundGraph,
@@ -492,7 +523,8 @@ class CompoundLayoutEngine(
             contentWidth = laidOut.contentWidth,
             contentHeight = laidOut.contentHeight,
             hostInsetsById = hostInsetsById,
-            hostInnerInsetsById = hostInnerInsetsById
+            hostInnerInsetsById = hostInnerInsetsById,
+            busHintsByNodeId = laidOut.busHintsByNodeId
         )
     }
 
