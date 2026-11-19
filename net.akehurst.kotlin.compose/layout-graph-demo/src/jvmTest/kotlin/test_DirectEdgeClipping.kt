@@ -90,7 +90,7 @@ class test_DirectEdgeClipping {
         return result
     }
 
-    private fun pixels(img: BufferedImage, vararg cs: Color): List<Pair<Int, Int>> {
+    private fun pixels(img: BufferedImage, cs: List<Color>): List<Pair<Int, Int>> {
         val argbs = cs.map { it.toArgb() }.toSet()
         val list = mutableListOf<Pair<Int, Int>>()
         for (x in 0 until img.width) for (y in 0 until img.height) if (img.getRGB(x, y) in argbs) list += x to y
@@ -102,7 +102,7 @@ class test_DirectEdgeClipping {
 
     private fun check(fill: Boolean, name: String) {
         val r = render(fill, name)
-        val drawn = pixels(r.img, edgeColour, arrowColour)
+        val drawn = pixels(r.img, listOf(edgeColour, arrowColour))
         assertTrue(drawn.isNotEmpty(), "$name: no edges drawn")
         // Nothing of an edge (line or arrowhead) is drawn inside a node, inside its 1dp border.
         r.nodes.forEach { (id, bounds) ->
