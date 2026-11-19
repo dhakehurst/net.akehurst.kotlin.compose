@@ -1096,14 +1096,16 @@ class SugiyamaLayout<NT : Any>(
 
         // Build paths through dummy nodes for each original edge
         val nodeToSNode = layeredNodes.flatten().filterNot { it.isDummy }.associateBy { it.originalNode }
-        val sAdj = layeredEdges.groupBy { it.from }
 
         // Build paths through dummy nodes for each acyclic edge
         val edgePaths = mutableMapOf<SugiyamaEdge<NT>, List<SNode<NT>>>()
+        // Each edge follows only its own segments: searching all of them could route a long edge through
+        // another edge's real node (A->C through B when A->B and B->C exist) instead of its own dummy nodes.
+        val sAdjByEdge = layeredEdges.groupBy { it.originalEdge }.mapValues { (_, segments) -> segments.groupBy { it.from } }
         edges.forEach { edge ->
             val startSNode = nodeToSNode.getValue(edge.start)
             val endSNode = nodeToSNode.getValue(edge.finish)
-            val path = findPath(startSNode, endSNode, sAdj)
+            val path = findPath(startSNode, endSNode, sAdjByEdge[edge] ?: emptyMap())
             edgePaths[edge] = path
         }
 
