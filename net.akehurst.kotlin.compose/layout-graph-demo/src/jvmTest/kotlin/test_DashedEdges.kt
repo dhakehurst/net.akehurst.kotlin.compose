@@ -118,8 +118,15 @@ class test_DashedEdges {
         // It has gaps.
         assertTrue(dashedLine.size < solidLine.size * 0.85, "$routing: $name line has no gaps (${dashedLine.size} of ${solidLine.size} pixels)")
 
-        // End symbols stay solid and in place.
-        assertEquals(pixels(solid.img, symbolColour), pixels(dashed.img, symbolColour), "$routing: end symbols differ")
+        // End symbols stay solid and in place. The line runs under the symbol and is wider than its tip, so
+        // where a dash or a gap falls there the anti-aliased rim of the symbol can differ by a pixel or two.
+        val solidSymbols = pixels(solid.img, symbolColour)
+        val dashedSymbols = pixels(dashed.img, symbolColour)
+        val common = solidSymbols intersect dashedSymbols
+        val differing = (solidSymbols - dashedSymbols) + (dashedSymbols - solidSymbols)
+        assertTrue(differing.size <= solidSymbols.size / 50, "$routing: end symbols differ in ${differing.size} of ${solidSymbols.size} pixels, e.g. ${differing.take(5)}")
+        val awayFromRim = differing.filterNot { (x, y) -> (-1..1).any { dx -> (-1..1).any { dy -> (x + dx to y + dy) in common } } }
+        assertTrue(awayFromRim.isEmpty(), "$routing: end symbols differ away from their rim at ${awayFromRim.take(5)}")
     }
 
     @Test

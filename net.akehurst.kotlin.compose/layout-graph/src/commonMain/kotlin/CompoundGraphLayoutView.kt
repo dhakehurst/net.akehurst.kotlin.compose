@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
 import kotlin.math.atan2
@@ -447,6 +448,30 @@ private fun lineRectIntersection(
     return (from.first + t * dx) to (from.second + t * dy)
 }
 
+/** Default for the `directEdgeEndGap` of [CompoundGraphLayoutView]. */
+val DEFAULT_DIRECT_EDGE_END_GAP: Dp = 2.dp
+
+/**
+ * Moves the first point of [route] towards the second, and the last point towards the one before it,
+ * by [gap] each, so the route stops short of the nodes at its ends.
+ * An end segment is shortened by at most a third of its length, so short segments keep their direction.
+ */
+internal fun withEndGaps(route: List<Pair<Double, Double>>, gap: Double): List<Pair<Double, Double>> {
+    if (route.size < 2 || gap <= 0.0) return route
+    fun moveToward(from: Pair<Double, Double>, to: Pair<Double, Double>): Pair<Double, Double> {
+        val dx = to.first - from.first
+        val dy = to.second - from.second
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length < 1e-9) return from
+        val d = minOf(gap, length / 3.0)
+        return (from.first + dx / length * d) to (from.second + dy / length * d)
+    }
+    val result = route.toMutableList()
+    result[0] = moveToward(route[0], route[1])
+    result[result.lastIndex] = moveToward(route[route.lastIndex], route[route.lastIndex - 1])
+    return result
+}
+
 /**
  * Finds the point where a ray from [center] (which is inside the rectangle) exits
  * the rectangle, going in the direction of [toward].
@@ -838,9 +863,14 @@ fun CompoundGraphLayoutView(
      * nearest place where it overlaps no other label and no node. Labels that do not overlap stay put.
      */
     avoidLabelOverlap: Boolean = true,
+    /**
+     * For [EdgeRouting.DIRECT]: space left between each end of an edge and the drawn border of its node,
+     * so lines and end symbols stop just short of the node.
+     */
+    directEdgeEndGap: Dp = DEFAULT_DIRECT_EDGE_END_GAP,
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap)
     }
 }
 
@@ -855,6 +885,7 @@ private fun CompoundGraphLayoutViewContent(
     colors: CompoundGraphLayoutColors,
     initialView: InitialViewPlacement,
     avoidLabelOverlap: Boolean,
+    directEdgeEndGap: Dp,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1153,7 +1184,7 @@ private fun CompoundGraphLayoutViewContent(
                         val endpoints = layoutResult.edgeEndpointsByEdgeId[edgeId]
                         // Orthogonal routes already end on the node borders; moving their end points
                         // to the rendered bounds would add diagonal segments.
-                        val drawRoute = if (state.routing == EdgeRouting.DIRECT && endpoints != null && graphLayerCoordinates != null) {
+                        val clippedRoute = if (state.routing == EdgeRouting.DIRECT && endpoints != null && graphLayerCoordinates != null) {
                             val (sourceNodeId, targetNodeId) = endpoints
                             val sourceCoords = nodeCoordinatesById[sourceNodeId]
                             val targetCoords = nodeCoordinatesById[targetNodeId]
@@ -1215,6 +1246,12 @@ private fun CompoundGraphLayoutViewContent(
                             }
                         } else {
                             route
+                        }
+
+                        val drawRoute = if (state.routing == EdgeRouting.DIRECT) {
+                            withEndGaps(clippedRoute, directEdgeEndGap.toPx().toDouble())
+                        } else {
+                            clippedRoute
                         }
 
                         val edgeContent = edgeContentById[edgeId]

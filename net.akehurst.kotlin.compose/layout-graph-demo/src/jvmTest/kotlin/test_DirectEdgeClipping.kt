@@ -27,7 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * DIRECT edges must start and end on the drawn border of their nodes, not inside them,
+ * DIRECT edges must start and end just outside the drawn border of their nodes, not inside them,
  * for wide nodes with two lines of text (bug: ends and arrowheads landed on the node's text).
  */
 @OptIn(ExperimentalTestApi::class)
@@ -104,9 +104,9 @@ class test_DirectEdgeClipping {
         val r = render(fill, name)
         val drawn = pixels(r.img, listOf(edgeColour, arrowColour))
         assertTrue(drawn.isNotEmpty(), "$name: no edges drawn")
-        // Nothing of an edge (line or arrowhead) is drawn inside a node, inside its 1dp border.
+        // Nothing of an edge (line or arrowhead) is drawn on or inside a node: ends stop a small gap before the border.
         r.nodes.forEach { (id, bounds) ->
-            val inside = drawn.filter { (x, y) -> bounds.contains(x, y, 2f) }
+            val inside = drawn.filter { (x, y) -> bounds.contains(x, y, -0.5f) }
             assertTrue(inside.isEmpty(), "$name: ${inside.size} edge pixels inside node $id at $bounds, e.g. ${inside.take(5)}")
         }
         // Every node has an edge end close to its border.
