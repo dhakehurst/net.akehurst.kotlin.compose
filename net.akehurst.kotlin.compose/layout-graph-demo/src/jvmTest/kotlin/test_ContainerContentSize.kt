@@ -81,7 +81,7 @@ class test_ContainerContentSize {
                 CompoundGraphLayoutView(s, GraphLayoutViewState(), { _, _ -> }, Modifier.fillMaxSize())
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         ImageIO.write(onNodeWithTag("root").captureToImage().toAwtImage(), "png", File(outDir, "$name.png"))
         val bounds: Map<String, Rect> = (leaves + containers).associateWith {
             onNodeWithTag("node-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

@@ -64,7 +64,7 @@ class test_DensityIndependence {
                     }
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             // Collapsed containers hide their children, so only look at nodes that are shown.
             result = tagged.nodes.mapNotNull { node ->
                 val found = onAllNodesWithTagSafe(node.id) ?: return@mapNotNull null

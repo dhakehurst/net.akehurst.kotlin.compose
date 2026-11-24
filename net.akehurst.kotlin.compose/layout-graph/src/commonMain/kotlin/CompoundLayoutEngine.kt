@@ -163,6 +163,12 @@ class CompoundLayoutEngine(
 
     private val boundaryEpsilon = 1e-6
 
+    /**
+     * Called between the layouts of the graphs inside a compound graph; it can throw (for example a
+     * CancellationException) to stop a layout that is no longer wanted.
+     */
+    internal var checkCancelled: () -> Unit = {}
+
     fun layout(
         state: GraphLayoutCompoundGraphState,
         containerMetricsByNodeId: Map<String, ContainerChildHostMetrics> = emptyMap(),
@@ -352,6 +358,7 @@ class CompoundLayoutEngine(
         /** Collects how far each port's own ports stick out of it (left, top, right, bottom). */
         borderFootprintsById: MutableMap<String, List<Double>>
     ): PlannedGraphLayout {
+        checkCancelled()
         val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
         // Only recurse into non-collapsed children; collapsed containers are treated as plain nodes.
         val childPlansById = graph.children.keys.sorted()

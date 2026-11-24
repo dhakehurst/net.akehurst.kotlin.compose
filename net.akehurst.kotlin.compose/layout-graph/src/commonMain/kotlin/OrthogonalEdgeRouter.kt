@@ -66,13 +66,14 @@ class OrthogonalEdgeRouter(
         val nodesById = nodes.associateBy { it.id }
         val rectById = nodes.associate { it.id to Rect(it.x, it.y, it.x + it.width, it.y + it.height) }
 
-        fun ancestors(id: String): Set<String> {
+        val ancestorsById = mutableMapOf<String, Set<String>>()
+        fun ancestors(id: String): Set<String> = ancestorsById.getOrPut(id) {
             val result = mutableSetOf<String>()
             var current = nodesById[id]?.containerId
             while (current != null && result.add(current)) {
                 current = nodesById[current]?.containerId
             }
-            return result
+            result
         }
 
         // The direction an edge leaves a border node in, or null for an ordinary node.
@@ -90,6 +91,7 @@ class OrthogonalEdgeRouter(
         }
 
         val routes = mutableMapOf<String, List<Pair<Double, Double>>>()
+        val scratch = SearchScratch()
         edges.sortedBy { it.id }.forEach { edge ->
             val source = rectById[edge.sourceId] ?: return@forEach
             val target = rectById[edge.targetId] ?: return@forEach
@@ -131,7 +133,8 @@ class OrthogonalEdgeRouter(
                 source, target, obstacles, bands,
                 sourceNested.contains(edge.targetId) || targetNested.contains(edge.sourceId),
                 exitDirection(edge.sourceId, edge.targetId), exitDirection(edge.targetId, edge.sourceId),
-                confine
+                confine,
+                scratch
             )
             routes[edge.id] = path
         }
@@ -144,11 +147,43 @@ class OrthogonalEdgeRouter(
         return listOf(x1 to r.top, x1 to r.top - d, r.right + d to r.top - d, r.right + d to r.top + r.height() / 4, r.right to r.top + r.height() / 4)
     }
 
+    /**
+     * The fewest bends from a point heading in [dir] to a point ([dx], [dy]) away, with nothing in the way
+     * and no turning back on the spot.
+     */
+    private fun minBends(dx: Double, dy: Double, dir: Int): Int {
+        // ahead: along dir; side: across it
+        val ahead = dx * dxs[dir] + dy * dys[dir]
+        val side = abs(dx * dys[dir] - dy * dxs[dir])
+        val onLine = side < eps
+        return when {
+            onLine && ahead > -eps -> 0 // straight ahead, or there
+            !onLine && ahead > -eps -> 1
+            !onLine -> 2
+            else -> 3 // straight behind
+        }
+    }
+
+    /** Arrays for the searches of one [route] call, grown as needed and reused from edge to edge. */
+    private class SearchScratch {
+        var stamps = IntArray(0)
+        var dist = DoubleArray(0)
+        var prev = IntArray(0)
+        private var current = 0
+
+        /** Starts a search over [size] states; returns its stamp. */
+        fun begin(size: Int): Int {
+            if (stamps.size < size) {
+                stamps = IntArray(size); dist = DoubleArray(size); prev = IntArray(size); current = 0
+            }
+            return ++current
+        }
+    }
+
     private fun Rect.width() = right - left
     private fun Rect.height() = bottom - top
 
     // direction: 0 = +x, 1 = +y, 2 = -x, 3 = -y
-    private data class State(val xi: Int, val yi: Int, val dir: Int)
 
     private val dxs = intArrayOf(1, 0, -1, 0)
     private val dys = intArrayOf(0, 1, 0, -1)
@@ -174,7 +209,8 @@ class OrthogonalEdgeRouter(
         source: Rect, target: Rect, obstacles: List<Rect>, bands: List<Pair<Rect, Rect>>, nested: Boolean,
         sourceDir: Int? = null, targetDir: Int? = null,
         /** When given, the route may not leave this rectangle. */
-        confine: Rect? = null
+        confine: Rect? = null,
+        scratch: SearchScratch = SearchScratch()
     ): List<Pair<Double, Double>> {
         val inflated = obstacles.map { it.inflate(margin) }
         val xs = mutableSetOf<Double>()
@@ -214,11 +250,25 @@ class OrthogonalEdgeRouter(
 
         fun outsideConfine(x: Double, y: Double) =
             confine != null && (x < confine.left - eps || x > confine.right + eps || y < confine.top - eps || y > confine.bottom + eps)
-        fun blockedPoint(x: Double, y: Double) = outsideConfine(x, y) || inflated.any { it.containsStrict(x, y, eps) }
-        fun blockedSegment(x1: Double, y1: Double, x2: Double, y2: Double): Boolean {
-            val mx = (x1 + x2) / 2.0
-            val my = (y1 + y2) / 2.0
-            return blockedPoint(mx, my) || blockedPoint(x1, y1) || blockedPoint(x2, y2)
+        // Which grid points, and which midpoints of grid segments, are strictly inside an obstacle: worked out
+        // once per search, a rectangle at a time, instead of testing every obstacle at every step.
+        val xMid = DoubleArray(max(0, xList.size - 1)) { (xList[it] + xList[it + 1]) / 2.0 }
+        val yMid = DoubleArray(max(0, yList.size - 1)) { (yList[it] + yList[it + 1]) / 2.0 }
+        val xArr = xList.toDoubleArray()
+        val yArr = yList.toDoubleArray()
+        val pointInObstacle = insideAnyObstacle(inflated, xArr, yArr)
+        val hMidInObstacle = insideAnyObstacle(inflated, xMid, yArr) // (x_i + x_i+1) / 2, y_j
+        val vMidInObstacle = insideAnyObstacle(inflated, xArr, yMid) // x_i, (y_j + y_j+1) / 2
+        fun blockedGridPoint(xi: Int, yi: Int) = outsideConfine(xArr[xi], yArr[yi]) || pointInObstacle[xi * yArr.size + yi]
+        fun blockedSegment(xi1: Int, yi1: Int, xi2: Int, yi2: Int): Boolean {
+            val midBlocked = if (yi1 == yi2) {
+                val i = min(xi1, xi2)
+                outsideConfine(xMid[i], yArr[yi1]) || hMidInObstacle[i * yArr.size + yi1]
+            } else {
+                val j = min(yi1, yi2)
+                outsideConfine(xArr[xi1], yMid[j]) || vMidInObstacle[xi1 * yMid.size + j]
+            }
+            return midBlocked || blockedGridPoint(xi1, yi1) || blockedGridPoint(xi2, yi2)
         }
 
         val sx = xList.indexOf(startPoint.first)
@@ -229,30 +279,51 @@ class OrthogonalEdgeRouter(
         val arrivalDir = targetDir?.let { (it + 2) % 4 }
 
         // Dijkstra over (grid point, direction); cost = length + bendCost per turn.
-        val dist = HashMap<State, Double>()
-        val prev = HashMap<State, State>()
-        val queue = MinQueue<State>()
+        // A state is the index (xi * ny + yi) * 4 + dir.
+        val ny = yList.size
+        val stateCount = xList.size * ny * 4
+        // Reused from edge to edge: a state's dist and prev count only when its stamp is this search's.
+        val stamp = scratch.begin(stateCount)
+        val stamps = scratch.stamps
+        val distArr = scratch.dist
+        val prevArr = scratch.prev
+        fun dist(s: Int) = if (stamps[s] == stamp) distArr[s] else Double.MAX_VALUE
+        fun prev(s: Int) = if (stamps[s] == stamp) prevArr[s] else -1
+        fun set(s: Int, d: Double, p: Int) { stamps[s] = stamp; distArr[s] = d; prevArr[s] = p }
+        val queue = IntMinQueue()
+        // A*: every step costs at least its length, so the remaining straight-line (Manhattan) distance
+        // never overestimates; the route found is as cheap as with plain Dijkstra, with far fewer states visited.
+        val ex = xArr[tx]
+        val ey = yArr[ty]
+        fun h(xi: Int, yi: Int): Double = abs(xArr[xi] - ex) + abs(yArr[yi] - ey)
+        // Plus the fewest bends to the end point with nothing in the way, which is also never too many.
+        fun hBends(xi: Int, yi: Int, dir: Int): Double = bendCost * minBends(ex - xArr[xi], ey - yArr[yi], dir)
         for (d in 0..3) {
             if (sourceDir != null && d != sourceDir) continue
-            val s = State(sx, sy, d)
-            dist[s] = 0.0
-            queue.add(0.0, s)
+            val s = (sx * ny + sy) * 4 + d
+            set(s, 0.0, -1)
+            queue.add(h(sx, sy) + hBends(sx, sy, d), 0.0, s)
         }
-        var end: State? = null
+        var end = -1
         while (queue.isNotEmpty()) {
-            val (cost, state) = queue.poll()
-            if (cost > (dist[state] ?: Double.MAX_VALUE) + eps) continue
-            if (state.xi == tx && state.yi == ty && (arrivalDir == null || state.dir == arrivalDir)) {
+            val key = queue.peekCost()
+            val state = queue.poll()
+            val dir = state % 4
+            val xi = state / 4 / ny
+            val yi = state / 4 % ny
+            val cost = dist(state)
+            if (key > cost + h(xi, yi) + hBends(xi, yi, dir) + eps) continue
+            if (xi == tx && yi == ty && (arrivalDir == null || dir == arrivalDir)) {
                 end = state; break
             }
             for (nd in 0..3) {
-                if (nd == (state.dir + 2) % 4) continue
-                val nxi = state.xi + if (nd == 0) 1 else if (nd == 2) -1 else 0
-                val nyi = state.yi + if (nd == 1) 1 else if (nd == 3) -1 else 0
+                if (nd == (dir + 2) % 4) continue
+                val nxi = xi + if (nd == 0) 1 else if (nd == 2) -1 else 0
+                val nyi = yi + if (nd == 1) 1 else if (nd == 3) -1 else 0
                 if (nxi !in xList.indices || nyi !in yList.indices) continue
-                val x1 = xList[state.xi]; val y1 = yList[state.yi]
-                val x2 = xList[nxi]; val y2 = yList[nyi]
-                if (blockedSegment(x1, y1, x2, y2)) continue
+                val x1 = xArr[xi]; val y1 = yArr[yi]
+                val x2 = xArr[nxi]; val y2 = yArr[nyi]
+                if (blockedSegment(xi, yi, nxi, nyi)) continue
                 // Only cross the source on the way out, and the target on the way in.
                 if (!nested) {
                     val reentersSource = source.containsStrict(x2, y2, eps) && !source.containsStrict(x1, y1, eps)
@@ -264,29 +335,75 @@ class OrthogonalEdgeRouter(
                 val length = abs(x2 - x1) + abs(y2 - y1)
                 // Crossing a band is fine; running along it is expensive.
                 val step = length + lengthAlongBands(x1, y1, x2, y2) * (bandCostFactor - 1.0)
-                val turn = if (nd != state.dir) bendCost else 0.0
-                val next = State(nxi, nyi, nd)
+                val turn = if (nd != dir) bendCost else 0.0
+                val next = (nxi * ny + nyi) * 4 + nd
                 val nc = cost + step + turn
-                if (nc + eps < (dist[next] ?: Double.MAX_VALUE)) {
-                    dist[next] = nc
-                    prev[next] = state
-                    queue.add(nc, next)
+                if (nc + eps < dist(next)) {
+                    set(next, nc, state)
+                    queue.add(nc + h(nxi, nyi) + hBends(nxi, nyi, nd), nc, next)
                 }
             }
         }
-        if (end == null) {
+        if (end < 0) {
             // No free path: fall back to a single bend.
             val fallback = listOf(startPoint, endPoint.first to startPoint.second, endPoint)
             return clipEnds(fallback, source, target, sourceDir, targetDir)
         }
         val points = mutableListOf<Pair<Double, Double>>()
-        var cur: State? = end
-        while (cur != null) {
-            points.add(xList[cur.xi] to yList[cur.yi])
-            cur = prev[cur]
+        var cur = end
+        while (cur >= 0) {
+            points.add(xArr[cur / 4 / ny] to yArr[cur / 4 % ny])
+            cur = prev(cur)
         }
         points.reverse()
         return clipEnds(simplify(points), source, target, sourceDir, targetDir)
+    }
+
+    /**
+     * For each (x, y) with x from [xs] and y from [ys] (both ascending), whether it is strictly inside
+     * (by more than eps) any of [rects]; indexed x * ys.size + y. Uses a 2D difference array, so each
+     * rectangle costs two binary searches per axis.
+     */
+    private fun insideAnyObstacle(rects: List<Rect>, xs: DoubleArray, ys: DoubleArray): BooleanArray {
+        val nx = xs.size
+        val ny = ys.size
+        if (nx == 0 || ny == 0) return BooleanArray(0)
+        val diff = IntArray((nx + 1) * (ny + 1))
+        val w = ny + 1
+        rects.forEach { r ->
+            val x0 = firstIndex(xs) { it > r.left + eps }
+            val x1 = firstIndex(xs) { it >= r.right - eps } // exclusive
+            val y0 = firstIndex(ys) { it > r.top + eps }
+            val y1 = firstIndex(ys) { it >= r.bottom - eps }
+            if (x0 < x1 && y0 < y1) {
+                diff[x0 * w + y0]++
+                diff[x0 * w + y1]--
+                diff[x1 * w + y0]--
+                diff[x1 * w + y1]++
+            }
+        }
+        val result = BooleanArray(nx * ny)
+        val acc = IntArray((nx + 1) * (ny + 1))
+        for (i in 0 until nx) for (j in 0 until ny) {
+            val v = diff[i * w + j] +
+                (if (i > 0) acc[(i - 1) * w + j] else 0) +
+                (if (j > 0) acc[i * w + j - 1] else 0) -
+                (if (i > 0 && j > 0) acc[(i - 1) * w + j - 1] else 0)
+            acc[i * w + j] = v
+            result[i * ny + j] = v > 0
+        }
+        return result
+    }
+
+    /** The first index in ascending [values] where [predicate] holds (it must stay true after), or values.size. */
+    private inline fun firstIndex(values: DoubleArray, predicate: (Double) -> Boolean): Int {
+        var lo = 0
+        var hi = values.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (predicate(values[mid])) hi = mid else lo = mid + 1
+        }
+        return lo
     }
 
     private fun offCentreInside(r: Rect, x1: Double, y1: Double, x2: Double, y2: Double): Boolean {
@@ -413,43 +530,60 @@ class OrthogonalEdgeRouter(
     }
 }
 
-/** Small deterministic priority queue (cost, then insertion order). */
-private class MinQueue<T : Any> {
-    private data class Entry<T>(val cost: Double, val seq: Long, val state: T)
-
-    private val heap = ArrayList<Entry<T>>()
+/**
+ * Small deterministic priority queue of ints: lowest cost first; among equal costs the one with the smaller
+ * [tie] (the cost so far, so that among equally cheap routes the search mostly picks the one a plain
+ * Dijkstra search picked before A* was used), then insertion order.
+ */
+private class IntMinQueue {
+    private var costs = DoubleArray(64)
+    private var ties = DoubleArray(64)
+    private var seqs = LongArray(64)
+    private var items = IntArray(64)
+    private var size = 0
     private var seq = 0L
 
-    fun isNotEmpty() = heap.isNotEmpty()
+    fun isNotEmpty() = size > 0
 
-    fun add(cost: Double, state: T) {
-        heap.add(Entry(cost, seq++, state))
-        var i = heap.lastIndex
+    fun peekCost(): Double = costs[0]
+
+    fun add(cost: Double, tie: Double, item: Int) {
+        if (size == items.size) {
+            costs = costs.copyOf(size * 2); ties = ties.copyOf(size * 2); seqs = seqs.copyOf(size * 2); items = items.copyOf(size * 2)
+        }
+        var i = size++
+        costs[i] = cost; ties[i] = tie; seqs[i] = seq++; items[i] = item
         while (i > 0) {
             val p = (i - 1) / 2
-            if (less(heap[i], heap[p])) {
-                val t = heap[i]; heap[i] = heap[p]; heap[p] = t; i = p
-            } else break
+            if (less(i, p)) { swap(i, p); i = p } else break
         }
     }
 
-    fun poll(): Pair<Double, T> {
-        val top = heap[0]
-        val last = heap.removeAt(heap.lastIndex)
-        if (heap.isNotEmpty()) {
-            heap[0] = last
+    fun poll(): Int {
+        val top = items[0]
+        size--
+        if (size > 0) {
+            costs[0] = costs[size]; ties[0] = ties[size]; seqs[0] = seqs[size]; items[0] = items[size]
             var i = 0
             while (true) {
                 val l = 2 * i + 1; val r = l + 1
                 var m = i
-                if (l < heap.size && less(heap[l], heap[m])) m = l
-                if (r < heap.size && less(heap[r], heap[m])) m = r
+                if (l < size && less(l, m)) m = l
+                if (r < size && less(r, m)) m = r
                 if (m == i) break
-                val t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m
+                swap(i, m); i = m
             }
         }
-        return top.cost to top.state
+        return top
     }
 
-    private fun less(a: Entry<T>, b: Entry<T>) = a.cost < b.cost || (a.cost == b.cost && a.seq < b.seq)
+    private fun less(a: Int, b: Int) = costs[a] < costs[b] ||
+        (costs[a] == costs[b] && (ties[a] < ties[b] || (ties[a] == ties[b] && seqs[a] < seqs[b])))
+
+    private fun swap(a: Int, b: Int) {
+        val c = costs[a]; costs[a] = costs[b]; costs[b] = c
+        val t2 = ties[a]; ties[a] = ties[b]; ties[b] = t2
+        val s = seqs[a]; seqs[a] = seqs[b]; seqs[b] = s
+        val t = items[a]; items[a] = items[b]; items[b] = t
+    }
 }

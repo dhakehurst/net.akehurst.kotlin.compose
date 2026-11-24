@@ -72,7 +72,7 @@ class test_BusRouting {
                     CompoundGraphLayoutView(s, GraphLayoutViewState(zoom = 1f, offset = Offset(20f, 20f)), { _, _ -> }, Modifier.fillMaxSize())
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             img = onNodeWithTag("root").captureToImage().toAwtImage()
             ImageIO.write(img, "png", File(outDir, "$name.png"))
         }

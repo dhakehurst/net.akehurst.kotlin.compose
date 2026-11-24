@@ -88,13 +88,13 @@ class test_ContainerExpandEdges {
                     )
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             if (toggle || bumpKey) {
                 runOnIdle {
                     if (toggle) s.toggleCollapsed("c")
                     layoutKey++
                 }
-                waitForIdle()
+                waitForGraphLayout()
             }
             val img = onNodeWithTag("root").captureToImage().toAwtImage()
             ImageIO.write(img, "png", File(outDir, "$name.png"))

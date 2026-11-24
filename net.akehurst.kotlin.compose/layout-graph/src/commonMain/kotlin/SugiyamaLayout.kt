@@ -74,6 +74,11 @@ class SugiyamaLayout<NT : Any>(
     private val horizontalPull: (NT) -> Double = { 0.0 }
 ) {
 
+    private companion object {
+        /** Upper bound on the transpose passes after each sweep; a pass that swaps nothing ends them earlier. */
+        const val MAX_TRANSPOSE_PASSES = 100
+    }
+
     private var dummyIdCounter = 0
     private fun nextDummyId(): String = "dummy_${dummyIdCounter++}"
 
@@ -223,6 +228,7 @@ class SugiyamaLayout<NT : Any>(
         val layers = mutableMapOf<NT, Int>() //Node -> Layer
         val inDegree = nodes.associateWith { 0 }.toMutableMap()
         edges.forEach { inDegree[it.finish] = inDegree.getValue(it.finish) + 1 }
+        val outEdges = edges.groupBy { it.start }
 
         val queueNodes = ArrayDeque<NT>()
         nodes.filter { inDegree[it] == 0 }.forEach {
@@ -232,7 +238,7 @@ class SugiyamaLayout<NT : Any>(
 
         while (queueNodes.isNotEmpty()) {
             val u = queueNodes.removeFirst()
-            edges.filter { it.start == u }.forEach { edge ->
+            outEdges[u].orEmpty().forEach { edge ->
                 val v = edge.finish
                 layers[v] = max(layers.getOrElse(v) { 0 }, layers.getValue(u) + 1)
                 inDegree[v] = inDegree.getValue(v) - 1
@@ -250,7 +256,7 @@ class SugiyamaLayout<NT : Any>(
                     layers[node] = 0
                     while (qNodes.isNotEmpty()) {
                         val u = qNodes.removeFirst()
-                        edges.filter { it.start == u }.forEach { edge ->
+                        outEdges[u].orEmpty().forEach { edge ->
                             val v = edge.finish
                             if (v !in layers) {
                                 layers[v] = layers.getValue(u) + 1
@@ -295,18 +301,47 @@ class SugiyamaLayout<NT : Any>(
     }
 
     /**
+     * Edges between two adjacent layers, grouped once per [layoutGraph] call.
+     * [between] has one entry per pair of adjacent layers: entry i holds the edges from layer i to layer i + 1.
+     * [upper] and [lower] give, for each node, the other end of each of its edges into the layer above and below
+     * (one entry per edge, so parallel edges count more than once).
+     */
+    private class LayerEdges<NT : Any>(
+        val between: List<List<SEdge<NT>>>,
+        val upper: Map<SNode<NT>, List<SNode<NT>>>,
+        val lower: Map<SNode<NT>, List<SNode<NT>>>
+    )
+
+    private fun groupEdgesByLayerPair(layeredNodes: List<MutableList<SNode<NT>>>, edges: List<SEdge<NT>>): LayerEdges<NT> {
+        val between = List(max(0, layeredNodes.size - 1)) { mutableListOf<SEdge<NT>>() }
+        val upper = mutableMapOf<SNode<NT>, MutableList<SNode<NT>>>()
+        val lower = mutableMapOf<SNode<NT>, MutableList<SNode<NT>>>()
+        edges.forEach { edge ->
+            val i = edge.from.layer
+            // Only edges from a layer to the next one take part in crossings (as in counting them).
+            if (edge.to.layer == i + 1 && i >= 0 && i < between.size) {
+                between[i].add(edge)
+                lower.getOrPut(edge.from) { mutableListOf() }.add(edge.to)
+                upper.getOrPut(edge.to) { mutableListOf() }.add(edge.from)
+            }
+        }
+        return LayerEdges(between, upper, lower)
+    }
+
+    /**
      * Step 4: Improved crossing reduction using multiple heuristics.
      */
     private fun reduceCrossingsImproved(layeredNodes: List<MutableList<SNode<NT>>>, edges: List<SEdge<NT>>) {
         val adj = edges.groupBy { it.from.id }
         val revAdj = edges.groupBy { it.to.id }
         val nodeMap = layeredNodes.flatten().associateBy { it.id }
+        val layerEdges = groupEdgesByLayerPair(layeredNodes, edges)
 
         layeredNodes.forEach { layer ->
             layer.forEachIndexed { index, node -> node.posInLayer = index }
         }
 
-        var bestCrossings = countCrossings(layeredNodes, edges)
+        var bestCrossings = countCrossings(layeredNodes, layerEdges)
         var noImprovementCount = 0
         val maxNoImprovement = 5
         val maxIterations = 24
@@ -337,13 +372,14 @@ class SugiyamaLayout<NT : Any>(
                 layer.forEachIndexed { index, node -> node.posInLayer = index }
             }
 
-            // Apply transpose optimization
-            var improved = true
-            while (improved) {
-                improved = applyTranspose(layeredNodes, edges)
+            // Apply transpose optimization. Every pass that swaps removes at least one crossing, so this ends;
+            // the cap only bounds the time for very large layers.
+            var passes = 0
+            while (passes < MAX_TRANSPOSE_PASSES && applyTranspose(layeredNodes, layerEdges)) {
+                passes++
             }
 
-            val currentCrossings = countCrossings(layeredNodes, edges)
+            val currentCrossings = countCrossings(layeredNodes, layerEdges)
             if (currentCrossings < bestCrossings) {
                 bestCrossings = currentCrossings
                 noImprovementCount = 0
@@ -404,27 +440,26 @@ class SugiyamaLayout<NT : Any>(
 
     /**
      * Applies transpose optimization: swaps adjacent nodes if it reduces crossings.
+     *
+     * Swapping two adjacent nodes u, v only changes the crossings between an edge of u and an edge of v
+     * (Gansner et al., "A technique for drawing directed graphs"), so the swap is decided from those:
+     * it is made when c(v, u) < c(u, v), counted with the layers above and below. That is the same as
+     * comparing the crossings of the whole graph before and after the swap.
      */
-    private fun applyTranspose(layeredNodes: List<MutableList<SNode<NT>>>, edges: List<SEdge<NT>>): Boolean {
+    private fun applyTranspose(layeredNodes: List<MutableList<SNode<NT>>>, layerEdges: LayerEdges<NT>): Boolean {
         var improved = false
         for (layer in layeredNodes) {
             for (i in 0 until layer.size - 1) {
-                val before = countCrossings(layeredNodes, edges)
-                // Swap adjacent nodes
-                val temp = layer[i]
-                layer[i] = layer[i + 1]
-                layer[i + 1] = temp
-                layer.forEachIndexed { index, node -> node.posInLayer = index }
-
-                val after = countCrossings(layeredNodes, edges)
-                if (after < before) {
+                val u = layer[i]
+                val v = layer[i + 1]
+                val (upperUV, upperVU) = pairCrossings(layerEdges.upper[u], layerEdges.upper[v])
+                val (lowerUV, lowerVU) = pairCrossings(layerEdges.lower[u], layerEdges.lower[v])
+                if (upperVU + lowerVU < upperUV + lowerUV) {
+                    layer[i] = v
+                    layer[i + 1] = u
+                    v.posInLayer = i
+                    u.posInLayer = i + 1
                     improved = true
-                } else {
-                    // Swap back
-                    val temp2 = layer[i]
-                    layer[i] = layer[i + 1]
-                    layer[i + 1] = temp2
-                    layer.forEachIndexed { index, node -> node.posInLayer = index }
                 }
             }
         }
@@ -432,47 +467,67 @@ class SugiyamaLayout<NT : Any>(
     }
 
     /**
+     * For nodes u, v next to each other in a layer (u on the left), with neighbours [uNeighbours] and [vNeighbours]
+     * in one adjacent layer: the crossings between u's and v's edges as they are (first) and with u and v swapped (second).
+     * Edges that end at the same neighbour do not cross either way.
+     */
+    private fun pairCrossings(uNeighbours: List<SNode<NT>>?, vNeighbours: List<SNode<NT>>?): Pair<Int, Int> {
+        if (uNeighbours.isNullOrEmpty() || vNeighbours.isNullOrEmpty()) return 0 to 0
+        val a = IntArray(uNeighbours.size) { uNeighbours[it].posInLayer }.also { it.sort() }
+        val b = IntArray(vNeighbours.size) { vNeighbours[it].posInLayer }.also { it.sort() }
+        var asIs = 0L // pairs with a > b
+        var swapped = 0L // pairs with a < b
+        var lessThan = 0 // number of b < current a
+        var lessOrEqual = 0 // number of b <= current a
+        for (x in a) {
+            while (lessThan < b.size && b[lessThan] < x) lessThan++
+            if (lessOrEqual < lessThan) lessOrEqual = lessThan
+            while (lessOrEqual < b.size && b[lessOrEqual] <= x) lessOrEqual++
+            asIs += lessThan
+            swapped += b.size - lessOrEqual
+        }
+        return asIs.toInt() to swapped.toInt()
+    }
+
+    /**
      * Counts the total number of edge crossings.
      */
-    private fun countCrossings(layeredNodes: List<MutableList<SNode<NT>>>, edges: List<SEdge<NT>>): Int {
+    private fun countCrossings(layeredNodes: List<MutableList<SNode<NT>>>, layerEdges: LayerEdges<NT>): Int {
         var crossings = 0
         for (i in 0 until layeredNodes.size - 1) {
-            val upperLayer = layeredNodes[i]
-            val lowerLayer = layeredNodes[i + 1]
-            val edgesBetween = edges.filter { edge ->
-                edge.from.layer == i && edge.to.layer == i + 1
-            }
-            crossings += countCrossingsBetweenLayers(edgesBetween, upperLayer, lowerLayer)
+            crossings += countCrossingsBetweenLayers(layerEdges.between[i], layeredNodes[i + 1].size)
         }
         return crossings
     }
 
     /**
-     * Counts crossings between two adjacent layers.
+     * Counts crossings between two adjacent layers in O(E log V)
+     * (Barth, Juenger, Mutzel, "Simple and efficient bilayer cross counting"):
+     * with the edges sorted by their upper end and then their lower end, two edges cross when the later one
+     * ends strictly left of the earlier one in the lower layer.
      */
-    private fun countCrossingsBetweenLayers(
-        edges: List<SEdge<NT>>,
-        upperLayer: List<SNode<NT>>,
-        lowerLayer: List<SNode<NT>>
-    ): Int {
-        var crossings = 0
-        for (i in edges.indices) {
-            for (j in i + 1 until edges.size) {
-                val e1 = edges[i]
-                val e2 = edges[j]
-                val e1FromPos = e1.from.posInLayer
-                val e1ToPos = e1.to.posInLayer
-                val e2FromPos = e2.from.posInLayer
-                val e2ToPos = e2.to.posInLayer
-
-                // Check if edges cross
-                if ((e1FromPos < e2FromPos && e1ToPos > e2ToPos) ||
-                    (e1FromPos > e2FromPos && e1ToPos < e2ToPos)) {
-                    crossings++
-                }
+    private fun countCrossingsBetweenLayers(edges: List<SEdge<NT>>, lowerLayerSize: Int): Int {
+        if (edges.size < 2) return 0
+        val sorted = edges.sortedWith(compareBy<SEdge<NT>>({ it.from.posInLayer }, { it.to.posInLayer }))
+        // Fenwick tree over the positions in the lower layer: how many edges seen so far end at each position.
+        val size = max(lowerLayerSize, sorted.maxOf { it.to.posInLayer } + 1)
+        val tree = IntArray(size + 1)
+        var crossings = 0L
+        sorted.forEachIndexed { seen, edge ->
+            val pos = edge.to.posInLayer
+            // edges seen so far that end at or left of pos
+            var atOrLeft = 0
+            var k = pos + 1
+            while (k > 0) {
+                atOrLeft += tree[k]; k -= k and -k
+            }
+            crossings += seen - atOrLeft
+            k = pos + 1
+            while (k <= size) {
+                tree[k]++; k += k and -k
             }
         }
-        return crossings
+        return crossings.toInt()
     }
 
     private fun computeNodeBorderIntersection(
@@ -1159,8 +1214,9 @@ class SugiyamaLayout<NT : Any>(
         val finalEdgeRoutes = mutableMapOf<SugiyamaEdge<NT>, List<Pair<Double, Double>>>()
 
         // Add routes for regular edges (including reversed ones)
+        val reversedEdgeSet = reversedEdges.toSet()
         originalEdges.forEach { edge ->
-            if (edge in reversedEdges) {
+            if (edge in reversedEdgeSet) {
                 val reversed = SugiyamaEdge<NT>(edge.id,edge.finish, edge.start)
                 acyclicEdgeRoutes[reversed]?.let { finalEdgeRoutes[edge] = it.reversed() }
             } else {

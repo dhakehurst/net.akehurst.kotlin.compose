@@ -80,7 +80,7 @@ class test_DashedEdges {
                     CompoundGraphLayoutView(s, GraphLayoutViewState(), { _, _ -> }, Modifier.fillMaxSize())
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             val img = onNodeWithTag("root").captureToImage().toAwtImage()
             ImageIO.write(img, "png", File(outDir, "${routing.name.lowercase()}_$name.png"))
             val bounds = { tag: String -> onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }

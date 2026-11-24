@@ -71,7 +71,7 @@ class test_EdgeLabels {
                 CompoundGraphLayoutView(s, GraphLayoutViewState(), { _, _ -> }, Modifier.fillMaxSize())
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         ImageIO.write(
             onNodeWithTag("root").captureToImage().toAwtImage(), "png",
             File(outDir, "${routing.name.lowercase()}_$targets.png")

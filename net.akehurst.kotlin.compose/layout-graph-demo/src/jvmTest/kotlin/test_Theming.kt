@@ -61,7 +61,7 @@ class test_Theming {
                 )
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         val img = onNodeWithTag("root").captureToImage().toAwtImage()
         ImageIO.write(img, "png", File(outDir, "dark_lines.png"))
         assertTrue(countColour(img, viewLine) > 20, "no pixels in the view's line colour")
@@ -80,7 +80,7 @@ class test_Theming {
                     colors = CompoundGraphLayoutColors(error = error))
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         val img = onNodeWithTag("root").captureToImage().toAwtImage()
         assertTrue(countColour(img, error) > 20, "placeholder border not in the error colour")
     }
@@ -97,7 +97,7 @@ class test_Theming {
                 )
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         val img = onNodeWithTag("root").captureToImage().toAwtImage()
         ImageIO.write(img, "png", File(outDir, "fit_and_centre.png"))
         assertTrue(viewState.zoom < 1f, "a graph bigger than the view should be zoomed out, zoom=${viewState.zoom}")
@@ -118,7 +118,7 @@ class test_Theming {
                 )
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
         assertEquals(1f, viewState.zoom)
         assertTrue(viewState.offset.x > 100f && viewState.offset.y > 100f, "graph not moved towards the centre: ${viewState.offset}")
     }

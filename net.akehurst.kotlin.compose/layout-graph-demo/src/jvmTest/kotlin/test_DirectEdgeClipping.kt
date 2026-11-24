@@ -81,7 +81,7 @@ class test_DirectEdgeClipping {
                     CompoundGraphLayoutView(s, GraphLayoutViewState(zoom = 1f, offset = Offset(20f, 20f)), { _, _ -> }, Modifier.fillMaxSize())
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             val img = onNodeWithTag("root").captureToImage().toAwtImage()
             ImageIO.write(img, "png", File(outDir, "$name.png"))
             val nodes = nodeIds.associateWith { onNodeWithTag("node-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }

@@ -42,7 +42,7 @@ class test_ContainerPadding {
                 )
             }
         }
-        waitForIdle()
+        waitForGraphLayout()
 
         val padding = 20f * density.density
         val container = onNodeWithTag("Container1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

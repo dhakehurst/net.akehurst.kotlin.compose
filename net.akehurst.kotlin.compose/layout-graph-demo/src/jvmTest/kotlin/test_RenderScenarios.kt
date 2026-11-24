@@ -74,7 +74,7 @@ class test_RenderScenarios {
                     }
                     }
                 }
-                waitForIdle()
+                waitForGraphLayout()
                 val image = onNodeWithTag("root").captureToImage()
                 val name = "%02d_%s.png".format(index + 1, scenario.id)
                 ImageIO.write(image.toAwtImage(), "png", File(dir, name))

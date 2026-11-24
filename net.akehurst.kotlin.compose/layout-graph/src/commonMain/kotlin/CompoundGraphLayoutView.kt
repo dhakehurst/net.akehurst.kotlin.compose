@@ -37,6 +37,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -670,8 +675,10 @@ private fun NodeContent(
         }
         // Sample on the next frame so the coordinate pair is attached before measuring.
         // A new onChildHostMeasured (new state id or layout key) starts with no metrics, so they are
-        // reported again, although the coordinates are the same objects as before.
-        LaunchedEffect(containerCoordinates, childHostCoordinates, onChildHostMeasured) {
+        // reported again, although the coordinates are the same objects as before. They are also reported
+        // again for each new layout: the layout runs in the background, so a new layout key can be reported
+        // from the previous layout (for example of the collapsed container) while the new one is computed.
+        LaunchedEffect(containerCoordinates, childHostCoordinates, onChildHostMeasured, layoutResult) {
             val containerCoords = containerCoordinates
             val hostCoords = childHostCoordinates
             if (containerCoords != null && hostCoords != null) {
@@ -824,6 +831,30 @@ internal fun zoomFactorFromScrollDelta(deltaY: Float, density: Float): Float {
     return exp(-boundedDelta * scrollZoomSensitivity)
 }
 
+/** Test tags set by [CompoundGraphLayoutView]. */
+object CompoundGraphLayoutViewTags {
+    /** On the view while a layout is being computed (the first one, or one after new measurements). */
+    const val LAYING_OUT = "CompoundGraphLayoutView.layingOut"
+}
+
+/** What a layout of one graph state is computed from; a change starts a new layout. */
+private data class LayoutInputs(
+    val layoutKey: Any,
+    val containerMetrics: Map<String, ContainerChildHostMetrics>,
+    val contentSizes: Map<String, Pair<Double, Double>>,
+    val density: Float,
+)
+
+/** A copy of what the layout engine reads, so the layout can run while the caller changes the graph. */
+private fun GraphLayoutCompoundGraphState.copyForLayout(): GraphLayoutCompoundGraphState =
+    GraphLayoutCompoundGraphState(id = id, routing = routing, root = root.copyForLayout())
+
+private fun GraphLayoutCompoundGraph.copyForLayout(): GraphLayoutCompoundGraph = copy(
+    nodes = nodes.toMutableMap(),
+    edges = edges.toMutableMap(),
+    children = children.mapValuesTo(mutableMapOf()) { (_, child) -> child.copyForLayout() },
+)
+
 /**
  * Renders a [GraphLayoutCompoundGraphState] using the [CompoundLayoutEngine].
  *
@@ -868,9 +899,14 @@ fun CompoundGraphLayoutView(
      * so lines and end symbols stop just short of the node.
      */
     directEdgeEndGap: Dp = DEFAULT_DIRECT_EDGE_END_GAP,
+    /**
+     * Shown, centred in the view, while the first layout of [state] is computed. The layout runs off the
+     * UI thread; later layouts (after measuring, or for a new [layoutKey]) keep the previous one on screen.
+     */
+    layingOutPlaceholder: @Composable () -> Unit = {},
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder)
     }
 }
 
@@ -886,6 +922,7 @@ private fun CompoundGraphLayoutViewContent(
     initialView: InitialViewPlacement,
     avoidLabelOverlap: Boolean,
     directEdgeEndGap: Dp,
+    layingOutPlaceholder: @Composable () -> Unit,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -898,16 +935,36 @@ private fun CompoundGraphLayoutViewContent(
     // The engine works in dp. Everything measured here is in pixels, so convert on the way in,
     // and convert the result back to pixels for placing and drawing.
     val density = LocalDensity.current.density
-    val layoutResult = remember(state.id, layoutKey, measuredContainerMetrics, measuredContentSizes, density) {
-        val pxToDp = 1.0 / density
-        // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
-        // tiny differences can tip layout choices (for example which side an edge is routed on).
-        // Leaf sizes round up so content always fits.
-        CompoundLayoutEngine().layout(
-            state,
-            measuredContainerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
-            measuredContentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
-        ).scaledBy(density.toDouble())
+    // The layout is computed off the UI thread (it can take a while for large graphs). Until a new one is
+    // ready, the previous layout of this graph stays on screen; before the first one, [layingOutPlaceholder].
+    val layoutInputs = LayoutInputs(layoutKey, measuredContainerMetrics, measuredContentSizes, density)
+    var computedLayout by remember(state.id) { mutableStateOf<Pair<LayoutInputs, CompoundLayoutResult>?>(null) }
+    LaunchedEffect(state.id, layoutInputs) {
+        // Copied here, on the UI thread, so the caller can change the graph while the layout runs.
+        val snapshot = state.copyForLayout()
+        val result = withContext(Dispatchers.Default) {
+            val job = coroutineContext.job
+            val pxToDp = 1.0 / density
+            // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
+            // tiny differences can tip layout choices (for example which side an edge is routed on).
+            // Leaf sizes round up so content always fits.
+            CompoundLayoutEngine().also { engine ->
+                // A layout superseded by newer measurements (or a new layout key) stops early.
+                engine.checkCancelled = { job.ensureActive() }
+            }.layout(
+                snapshot,
+                layoutInputs.containerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
+                layoutInputs.contentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
+            ).scaledBy(density.toDouble())
+        }
+        computedLayout = layoutInputs to result
+    }
+    val layoutPending = computedLayout?.first != layoutInputs
+    val layoutResult = computedLayout?.second ?: run {
+        Box(modifier = modifier.testTag(CompoundGraphLayoutViewTags.LAYING_OUT), contentAlignment = Alignment.Center) {
+            layingOutPlaceholder()
+        }
+        return
     }
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
@@ -1042,6 +1099,7 @@ private fun CompoundGraphLayoutViewContent(
 
     Box(
         modifier = modifier
+            .then(if (layoutPending) Modifier.testTag(CompoundGraphLayoutViewTags.LAYING_OUT) else Modifier)
             .clip(RectangleShape)
             .onSizeChanged { viewportSize = it }
             .pointerInput(Unit) {

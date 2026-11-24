@@ -93,7 +93,7 @@ class test_DirectEdgesFollowView {
                     }
                 }
             }
-            waitForIdle()
+            waitForGraphLayout()
             val img = onNodeWithTag("root").captureToImage().toAwtImage()
             ImageIO.write(img, "png", File(outDir, "${routing.name.lowercase()}_$name.png"))
             val nodes = listOf("c", "c_a", "c_b", "x", "d").associateWith {
