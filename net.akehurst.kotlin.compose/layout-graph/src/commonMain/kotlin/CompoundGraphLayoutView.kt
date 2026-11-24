@@ -46,6 +46,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -851,6 +853,8 @@ internal data class ShownPlacement(
     val minX: Double,
     val minY: Double,
     val viewState: GraphLayoutViewState,
+    val nodeAlpha: Map<String, Float> = emptyMap(),
+    val edgeAlpha: Map<String, Float> = emptyMap(),
 )
 
 private class ShownPlacementHolder {
@@ -862,6 +866,9 @@ private class ShownPlacementHolder {
  * [screen] is where the focus node's centre stays on the screen.
  */
 internal data class FocusPlacement(val from: GraphLayoutViewState, val to: GraphLayoutViewState, val screen: Offset)
+
+/** Longest a transition waits for the nodes of the new layout to be measured. */
+private const val MEASURE_WAIT_MILLIS = 1000L
 
 /** A transition from the layout drawn when a new one arrived. */
 private class RelayoutTransition(val from: CompoundLayoutResult) {
@@ -1063,11 +1070,27 @@ private fun CompoundGraphLayoutViewContent(
     // Transition from what is drawn to a new layout. A layout that arrives during a transition starts
     // from the positions drawn at that moment.
     val transition = remember(targetLayout) {
-        val previous = shownPlacement.last?.layout
+        // Nodes and edges that were (nearly) invisible, such as new ones waiting to be measured, are not
+        // carried into the next transition: there they fade in again instead of popping up.
+        val previous = shownPlacement.last?.let { last ->
+            val hiddenNodes = last.nodeAlpha.filterValues { it < 0.5f }.keys
+            val hiddenEdges = last.edgeAlpha.filterValues { it < 0.5f }.keys
+            if (hiddenNodes.isEmpty() && hiddenEdges.isEmpty()) last.layout else last.layout.copy(
+                nodeLayoutsById = last.layout.nodeLayoutsById - hiddenNodes,
+                edgeRoutesByEdgeId = last.layout.edgeRoutesByEdgeId - hiddenEdges,
+                edgeEndpointsByEdgeId = last.layout.edgeEndpointsByEdgeId - hiddenEdges,
+            )
+        }
         if (relayoutAnimationMillis > 0 && previous != null && previous !== targetLayout) RelayoutTransition(previous) else null
     }
+    // A layout made before its new nodes are measured is only a first guess (the measured one follows), so
+    // the transition waits, drawing where it starts, until every node of the new layout has been measured.
+    // The new nodes are composed meanwhile (invisible), which is what measures them.
+    val newNodesMeasured by rememberUpdatedState(targetLayout.nodeLayoutsById.keys.all { it in measuredContentSizes })
     LaunchedEffect(transition) {
-        transition?.progress?.animateTo(1f, tween(durationMillis = relayoutAnimationMillis, easing = FastOutSlowInEasing))
+        if (transition == null) return@LaunchedEffect
+        withTimeoutOrNull(MEASURE_WAIT_MILLIS) { snapshotFlow { newNodesMeasured }.first { it } }
+        transition.progress.animateTo(1f, tween(durationMillis = relayoutAnimationMillis, easing = FastOutSlowInEasing))
     }
     val drawn = transition?.let { interpolateLayouts(it.from, targetLayout, it.progress.value, focusNodeId) } ?: DrawnLayout(targetLayout)
     val animating = drawn.layout !== targetLayout
@@ -1186,7 +1209,7 @@ private fun CompoundGraphLayoutViewContent(
             )
         } ?: focusPlacement.to
     }
-    SideEffect { shownPlacement.last = ShownPlacement(layoutResult, minX, minY, drawnViewState) }
+    SideEffect { shownPlacement.last = ShownPlacement(layoutResult, minX, minY, drawnViewState, drawn.nodeAlpha, drawn.edgeAlpha) }
     LaunchedEffect(focusPlacement) {
         if (focusPlacement != null && focusPlacement.to != focusPlacement.from) updateView(focusPlacement.to.offset, focusPlacement.to.zoom)
     }

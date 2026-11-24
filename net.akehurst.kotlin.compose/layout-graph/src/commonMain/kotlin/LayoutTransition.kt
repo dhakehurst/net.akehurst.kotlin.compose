@@ -85,23 +85,17 @@ internal fun interpolateLayouts(
         val ref = inSpace[container] ?: return 0.0 to 0.0
         return (drawn.globalX - ref.globalX) to (drawn.globalY - ref.globalY)
     }
+    // A graph's content keeps its place inside its container as in the new layout (a collapsed graph's
+    // offsets in the old layout mean nothing), so it moves with the drawn container.
     to.graphLayoutsById.forEach { (id, end) ->
         val start = from.graphLayoutsById[id]
-        graphs[id] = if (start != null) {
-            end.copy(
-                localOffsetX = lerp(start.localOffsetX, end.localOffsetX, t),
-                localOffsetY = lerp(start.localOffsetY, end.localOffsetY, t),
-                globalOffsetX = lerp(start.globalOffsetX, end.globalOffsetX, t),
-                globalOffsetY = lerp(start.globalOffsetY, end.globalOffsetY, t),
-                contentWidth = lerp(start.contentWidth, end.contentWidth, t),
-                contentHeight = lerp(start.contentHeight, end.contentHeight, t),
-                centringX = lerp(start.centringX, end.centringX, t),
-                shiftY = lerp(start.shiftY, end.shiftY, t),
-            )
-        } else {
-            val (dx, dy) = containerShift(end, endById)
-            end.copy(globalOffsetX = end.globalOffsetX + dx, globalOffsetY = end.globalOffsetY + dy)
-        }
+        val (dx, dy) = containerShift(end, endById)
+        graphs[id] = end.copy(
+            globalOffsetX = end.globalOffsetX + dx,
+            globalOffsetY = end.globalOffsetY + dy,
+            contentWidth = if (start != null) lerp(start.contentWidth, end.contentWidth, t) else end.contentWidth,
+            contentHeight = if (start != null) lerp(start.contentHeight, end.contentHeight, t) else end.contentHeight,
+        )
     }
     from.graphLayoutsById.forEach { (id, start) ->
         if (id !in graphs) {
@@ -116,36 +110,73 @@ internal fun interpolateLayouts(
     val endpoints = LinkedHashMap<String, Pair<String, String>>()
     endpoints.putAll(from.edgeEndpointsByEdgeId)
     endpoints.putAll(to.edgeEndpointsByEdgeId)
-    fun shift(id: String?, ofSpace: Map<String, CompoundNodeLayout>): Pair<Double, Double> {
-        if (id == null) return 0.0 to 0.0
-        val drawn = nodes[id] ?: return 0.0 to 0.0
-        val ref = ofSpace[id] ?: return 0.0 to 0.0
-        return (drawn.globalX + drawn.width / 2.0 - ref.globalX - ref.width / 2.0) to (drawn.globalY + drawn.height / 2.0 - ref.globalY - ref.height / 2.0)
-    }
-    /** [route] moved so its start follows node [a] and its end node [b] (in between, a blend of the two). */
-    fun followEnds(route: List<Pair<Double, Double>>, a: String?, b: String?, space: Map<String, CompoundNodeLayout>): List<Pair<Double, Double>> {
-        val (ax, ay) = shift(a, space)
-        val (bx, by) = shift(b, space)
-        if (route.size < 2) return route
+    fun centre(n: CompoundNodeLayout) = (n.globalX + n.width / 2.0) to (n.globalY + n.height / 2.0)
+    /**
+     * A new edge grows from (a removed edge shrinks to) the straight line between where its end nodes
+     * start (end): each point moves between its place on the route and its place on that line.
+     */
+    fun grow(route: List<Pair<Double, Double>>, a: String?, b: String?, line: Map<String, CompoundNodeLayout>, towardsRoute: Double): List<Pair<Double, Double>> {
+        val na = a?.let { line[it] }
+        val nb = b?.let { line[it] }
+        if (route.size < 2 || na == null || nb == null) return route
+        val (ax, ay) = centre(na)
+        val (bx, by) = centre(nb)
         val fractions = fractionsAlong(route)
-        return route.mapIndexed { i, (x, y) -> val f = fractions[i]; (x + lerp(ax, bx, f)) to (y + lerp(ay, by, f)) }
+        return route.mapIndexed { i, (x, y) ->
+            val f = fractions[i]
+            lerp(lerp(ax, bx, f), x, towardsRoute) to lerp(lerp(ay, by, f), y, towardsRoute)
+        }
     }
+    val refRouteById = mutableMapOf<String, Pair<List<Pair<Double, Double>>, Map<String, CompoundNodeLayout>>>()
+    // For edges in both layouts, the route they move from (their ends slide round the node border).
+    val fromRouteById = mutableMapOf<String, List<Pair<Double, Double>>>()
     to.edgeRoutesByEdgeId.forEach { (id, end) ->
         val start = from.edgeRoutesByEdgeId[id]
         val ends = to.edgeEndpointsByEdgeId[id]
+        refRouteById[id] = end to to.nodeLayoutsById
         routes[id] = if (start != null && start.size >= 2 && end.size >= 2) {
+            fromRouteById[id] = start
             interpolateRoutes(start, end, t)
         } else {
             if (start == null) edgeAlpha[id] = progress
-            followEnds(end, ends?.first, ends?.second, to.nodeLayoutsById)
+            grow(end, ends?.first, ends?.second, startById, t)
         }
     }
     from.edgeRoutesByEdgeId.forEach { (id, start) ->
         if (id !in routes) {
             edgeAlpha[id] = 1f - progress
             val ends = from.edgeEndpointsByEdgeId[id]
-            routes[id] = followEnds(start, ends?.first, ends?.second, from.nodeLayoutsById)
+            refRouteById[id] = start to from.nodeLayoutsById
+            routes[id] = grow(start, ends?.first, ends?.second, endById, 1.0 - t)
         }
+    }
+    // The ends of every drawn route sit on the border of their drawn nodes, on the same side and at the
+    // same place along it as on the route they are moving to (or, when fading out, from).
+    routes.keys.toList().forEach { id ->
+        val route = routes.getValue(id)
+        val ends = endpoints[id] ?: return@forEach
+        val (refRoute, refNodes) = refRouteById[id] ?: return@forEach
+        if (route.size < 2 || refRoute.size < 2) return@forEach
+        val snapped = route.toMutableList()
+        val fromRoute = fromRouteById[id]
+        fun place(nodeId: String, refPoint: Pair<Double, Double>, fromPoint: Pair<Double, Double>?): Pair<Double, Double>? {
+            val drawnNode = nodes[nodeId] ?: return null
+            val ref = refNodes[nodeId] ?: return null
+            val toS = perimeterPosition(refPoint, ref)
+            val fromNode = from.nodeLayoutsById[nodeId]
+            val s = if (fromPoint != null && fromNode != null) {
+                // Round the border the short way, from where the end was to where it goes.
+                val fromS = perimeterPosition(fromPoint, fromNode)
+                var d = toS - fromS
+                if (d > 2.0) d -= 4.0
+                if (d < -2.0) d += 4.0
+                ((fromS + d * t) % 4.0 + 4.0) % 4.0
+            } else toS
+            return pointAtPerimeter(s, drawnNode)
+        }
+        place(ends.first, refRoute.first(), fromRoute?.first())?.let { snapped[0] = it }
+        place(ends.second, refRoute.last(), fromRoute?.last())?.let { snapped[snapped.lastIndex] = it }
+        routes[id] = snapped
     }
 
     val buses = to.edgeBuses + from.edgeBuses.filter { bus -> bus.edgeIds.none { it in to.edgeRoutesByEdgeId } }
@@ -160,6 +191,37 @@ internal fun interpolateLayouts(
         nodeAlpha = nodeAlpha,
         edgeAlpha = edgeAlpha,
     )
+}
+
+/**
+ * Where [point] is round the border of [node], from 0 to 4: top 0..1 (left to right), right 1..2,
+ * bottom 2..3 (right to left), left 3..4. A point not on the border is taken to the nearest side.
+ */
+private fun perimeterPosition(point: Pair<Double, Double>, node: CompoundNodeLayout): Double {
+    val (x, y) = point
+    val fx = if (node.width > 0.0) ((x - node.globalX) / node.width).coerceIn(0.0, 1.0) else 0.5
+    val fy = if (node.height > 0.0) ((y - node.globalY) / node.height).coerceIn(0.0, 1.0) else 0.5
+    val dLeft = abs(x - node.globalX)
+    val dRight = abs(x - (node.globalX + node.width))
+    val dTop = abs(y - node.globalY)
+    val dBottom = abs(y - (node.globalY + node.height))
+    return when (minOf(dLeft, dRight, dTop, dBottom)) {
+        dTop -> fx
+        dRight -> 1.0 + fy
+        dBottom -> 2.0 + (1.0 - fx)
+        else -> (3.0 + (1.0 - fy)) % 4.0
+    }
+}
+
+/** The point at [s] (see [perimeterPosition]) round the border of [node]. */
+private fun pointAtPerimeter(s: Double, node: CompoundNodeLayout): Pair<Double, Double> {
+    val x = node.globalX; val y = node.globalY; val w = node.width; val h = node.height
+    return when {
+        s < 1.0 -> x + s * w to y
+        s < 2.0 -> x + w to y + (s - 1.0) * h
+        s < 3.0 -> x + (1.0 - (s - 2.0)) * w to y + h
+        else -> x to y + (1.0 - (s - 3.0)) * h
+    }
 }
 
 /** The node in [from] that new node [id] grows out of, or null. */
