@@ -831,6 +831,48 @@ internal fun zoomFactorFromScrollDelta(deltaY: Float, density: Float): Float {
     return exp(-boundedDelta * scrollZoomSensitivity)
 }
 
+/** A layout as it was shown: the layout, its top left corner (in the layout's pixels) and the view state. */
+internal data class ShownPlacement(
+    val layout: CompoundLayoutResult,
+    val minX: Double,
+    val minY: Double,
+    val viewState: GraphLayoutViewState,
+)
+
+private class ShownPlacementHolder {
+    var last: ShownPlacement? = null
+}
+
+/** For a new layout, the view state [to] that keeps the focus node still, replacing [from]. */
+internal data class FocusPlacement(val from: GraphLayoutViewState, val to: GraphLayoutViewState)
+
+/**
+ * The view state that keeps [focusNodeId]'s centre at the screen position it had in [previous], when
+ * [layout] replaces it; null when there is no focus node, no previous layout, the layout is the same, or the
+ * node is not in both. A point p of a layout is drawn at offset + zoom * (p - (minX, minY)).
+ */
+internal fun focusPlacementFor(
+    previous: ShownPlacement?,
+    layout: CompoundLayoutResult,
+    minX: Double,
+    minY: Double,
+    focusNodeId: String?,
+    viewState: GraphLayoutViewState,
+): FocusPlacement? {
+    if (focusNodeId == null || previous == null || previous.layout === layout) return null
+    val old = previous.layout.nodeLayoutsById[focusNodeId] ?: return null
+    val new = layout.nodeLayoutsById[focusNodeId] ?: return null
+    val pv = previous.viewState
+    val screenX = pv.offset.x + pv.zoom * (old.globalX + old.width / 2.0 - previous.minX).toFloat()
+    val screenY = pv.offset.y + pv.zoom * (old.globalY + old.height / 2.0 - previous.minY).toFloat()
+    val zoom = viewState.zoom
+    val offset = Offset(
+        screenX - zoom * (new.globalX + new.width / 2.0 - minX).toFloat(),
+        screenY - zoom * (new.globalY + new.height / 2.0 - minY).toFloat(),
+    )
+    return FocusPlacement(viewState, GraphLayoutViewState(zoom = zoom, offset = offset))
+}
+
 /** Test tags set by [CompoundGraphLayoutView]. */
 object CompoundGraphLayoutViewTags {
     /** On the view while a layout is being computed (the first one, or one after new measurements). */
@@ -904,9 +946,16 @@ fun CompoundGraphLayoutView(
      * UI thread; later layouts (after measuring, or for a new [layoutKey]) keep the previous one on screen.
      */
     layingOutPlaceholder: @Composable () -> Unit = {},
+    /**
+     * A node that stays where it is on the screen when a new layout replaces the one shown, for example the
+     * node the user just expanded or collapsed. When it is in both layouts the view changes the offset (not the
+     * zoom) so that its centre stays put, and calls [updateView] with it; this takes the place of [initialView]
+     * for that layout. Otherwise, and for the first layout, [initialView] applies as usual.
+     */
+    focusNodeId: String? = null,
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId)
     }
 }
 
@@ -923,6 +972,7 @@ private fun CompoundGraphLayoutViewContent(
     avoidLabelOverlap: Boolean,
     directEdgeEndGap: Dp,
     layingOutPlaceholder: @Composable () -> Unit,
+    focusNodeId: String?,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1065,7 +1115,20 @@ private fun CompoundGraphLayoutViewContent(
         }
     }
 
-    val stateForGestures by rememberUpdatedState(viewState)
+    // Focus node: when a new layout replaces the one shown, the offset that keeps the focus node's centre
+    // where it was on the screen. It is drawn with at once, and passed to updateView; it is used until the
+    // caller's view state changes.
+    val shownPlacement = remember(state.id) { ShownPlacementHolder() }
+    val focusPlacement: FocusPlacement? = remember(layoutResult) {
+        focusPlacementFor(shownPlacement.last, layoutResult, minX, minY, focusNodeId, viewState)
+    }
+    val drawnViewState = if (focusPlacement != null && viewState == focusPlacement.from) focusPlacement.to else viewState
+    SideEffect { shownPlacement.last = ShownPlacement(layoutResult, minX, minY, drawnViewState) }
+    LaunchedEffect(focusPlacement) {
+        if (focusPlacement != null && focusPlacement.to != focusPlacement.from) updateView(focusPlacement.to.offset, focusPlacement.to.zoom)
+    }
+
+    val stateForGestures by rememberUpdatedState(drawnViewState)
 
     // Initial placement: follows the layout until the user moves the view.
     // The gesture handlers are not restarted for a new state, so they record which graph was moved.
@@ -1077,6 +1140,8 @@ private fun CompoundGraphLayoutViewContent(
     val graphWidth = (maxX - minX).toFloat()
     val graphHeight = (maxY - minY).toFloat()
     LaunchedEffect(state.id, initialView, layoutResult, viewportSize, userMovedView) {
+        // The focus node decides where this layout goes.
+        if (focusPlacement != null) return@LaunchedEffect
         if (userMovedView || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
         val placed = initialViewState(
             initialView, graphWidth, graphHeight,
@@ -1145,8 +1210,8 @@ private fun CompoundGraphLayoutViewContent(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
-                    translationX = viewState.offset.x,
-                    translationY = viewState.offset.y,
+                    translationX = drawnViewState.offset.x,
+                    translationY = drawnViewState.offset.y,
                 )
         ) {
             Box(
@@ -1154,8 +1219,8 @@ private fun CompoundGraphLayoutViewContent(
                     .fillMaxSize()
                     .graphicsLayer(
                         transformOrigin = TransformOrigin(0f, 0f),
-                        scaleX = viewState.zoom,
-                        scaleY = viewState.zoom,
+                        scaleX = drawnViewState.zoom,
+                        scaleY = drawnViewState.zoom,
                     )
                     // Taken inside the pan and zoom layers, so node bounds measured against it are in the
                     // same space the edge canvas draws in. Outside them, the view offset and zoom would be
