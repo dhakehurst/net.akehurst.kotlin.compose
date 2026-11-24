@@ -118,6 +118,10 @@ interface AutocompleteItemContent : AutocompleteItem {
      */
     val text: String
 
+    /**
+     * how many characters before the cursor are replaced by [text] (for example the length of the prefix typed so far);
+     * kept within the text, so a value larger than the cursor position replaces from the start of the text
+     */
     val offset:Int
 
     /**

@@ -42,6 +42,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
@@ -178,6 +179,25 @@ private fun MissingEdgeContent(edgeId: String) {
             text = "⚠ $edgeId",
             color = colors.error,
             style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+/** The default `layoutErrorContent` of [CompoundGraphLayoutView]: the exception's message. */
+@Composable
+private fun DefaultLayoutErrorContent(error: Throwable) {
+    val colors = LocalCompoundGraphLayoutColors.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.errorBackground)
+            .border(2.dp, colors.error)
+            .padding(8.dp)
+    ) {
+        Text(
+            text = "⚠ layout failed\n${error.message ?: error.toString()}",
+            color = colors.error,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -918,6 +938,9 @@ object CompoundGraphLayoutViewTags {
      * and while a transition to a new layout is drawn.
      */
     const val LAYING_OUT = "CompoundGraphLayoutView.layingOut"
+
+    /** On the view while [CompoundGraphLayoutView]'s `layoutErrorContent` is shown, because the layout failed. */
+    const val LAYOUT_ERROR = "CompoundGraphLayoutView.layoutError"
 }
 
 /** What a layout of one graph state is computed from; a change starts a new layout. */
@@ -1008,9 +1031,17 @@ fun CompoundGraphLayoutView(
      * lays out each time from scratch.
      */
     stableRelayout: Boolean = false,
+    /**
+     * Shown, filling the view, instead of the graph when the layout fails, for example because the graph is
+     * invalid (see [validateInvariants]). It receives the exception. It is replaced by the graph as soon as a
+     * later layout of [state] succeeds. The default shows the message in the view's [CompoundGraphLayoutColors.error] colours.
+     */
+    layoutErrorContent: @Composable (Throwable) -> Unit = { DefaultLayoutErrorContent(it) },
+    /** Called with the exception each time a layout fails, for example to log it; [layoutErrorContent] is shown as well. */
+    onLayoutError: (Throwable) -> Unit = {},
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis, stableRelayout)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis, stableRelayout, layoutErrorContent, onLayoutError)
     }
 }
 
@@ -1030,6 +1061,8 @@ private fun CompoundGraphLayoutViewContent(
     focusNodeId: String?,
     relayoutAnimationMillis: Int,
     stableRelayout: Boolean,
+    layoutErrorContent: @Composable (Throwable) -> Unit,
+    onLayoutError: (Throwable) -> Unit,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1046,27 +1079,46 @@ private fun CompoundGraphLayoutViewContent(
     // ready, the previous layout of this graph stays on screen; before the first one, [layingOutPlaceholder].
     val layoutInputs = LayoutInputs(layoutKey, measuredContainerMetrics, measuredContentSizes, density)
     var computedLayout by remember(state.id) { mutableStateOf<Pair<LayoutInputs, CompoundLayoutResult>?>(null) }
+    // The exception of the latest layout, when it failed; null once a layout succeeds.
+    var layoutError by remember(state.id) { mutableStateOf<Throwable?>(null) }
+    val currentOnLayoutError by rememberUpdatedState(onLayoutError)
     LaunchedEffect(state.id, layoutInputs) {
         // Copied here, on the UI thread, so the caller can change the graph while the layout runs.
         val snapshot = state.copyForLayout()
         val previous = if (stableRelayout) computedLayout?.second else null
-        val result = withContext(Dispatchers.Default) {
-            val job = coroutineContext.job
-            val pxToDp = 1.0 / density
-            // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
-            // tiny differences can tip layout choices (for example which side an edge is routed on).
-            // Leaf sizes round up so content always fits.
-            CompoundLayoutEngine().also { engine ->
-                // A layout superseded by newer measurements (or a new layout key) stops early.
-                engine.checkCancelled = { job.ensureActive() }
-            }.layout(
-                snapshot,
-                layoutInputs.containerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
-                layoutInputs.contentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) },
-                previous?.scaledBy(pxToDp)
-            ).scaledBy(density.toDouble())
+        val result = try {
+            withContext(Dispatchers.Default) {
+                val job = coroutineContext.job
+                val pxToDp = 1.0 / density
+                // Whole dp: at a fractional density (1.5x) measured sizes come out as fractions of a dp, and
+                // tiny differences can tip layout choices (for example which side an edge is routed on).
+                // Leaf sizes round up so content always fits.
+                CompoundLayoutEngine().also { engine ->
+                    // A layout superseded by newer measurements (or a new layout key) stops early.
+                    engine.checkCancelled = { job.ensureActive() }
+                }.layout(
+                    snapshot,
+                    layoutInputs.containerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
+                    layoutInputs.contentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) },
+                    previous?.scaledBy(pxToDp)
+                ).scaledBy(density.toDouble())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // An exception here would end the composition (and the app); show it in the view instead.
+            layoutError = e
+            currentOnLayoutError(e)
+            return@LaunchedEffect
         }
+        layoutError = null
         computedLayout = layoutInputs to result
+    }
+    layoutError?.let { error ->
+        Box(modifier = modifier.testTag(CompoundGraphLayoutViewTags.LAYOUT_ERROR)) {
+            layoutErrorContent(error)
+        }
+        return
     }
     val targetLayout = computedLayout?.second ?: run {
         Box(modifier = modifier.testTag(CompoundGraphLayoutViewTags.LAYING_OUT), contentAlignment = Alignment.Center) {
@@ -1285,7 +1337,7 @@ private fun CompoundGraphLayoutViewContent(
                     )
                     if (next != sg) {
                         movedStateId = currentStateId
-                        updateView(next.offset, next.zoom)
+                        currentUpdateView(next.offset, next.zoom)
                     }
                 }
             }
@@ -1295,9 +1347,12 @@ private fun CompoundGraphLayoutViewContent(
                         val event = awaitPointerEvent()
                         if (event.type == PointerEventType.Scroll) {
                             val change = event.changes.firstOrNull() ?: continue
+                            // The scroll zooms this view, so a scrolling parent must not scroll as well.
+                            event.changes.forEach { it.consume() }
                             val scale = zoomFactorFromScrollDelta(
                                 deltaY = change.scrollDelta.y,
-                                density = density
+                                // this pointer input's density, which follows the current one
+                                density = this.density
                             )
                             val next = zoomAboutPointer(
                                 state = stateForGestures,
@@ -1306,7 +1361,7 @@ private fun CompoundGraphLayoutViewContent(
                             )
                             if (next != stateForGestures) {
                                 movedStateId = currentStateId
-                                updateView(next.offset, next.zoom)
+                                currentUpdateView(next.offset, next.zoom)
                             }
                         }
                     }
@@ -1562,40 +1617,41 @@ private fun CompoundGraphLayoutViewContent(
                                 }
                             }
                         }
+                    }
 
-                        if (state.showContentOrigins.value) {
-                            contentOrigins.forEach { origin ->
-                                val ox = (origin.first + globalToViewportOffsetX).toFloat()
-                                val oy = (origin.second + globalToViewportOffsetY).toFloat()
-                                val r = 6.dp.toPx()
-                                drawLine(
-                                    color = colors.contentOrigin,
-                                    start = Offset(ox - r, oy),
-                                    end = Offset(ox + r, oy),
-                                    strokeWidth = 1.5.dp.toPx()
-                                )
-                                drawLine(
-                                    color = colors.contentOrigin,
-                                    start = Offset(ox, oy - r),
-                                    end = Offset(ox, oy + r),
-                                    strokeWidth = 1.5.dp.toPx()
-                                )
-                            }
+                    // Overlays: drawn once, after all the edges.
+                    if (state.showContentOrigins.value) {
+                        contentOrigins.forEach { origin ->
+                            val ox = (origin.first + globalToViewportOffsetX).toFloat()
+                            val oy = (origin.second + globalToViewportOffsetY).toFloat()
+                            val r = 6.dp.toPx()
+                            drawLine(
+                                color = colors.contentOrigin,
+                                start = Offset(ox - r, oy),
+                                end = Offset(ox + r, oy),
+                                strokeWidth = 1.5.dp.toPx()
+                            )
+                            drawLine(
+                                color = colors.contentOrigin,
+                                start = Offset(ox, oy - r),
+                                end = Offset(ox, oy + r),
+                                strokeWidth = 1.5.dp.toPx()
+                            )
                         }
+                    }
 
-                        if (state.showDebugOverlay.value) {
-                            // ── DEBUG: Draw measured node bounds ────────────────────────
-                            val debugColors = colors.debugNodeBounds
-                            nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
-                                val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
-                                val color = debugColors[index % debugColors.size]
-                                drawRect(
-                                    color = color,
-                                    topLeft = Offset(rect.left, rect.top),
-                                    size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
-                                    style = Stroke(width = 2.dp.toPx())
-                                )
-                            }
+                    if (state.showDebugOverlay.value) {
+                        // ── DEBUG: Draw measured node bounds ────────────────────────
+                        val debugColors = colors.debugNodeBounds
+                        nodeCoordinatesById.entries.sortedBy { it.key }.forEachIndexed { index, (_, coordinates) ->
+                            val rect = nodeBoundsInLayer(graphLayerCoordinates, coordinates) ?: return@forEachIndexed
+                            val color = debugColors[index % debugColors.size]
+                            drawRect(
+                                color = color,
+                                topLeft = Offset(rect.left, rect.top),
+                                size = androidx.compose.ui.geometry.Size(rect.width, rect.height),
+                                style = Stroke(width = 2.dp.toPx())
+                            )
                         }
                     }
                 }

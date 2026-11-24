@@ -163,8 +163,11 @@ class CodeEditorStateHolder(
                 val end = _inputTextFieldState.value.selection.max
 //                val s = minOf(start,end)
 //                val e = maxOf(start,end)
+                // offset is how many characters before the cursor the item replaces; it is kept inside the
+                // text, so an offset larger than the cursor position replaces from the start of the text
+                val replaceFrom = (start - offset.coerceAtLeast(0)).coerceIn(0, start)
                 this._inputTextFieldState.value.edit {
-                    replace(start - offset, end, txt)
+                    replace(replaceFrom, end, txt)
                 }
             }
         )

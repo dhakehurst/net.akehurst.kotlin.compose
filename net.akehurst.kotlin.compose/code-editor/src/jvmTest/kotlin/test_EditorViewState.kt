@@ -154,4 +154,22 @@ class test_EditorViewState {
         }
         assertTrue(count > 100, "expected the last line, which is in view, to be drawn red, found $count red pixels")
     }
+
+    @Test
+    fun autocomplete_offset_larger_than_cursor_replaces_from_start_of_text() = runComposeUiTest {
+        val state = CodeEditorStateHolder(initialText = "ab")
+        setContent {
+            Box(Modifier.size(300.dp, 200.dp)) {
+                CodeEditorView(editorState = state)
+            }
+        }
+        waitForIdle()
+        runOnUiThread {
+            // the cursor starts at the end of the text (2); an offset of 5 used to throw
+            state._autocompleteState.insertText(5, "xyz")
+        }
+        waitForIdle()
+        assertEquals("xyz", state.rawText)
+    }
 }
+

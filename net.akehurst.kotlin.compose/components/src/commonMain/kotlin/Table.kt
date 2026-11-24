@@ -54,14 +54,16 @@ fun TableView(
             headerContent.invoke(object : TableHeaderScope, RowScope by this {
                 @Composable
                 override fun tableHeader(rowModifier: Modifier, content: @Composable (TableHeaderRowScope.() -> Unit)) {
-                    content.invoke(object : TableHeaderRowScope, RowScope by this {
-                        @Composable
-                        override fun tableHeaderCell(column: Int, boxModifier: Modifier, content: @Composable BoxScope.() -> Unit) {
-                            Box(modifier = boxModifier.onSizeChanged { size -> state.columnWidthPx[column] = size.width }) {
-                                content.invoke(this)
+                    Row(modifier = rowModifier) {
+                        content.invoke(object : TableHeaderRowScope, RowScope by this {
+                            @Composable
+                            override fun tableHeaderCell(column: Int, boxModifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+                                Box(modifier = boxModifier.onSizeChanged { size -> state.columnWidthPx[column] = size.width }) {
+                                    content.invoke(this)
+                                }
                             }
-                        }
-                    })
+                        })
+                    }
                 }
             })
         }
@@ -78,14 +80,16 @@ fun TableView(
             footerContent.invoke(object : TableFooterScope, RowScope by this {
                 @Composable
                 override fun tableFooter(rowModifier: Modifier, content: @Composable TableFooterRowScope.() -> Unit) {
-                    content.invoke(object : TableFooterRowScope, RowScope by this {
-                        @Composable
-                        override fun tableFooterCell(boxModifier: Modifier, content: @Composable (BoxScope.() -> Unit)) {
-                            Box(modifier = boxModifier) {
-                                content.invoke(this)
+                    Row(modifier = rowModifier) {
+                        content.invoke(object : TableFooterRowScope, RowScope by this {
+                            @Composable
+                            override fun tableFooterCell(boxModifier: Modifier, content: @Composable (BoxScope.() -> Unit)) {
+                                Box(modifier = boxModifier) {
+                                    content.invoke(this)
+                                }
                             }
-                        }
-                    })
+                        })
+                    }
                 }
             })
         }
