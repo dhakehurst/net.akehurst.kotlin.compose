@@ -176,22 +176,28 @@ class CompoundLayoutEngine(
          * Measured content size of nodes (width to height): leaves, ports and containers (for a container,
          * what its content draws, not counting its children). Hints act as minimums.
          */
-        leafSizesByNodeId: Map<String, Pair<Double, Double>> = emptyMap()
+        leafSizesByNodeId: Map<String, Pair<Double, Double>> = emptyMap(),
+        /**
+         * The layout this one replaces, if it should stay close to it. Each graph level's algorithm gets where
+         * its nodes were ([ChildLayoutInput.previousBoundsById]); [SugiyamaChildLayout] then keeps nodes in their
+         * layers and order where that costs no extra crossings. Null (the default) lays out from scratch.
+         */
+        previous: CompoundLayoutResult? = null
     ): CompoundLayoutResult {
         val validation = state.validateInvariants()
         require(validation.isValid) { "Invalid compound graph state: ${validation.errors.joinToString()}" }
 
         val index = buildGraphIndex(state.root)
         if (index.borderHostByNodeId.isEmpty()) {
-            return layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, emptyMap())
+            return layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, emptyMap(), previous)
         }
         // Border nodes: the first pass chooses the free sides from where the connected nodes are;
         // the second pass makes room for the border nodes on those sides.
-        val first = layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, emptyMap())
+        val first = layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, emptyMap(), previous)
         val sides = first.nodeLayoutsById.values
             .filter { it.borderHostId != null && it.borderSide != null }
             .associate { it.nodeId to it.borderSide!! }
-        return layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, sides)
+        return layoutOnce(state, index, containerMetricsByNodeId, leafSizesByNodeId, sides, previous)
     }
 
     private fun layoutOnce(
@@ -200,7 +206,8 @@ class CompoundLayoutEngine(
         containerMetricsByNodeId: Map<String, ContainerChildHostMetrics>,
         leafSizesByNodeId: Map<String, Pair<Double, Double>>,
         /** Sides of border nodes known before this pass (chosen in an earlier pass). Pinned sides are always known. */
-        knownBorderSides: Map<String, BorderSide>
+        knownBorderSides: Map<String, BorderSide>,
+        previous: CompoundLayoutResult?
     ): CompoundLayoutResult {
         val initialChildLayout = state.root.childLayout ?: config.defaultChildLayout
         val borderSizesById = mutableMapOf<String, Pair<Double, Double>>()
@@ -221,7 +228,12 @@ class CompoundLayoutEngine(
             knownBorderSides = knownBorderSides,
             borderSizesById = borderSizesById,
             allEdges = allEdges,
-            borderFootprintsById = borderFootprintsById
+            borderFootprintsById = borderFootprintsById,
+            previousByGraphId = previous?.nodeLayoutsById?.values
+                ?.filter { it.borderHostId == null }
+                ?.groupBy { it.ownerGraphId }
+                ?.mapValues { (_, layouts) -> layouts.associate { it.nodeId to CompoundRect(it.localX, it.localY, it.localX + it.width, it.localY + it.height) } }
+                ?: emptyMap()
         )
         val nodeLayouts = mutableMapOf<String, CompoundNodeLayout>()
         val graphLayouts = mutableMapOf<String, CompoundGraphLayout>()
@@ -356,7 +368,9 @@ class CompoundLayoutEngine(
         borderSizesById: MutableMap<String, Pair<Double, Double>>,
         allEdges: List<GraphLayoutCompoundEdge>,
         /** Collects how far each port's own ports stick out of it (left, top, right, bottom). */
-        borderFootprintsById: MutableMap<String, List<Double>>
+        borderFootprintsById: MutableMap<String, List<Double>>,
+        /** Where the nodes of each graph level were in the previous layout, by graph id then node id. */
+        previousByGraphId: Map<String, Map<String, CompoundRect>>
     ): PlannedGraphLayout {
         checkCancelled()
         val effectiveChildLayout = graph.childLayout ?: inheritedChildLayout
@@ -373,7 +387,8 @@ class CompoundLayoutEngine(
                     knownBorderSides = knownBorderSides,
                     borderSizesById = borderSizesById,
                     allEdges = allEdges,
-                    borderFootprintsById = borderFootprintsById
+                    borderFootprintsById = borderFootprintsById,
+                    previousByGraphId = previousByGraphId
                 )
             }
 
@@ -511,7 +526,8 @@ class CompoundLayoutEngine(
                 nodes = nodes,
                 nodeSizesById = nodeSizesById,
                 edges = edges,
-                horizontalPullById = pullById
+                horizontalPullById = pullById,
+                previousBoundsById = previousByGraphId[graph.id].orEmpty().filterKeys { it in graph.nodes }
             )
         )
 

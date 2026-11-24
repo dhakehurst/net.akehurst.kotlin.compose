@@ -71,7 +71,13 @@ class SugiyamaLayout<NT : Any>(
     private val edgePriority: EdgePriority = EdgePriority.FEWEST_CROSSINGS,
     private val nodeClearance: Double = 0.25, // as fraction of nodeSpacing
     /** Negative to keep a node at the left of its layer, positive to keep it at the right. */
-    private val horizontalPull: (NT) -> Double = { 0.0 }
+    private val horizontalPull: (NT) -> Double = { 0.0 },
+    /**
+     * Where a node was in the layout this one replaces (null for a node that was not there). When any node has
+     * one, nodes keep their previous layer where the edges allow it, and the previous order in each layer is
+     * kept unless crossing reduction finds an order with fewer crossings.
+     */
+    private val previousBounds: (NT) -> CompoundRect? = { null }
 ) {
 
     private companion object {
@@ -155,13 +161,14 @@ class SugiyamaLayout<NT : Any>(
         val (newEdges, reversedEdges) = makeAcyclic(nodes, regularEdges)
 
         // 2. Layer Assignment
-        val layers = assignLayers(nodes, newEdges)
+        val previous = nodes.mapNotNull { node -> previousBounds(node)?.let { node to it } }.toMap()
+        val layers = if (previous.isEmpty()) assignLayers(nodes, newEdges) else assignLayersKeepingPrevious(nodes, newEdges, previous)
 
         // 3. Add dummy nodes for long edges
         val (layeredNodes, layeredEdges) = createLayeredGraph(nodes, newEdges, layers)
 
         // 4. Crossing Reduction (improved with multiple heuristics)
-        reduceCrossingsImproved(layeredNodes, layeredEdges)
+        if (previous.isEmpty()) reduceCrossingsImproved(layeredNodes, layeredEdges) else reduceCrossingsFromPrevious(layeredNodes, layeredEdges, previous)
 
         // 4b. Nodes pulled to one side (e.g. connected to a port on that side of their container) go to
         // that end of their layer; the order found above is kept otherwise.
@@ -269,6 +276,43 @@ class SugiyamaLayout<NT : Any>(
         }
 
         return layers
+    }
+
+    /**
+     * Step 2, keeping the previous layout: as [assignLayers] (longest path from the sources), except that a node
+     * that was in the previous layout goes no higher than its previous layer. The previous layers are the
+     * distinct top edges of the previous nodes. Layers left with no node are then removed.
+     */
+    private fun assignLayersKeepingPrevious(nodes: List<NT>, edges: List<SugiyamaEdge<NT>>, previous: Map<NT, CompoundRect>): Map<NT, Int> {
+        val tolerance = 0.5
+        val previousTops = mutableListOf<Double>()
+        previous.values.map { it.top }.sorted().forEach { top ->
+            if (previousTops.isEmpty() || top - previousTops.last() > tolerance) previousTops.add(top)
+        }
+        val minimumLayer = previous.mapValues { (_, bounds) -> previousTops.indexOfLast { it <= bounds.top + tolerance }.coerceAtLeast(0) }
+
+        val inDegree = nodes.associateWith { 0 }.toMutableMap()
+        edges.forEach { inDegree[it.finish] = inDegree.getValue(it.finish) + 1 }
+        val outEdges = edges.groupBy { it.start }
+        val required = mutableMapOf<NT, Int>()
+        val layers = mutableMapOf<NT, Int>()
+        val queue = ArrayDeque(nodes.filter { inDegree[it] == 0 })
+        while (queue.isNotEmpty()) {
+            val u = queue.removeFirst()
+            val layer = max(required[u] ?: 0, minimumLayer[u] ?: 0)
+            layers[u] = layer
+            outEdges[u].orEmpty().forEach { edge ->
+                val v = edge.finish
+                required[v] = max(required[v] ?: 0, layer + 1)
+                inDegree[v] = inDegree.getValue(v) - 1
+                if (inDegree.getValue(v) == 0) queue.add(v)
+            }
+        }
+        // The edges are acyclic here, so every node has been reached; this only guards against a cycle left in.
+        nodes.forEach { if (it !in layers) layers[it] = max(required[it] ?: 0, minimumLayer[it] ?: 0) }
+
+        val rankOf = layers.values.distinct().sorted().withIndex().associate { (rank, layer) -> layer to rank }
+        return layers.mapValues { (_, layer) -> rankOf.getValue(layer) }
     }
 
     /**
@@ -389,6 +433,50 @@ class SugiyamaLayout<NT : Any>(
 
             if (noImprovementCount >= maxNoImprovement) {
                 break
+            }
+        }
+    }
+
+    /**
+     * Step 4, keeping the previous layout: each layer starts in the previous left-to-right order (by the previous
+     * centres; a new node or dummy node goes at the mean of its neighbours already placed), improved only by
+     * swapping neighbours ([applyTranspose]). The full [reduceCrossingsImproved] then runs from that order, and its
+     * result is used only if it has fewer crossings.
+     */
+    private fun reduceCrossingsFromPrevious(layeredNodes: List<MutableList<SNode<NT>>>, edges: List<SEdge<NT>>, previous: Map<NT, CompoundRect>) {
+        val key = mutableMapOf<SNode<NT>, Double>()
+        layeredNodes.forEach { layer ->
+            layer.forEach { sNode -> sNode.originalNode?.let { previous[it] }?.let { key[sNode] = (it.left + it.right) / 2.0 } }
+        }
+        val upperEdges = edges.groupBy { it.to }
+        val lowerEdges = edges.groupBy { it.from }
+        fun placeFrom(sNode: SNode<NT>, neighbours: List<SNode<NT>>) {
+            val keys = neighbours.mapNotNull { key[it] }
+            if (keys.isNotEmpty()) key[sNode] = keys.average()
+        }
+        repeat(2) {
+            layeredNodes.forEach { layer -> layer.forEach { if (it !in key) placeFrom(it, upperEdges[it].orEmpty().map { e -> e.from }) } }
+            layeredNodes.asReversed().forEach { layer -> layer.forEach { if (it !in key) placeFrom(it, lowerEdges[it].orEmpty().map { e -> e.to }) } }
+        }
+        layeredNodes.forEach { layer ->
+            layer.sortWith(compareBy<SNode<NT>>({ key[it] ?: Double.MAX_VALUE }, { it.id }))
+            layer.forEachIndexed { index, node -> node.posInLayer = index }
+        }
+
+        val layerEdges = groupEdgesByLayerPair(layeredNodes, edges)
+        var passes = 0
+        while (passes < MAX_TRANSPOSE_PASSES && applyTranspose(layeredNodes, layerEdges)) {
+            passes++
+        }
+        val keptCrossings = countCrossings(layeredNodes, layerEdges)
+        if (keptCrossings == 0) return
+        val kept = layeredNodes.map { it.toList() }
+        reduceCrossingsImproved(layeredNodes, edges)
+        if (countCrossings(layeredNodes, layerEdges) >= keptCrossings) {
+            layeredNodes.forEachIndexed { i, layer ->
+                layer.clear()
+                layer.addAll(kept[i])
+                layer.forEachIndexed { index, node -> node.posInLayer = index }
             }
         }
     }

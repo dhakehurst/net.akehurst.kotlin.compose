@@ -1001,9 +1001,16 @@ fun CompoundGraphLayoutView(
      * so the focus node stays still. Clicks are ignored while it runs. 0 (the default) switches at once.
      */
     relayoutAnimationMillis: Int = 0,
+    /**
+     * When true, a new layout of the same [state] id starts from the one shown: nodes keep their layers and
+     * their order within a layer, unless reordering gives fewer edge crossings (for layered layouts, see
+     * [SugiyamaChildLayout]). The layout of a graph then depends on what was shown before. False (the default)
+     * lays out each time from scratch.
+     */
+    stableRelayout: Boolean = false,
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis, stableRelayout)
     }
 }
 
@@ -1022,6 +1029,7 @@ private fun CompoundGraphLayoutViewContent(
     layingOutPlaceholder: @Composable () -> Unit,
     focusNodeId: String?,
     relayoutAnimationMillis: Int,
+    stableRelayout: Boolean,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1041,6 +1049,7 @@ private fun CompoundGraphLayoutViewContent(
     LaunchedEffect(state.id, layoutInputs) {
         // Copied here, on the UI thread, so the caller can change the graph while the layout runs.
         val snapshot = state.copyForLayout()
+        val previous = if (stableRelayout) computedLayout?.second else null
         val result = withContext(Dispatchers.Default) {
             val job = coroutineContext.job
             val pxToDp = 1.0 / density
@@ -1053,7 +1062,8 @@ private fun CompoundGraphLayoutViewContent(
             }.layout(
                 snapshot,
                 layoutInputs.containerMetrics.mapValues { (_, metrics) -> metrics.scaledBy(pxToDp).roundedToWholeDp() },
-                layoutInputs.contentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) }
+                layoutInputs.contentSizes.mapValues { (_, size) -> ceilDp(size.first * pxToDp) to ceilDp(size.second * pxToDp) },
+                previous?.scaledBy(pxToDp)
             ).scaledBy(density.toDouble())
         }
         computedLayout = layoutInputs to result

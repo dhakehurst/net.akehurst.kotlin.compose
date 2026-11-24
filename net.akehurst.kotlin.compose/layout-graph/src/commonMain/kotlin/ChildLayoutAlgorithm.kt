@@ -26,7 +26,13 @@ data class ChildLayoutInput(
      * How strongly a node should be placed to the left (negative) or right (positive) of its siblings,
      * for example because it connects to a port on that side of the container. Algorithms may ignore it.
      */
-    val horizontalPullById: Map<String, Double> = emptyMap()
+    val horizontalPullById: Map<String, Double> = emptyMap(),
+    /**
+     * Where nodes were in the layout this one replaces (local to this graph level, as [CompoundNodeLayout.localX]
+     * and localY), for the nodes that were there. Empty when the layout starts from scratch. Algorithms may use
+     * it to keep the layout close to the previous one, or ignore it.
+     */
+    val previousBoundsById: Map<String, CompoundRect> = emptyMap()
 )
 
 /**
@@ -96,7 +102,8 @@ data class SugiyamaChildLayout(
             val turned = layoutTopDown(
                 input.copy(
                     nodeSizesById = input.nodeSizesById.mapValues { it.value.swap() },
-                    horizontalPullById = emptyMap()
+                    horizontalPullById = emptyMap(),
+                    previousBoundsById = input.previousBoundsById.mapValues { (_, r) -> CompoundRect(r.top, r.left, r.bottom, r.right) }
                 )
             )
             ChildLayoutResult(
@@ -128,7 +135,8 @@ data class SugiyamaChildLayout(
                 layerSpacing = layerSpacing,
                 nodeSpacing = nodeSpacing,
                 edgeRouting = edgeRouting,
-                horizontalPull = { node -> input.horizontalPullById[node.id] ?: 0.0 }
+                horizontalPull = { node -> input.horizontalPullById[node.id] ?: 0.0 },
+                previousBounds = { node -> input.previousBoundsById[node.id] }
             ).layoutGraph(nodes = nodes, edges = edges)
         }
 
