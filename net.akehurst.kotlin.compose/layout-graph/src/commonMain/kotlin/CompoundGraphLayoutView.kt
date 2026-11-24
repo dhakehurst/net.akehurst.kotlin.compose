@@ -38,6 +38,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.input.pointer.PointerEventPass
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
@@ -630,8 +634,14 @@ private fun NodeContent(
     nodeCoordinatesById: MutableMap<String, LayoutCoordinates>,
     onChildHostMeasured: (String, ContainerChildHostMetrics) -> Unit,
     onContentMeasured: (String, Pair<Double, Double>) -> Unit,
+    /** Opacity of nodes that fade in or out during a transition (1 when missing). */
+    nodeAlpha: Map<String, Float>,
+    /** The layout measurements are reported against; null while a transition is drawn (nothing is reported). */
+    reportMetricsFor: CompoundLayoutResult?,
 ) {
     val content = state.nodeContentById[node.nodeId]
+    val alpha = nodeAlpha[node.nodeId] ?: 1f
+    val alphaModifier = if (alpha < 1f) Modifier.graphicsLayer(alpha = alpha) else Modifier
     if (node.isContainer) {
         val containerGraphLayout = layoutResult.graphLayoutsById[node.nodeId]
         // The child area's origin; children may be shifted right of it to centre them.
@@ -678,10 +688,10 @@ private fun NodeContent(
         // reported again, although the coordinates are the same objects as before. They are also reported
         // again for each new layout: the layout runs in the background, so a new layout key can be reported
         // from the previous layout (for example of the collapsed container) while the new one is computed.
-        LaunchedEffect(containerCoordinates, childHostCoordinates, onChildHostMeasured, layoutResult) {
+        LaunchedEffect(containerCoordinates, childHostCoordinates, onChildHostMeasured, reportMetricsFor) {
             val containerCoords = containerCoordinates
             val hostCoords = childHostCoordinates
-            if (containerCoords != null && hostCoords != null) {
+            if (reportMetricsFor != null && containerCoords != null && hostCoords != null) {
                 withFrameNanos { }
                 reportContainerMetrics()
             }
@@ -704,7 +714,9 @@ private fun NodeContent(
                                     layoutResult = layoutResult,
                                     nodeCoordinatesById = nodeCoordinatesById,
                                     onChildHostMeasured = onChildHostMeasured,
-                                    onContentMeasured = onContentMeasured
+                                    onContentMeasured = onContentMeasured,
+                                    nodeAlpha = nodeAlpha,
+                                    reportMetricsFor = reportMetricsFor,
                                 )
                             }
                         },
@@ -716,6 +728,7 @@ private fun NodeContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(alphaModifier)
                 .onGloballyPositioned { coordinates ->
                     containerCoordinates = coordinates
                     nodeCoordinatesById[node.nodeId] = coordinates
@@ -727,6 +740,7 @@ private fun NodeContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(alphaModifier)
                 .onGloballyPositioned { coordinates ->
                     nodeCoordinatesById[node.nodeId] = coordinates
                 }
@@ -843,8 +857,25 @@ private class ShownPlacementHolder {
     var last: ShownPlacement? = null
 }
 
-/** For a new layout, the view state [to] that keeps the focus node still, replacing [from]. */
-internal data class FocusPlacement(val from: GraphLayoutViewState, val to: GraphLayoutViewState)
+/**
+ * For a new layout, the view state [to] that keeps the focus node still, replacing [from];
+ * [screen] is where the focus node's centre stays on the screen.
+ */
+internal data class FocusPlacement(val from: GraphLayoutViewState, val to: GraphLayoutViewState, val screen: Offset)
+
+/** A transition from the layout drawn when a new one arrived. */
+private class RelayoutTransition(val from: CompoundLayoutResult) {
+    val progress = Animatable(0f)
+}
+
+/** The top left corner of everything a layout draws (nodes and edge routes). */
+internal fun layoutTopLeft(layout: CompoundLayoutResult): Pair<Double, Double> {
+    val nodeMinX = layout.nodeLayoutsById.values.minOfOrNull { it.globalX }
+    val edgeMinX = layout.edgeRoutesByEdgeId.values.flatten().minOfOrNull { it.first }
+    val nodeMinY = layout.nodeLayoutsById.values.minOfOrNull { it.globalY }
+    val edgeMinY = layout.edgeRoutesByEdgeId.values.flatten().minOfOrNull { it.second }
+    return (listOfNotNull(nodeMinX, edgeMinX).minOrNull() ?: 0.0) to (listOfNotNull(nodeMinY, edgeMinY).minOrNull() ?: 0.0)
+}
 
 /**
  * The view state that keeps [focusNodeId]'s centre at the screen position it had in [previous], when
@@ -870,12 +901,15 @@ internal fun focusPlacementFor(
         screenX - zoom * (new.globalX + new.width / 2.0 - minX).toFloat(),
         screenY - zoom * (new.globalY + new.height / 2.0 - minY).toFloat(),
     )
-    return FocusPlacement(viewState, GraphLayoutViewState(zoom = zoom, offset = offset))
+    return FocusPlacement(viewState, GraphLayoutViewState(zoom = zoom, offset = offset), Offset(screenX, screenY))
 }
 
 /** Test tags set by [CompoundGraphLayoutView]. */
 object CompoundGraphLayoutViewTags {
-    /** On the view while a layout is being computed (the first one, or one after new measurements). */
+    /**
+     * On the view while a layout is being computed (the first one, or one after new measurements),
+     * and while a transition to a new layout is drawn.
+     */
     const val LAYING_OUT = "CompoundGraphLayoutView.layingOut"
 }
 
@@ -953,9 +987,16 @@ fun CompoundGraphLayoutView(
      * for that layout. Otherwise, and for the first layout, [initialView] applies as usual.
      */
     focusNodeId: String? = null,
+    /**
+     * Length of the animated transition when a new layout replaces the one shown (for the same [state] id):
+     * nodes move and resize to their new places, new nodes fade in growing out of the node they belong to
+     * or are connected to, removed nodes and edges fade out, and with [focusNodeId] the view moves with them
+     * so the focus node stays still. Clicks are ignored while it runs. 0 (the default) switches at once.
+     */
+    relayoutAnimationMillis: Int = 0,
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis)
     }
 }
 
@@ -973,6 +1014,7 @@ private fun CompoundGraphLayoutViewContent(
     directEdgeEndGap: Dp,
     layingOutPlaceholder: @Composable () -> Unit,
     focusNodeId: String?,
+    relayoutAnimationMillis: Int,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1009,13 +1051,29 @@ private fun CompoundGraphLayoutViewContent(
         }
         computedLayout = layoutInputs to result
     }
-    val layoutPending = computedLayout?.first != layoutInputs
-    val layoutResult = computedLayout?.second ?: run {
+    val targetLayout = computedLayout?.second ?: run {
         Box(modifier = modifier.testTag(CompoundGraphLayoutViewTags.LAYING_OUT), contentAlignment = Alignment.Center) {
             layingOutPlaceholder()
         }
         return
     }
+
+    // What was drawn last (layout and view state), for the focus node and the start of a transition.
+    val shownPlacement = remember(state.id) { ShownPlacementHolder() }
+    // Transition from what is drawn to a new layout. A layout that arrives during a transition starts
+    // from the positions drawn at that moment.
+    val transition = remember(targetLayout) {
+        val previous = shownPlacement.last?.layout
+        if (relayoutAnimationMillis > 0 && previous != null && previous !== targetLayout) RelayoutTransition(previous) else null
+    }
+    LaunchedEffect(transition) {
+        transition?.progress?.animateTo(1f, tween(durationMillis = relayoutAnimationMillis, easing = FastOutSlowInEasing))
+    }
+    val drawn = transition?.let { interpolateLayouts(it.from, targetLayout, it.progress.value, focusNodeId) } ?: DrawnLayout(targetLayout)
+    val animating = drawn.layout !== targetLayout
+    val layoutPending = computedLayout?.first != layoutInputs || animating
+    // Everything below draws this; measurements are reported against the target layout only.
+    val layoutResult = drawn.layout
 
     // Containers first so their composable content sits behind leaf-node content in z-order.
     // Also paint shallower containers first so parent backgrounds do not cover child containers.
@@ -1065,20 +1123,8 @@ private fun CompoundGraphLayoutViewContent(
             .map { it.globalOffsetX to it.globalOffsetY }
     }
 
-    val minX = remember(layoutResult) {
-        val nodeMin = layoutResult.nodeLayoutsById.values.minOfOrNull { it.globalX }
-        val edgeMin = layoutResult.edgeRoutesByEdgeId.values
-            .flatten()
-            .minOfOrNull { it.first }
-        listOfNotNull(nodeMin, edgeMin).minOrNull() ?: 0.0
-    }
-    val minY = remember(layoutResult) {
-        val nodeMin = layoutResult.nodeLayoutsById.values.minOfOrNull { it.globalY }
-        val edgeMin = layoutResult.edgeRoutesByEdgeId.values
-            .flatten()
-            .minOfOrNull { it.second }
-        listOfNotNull(nodeMin, edgeMin).minOrNull() ?: 0.0
-    }
+    val minX = remember(layoutResult) { layoutTopLeft(layoutResult).first }
+    val minY = remember(layoutResult) { layoutTopLeft(layoutResult).second }
     val maxX = remember(layoutResult) {
         val nodeMax = layoutResult.nodeLayoutsById.values.maxOfOrNull { it.globalX + it.width }
         val edgeMax = layoutResult.edgeRoutesByEdgeId.values
@@ -1107,9 +1153,11 @@ private fun CompoundGraphLayoutViewContent(
         }
     }
 
+    val currentTargetLayout by rememberUpdatedState(targetLayout)
     val onContentMeasured: (String, Pair<Double, Double>) -> Unit = remember(state.id, layoutKey) {
         { nodeId, size ->
-            if (measuredContentSizes[nodeId] != size) {
+            // Nodes still drawn while they fade out are not in the graph any more.
+            if (nodeId in currentTargetLayout.nodeLayoutsById && measuredContentSizes[nodeId] != size) {
                 measuredContentSizes = measuredContentSizes + (nodeId to size)
             }
         }
@@ -1118,11 +1166,26 @@ private fun CompoundGraphLayoutViewContent(
     // Focus node: when a new layout replaces the one shown, the offset that keeps the focus node's centre
     // where it was on the screen. It is drawn with at once, and passed to updateView; it is used until the
     // caller's view state changes.
-    val shownPlacement = remember(state.id) { ShownPlacementHolder() }
-    val focusPlacement: FocusPlacement? = remember(layoutResult) {
-        focusPlacementFor(shownPlacement.last, layoutResult, minX, minY, focusNodeId, viewState)
+    val focusPlacement: FocusPlacement? = remember(targetLayout) {
+        val (targetMinX, targetMinY) = layoutTopLeft(targetLayout)
+        focusPlacementFor(shownPlacement.last, targetLayout, targetMinX, targetMinY, focusNodeId, viewState)
     }
-    val drawnViewState = if (focusPlacement != null && viewState == focusPlacement.from) focusPlacement.to else viewState
+    val drawnViewState = when {
+        // Used until the caller's view state changes, other than to the offset passed to updateView.
+        focusPlacement == null || (viewState != focusPlacement.from && viewState != focusPlacement.to) -> viewState
+        !animating -> focusPlacement.to
+        // During the transition the offset moves with the drawn layout, so the focus node stays still.
+        else -> layoutResult.nodeLayoutsById[focusNodeId]?.let { f ->
+            val zoom = focusPlacement.to.zoom
+            GraphLayoutViewState(
+                zoom = zoom,
+                offset = Offset(
+                    focusPlacement.screen.x - zoom * (f.globalX + f.width / 2.0 - minX).toFloat(),
+                    focusPlacement.screen.y - zoom * (f.globalY + f.height / 2.0 - minY).toFloat(),
+                )
+            )
+        } ?: focusPlacement.to
+    }
     SideEffect { shownPlacement.last = ShownPlacement(layoutResult, minX, minY, drawnViewState) }
     LaunchedEffect(focusPlacement) {
         if (focusPlacement != null && focusPlacement.to != focusPlacement.from) updateView(focusPlacement.to.offset, focusPlacement.to.zoom)
@@ -1137,9 +1200,20 @@ private fun CompoundGraphLayoutViewContent(
     val userMovedView = movedStateId == state.id
     var viewportSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val currentUpdateView by rememberUpdatedState(updateView)
-    val graphWidth = (maxX - minX).toFloat()
-    val graphHeight = (maxY - minY).toFloat()
-    LaunchedEffect(state.id, initialView, layoutResult, viewportSize, userMovedView) {
+    // Placed for the layout being shown or moved to, not for each drawn step of a transition.
+    val (graphWidth, graphHeight) = remember(targetLayout) {
+        val (tMinX, tMinY) = layoutTopLeft(targetLayout)
+        val tMaxX = listOfNotNull(
+            targetLayout.nodeLayoutsById.values.maxOfOrNull { it.globalX + it.width },
+            targetLayout.edgeRoutesByEdgeId.values.flatten().maxOfOrNull { it.first }
+        ).maxOrNull() ?: 100.0
+        val tMaxY = listOfNotNull(
+            targetLayout.nodeLayoutsById.values.maxOfOrNull { it.globalY + it.height },
+            targetLayout.edgeRoutesByEdgeId.values.flatten().maxOfOrNull { it.second }
+        ).maxOrNull() ?: 100.0
+        (tMaxX - tMinX).toFloat() to (tMaxY - tMinY).toFloat()
+    }
+    LaunchedEffect(state.id, initialView, targetLayout, viewportSize, userMovedView) {
         // The focus node decides where this layout goes.
         if (focusPlacement != null) return@LaunchedEffect
         if (userMovedView || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
@@ -1241,7 +1315,9 @@ private fun CompoundGraphLayoutViewContent(
                                 layoutResult = layoutResult,
                                 nodeCoordinatesById = nodeCoordinatesById,
                                 onChildHostMeasured = onChildHostMeasured,
-                                onContentMeasured = onContentMeasured
+                                onContentMeasured = onContentMeasured,
+                                nodeAlpha = drawn.nodeAlpha,
+                                reportMetricsFor = if (animating) null else targetLayout,
                             )
                         }
                     },
@@ -1388,8 +1464,10 @@ private fun CompoundGraphLayoutViewContent(
                         }
 
                         val edgeContent = edgeContentById[edgeId]
+                        val edgeAlpha = drawn.edgeAlpha[edgeId] ?: 1f
                         if (drawRoute.size >= 2) {
                             drawPath(
+                                alpha = edgeAlpha,
                                 path = Path().apply {
                                     drawRoute.forEachIndexed { index, point ->
                                         val x = (point.first + globalToViewportOffsetX).toFloat()
@@ -1429,9 +1507,9 @@ private fun CompoundGraphLayoutViewContent(
                                     scale = density
                                 ) { path, color, stroke ->
                                     if (stroke == null) {
-                                        drawPath(path = path, color = color ?: Color.Transparent)
+                                        drawPath(path = path, color = color ?: Color.Transparent, alpha = edgeAlpha)
                                     } else {
-                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke, alpha = edgeAlpha)
                                     }
                                 }
                             }
@@ -1444,9 +1522,9 @@ private fun CompoundGraphLayoutViewContent(
                                     scale = density
                                 ) { path, color, stroke ->
                                     if (stroke == null) {
-                                        drawPath(path = path, color = color ?: Color.Transparent)
+                                        drawPath(path = path, color = color ?: Color.Transparent, alpha = edgeAlpha)
                                     } else {
-                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke)
+                                        drawPath(path = path, color = color ?: Color.Transparent, style = stroke, alpha = edgeAlpha)
                                     }
                                 }
                             }
@@ -1493,10 +1571,11 @@ private fun CompoundGraphLayoutViewContent(
                     Layout(
                         content = {
                             edgeTextPlacements.forEach { placement ->
+                                val labelAlpha = drawn.edgeAlpha[placement.edgeId] ?: 1f
                                 if (placement.isMissing) {
                                     MissingEdgeContent(placement.edgeId)
                                 } else {
-                                    Column {
+                                    Column(if (labelAlpha < 1f) Modifier.graphicsLayer(alpha = labelAlpha) else Modifier) {
                                         placement.texts.forEach { text ->
                                             EdgeTextBubble(text)
                                         }
@@ -1552,6 +1631,18 @@ private fun CompoundGraphLayoutViewContent(
                     }
                 }
             }
+        }
+        // While a transition is drawn the nodes are not where the new layout puts them, so clicks are ignored.
+        if (animating) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+            )
         }
     }
 }

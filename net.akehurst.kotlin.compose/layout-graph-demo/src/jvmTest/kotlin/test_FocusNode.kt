@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -92,6 +93,52 @@ class test_FocusNode {
         assertTrue(abs(r.before.x - r.after.x) <= 1f && abs(r.before.y - r.after.y) <= 1f, "B moved on the screen from ${r.before} to ${r.after}")
         assertTrue(r.updates.isNotEmpty(), "updateView was not called with the new offset")
         assertEquals(r.updates.last(), r.finalView)
+    }
+
+    /** With a 1 s transition, B stays still in every frame, and C fades in. */
+    @Test
+    fun focus_node_stays_still_during_the_animation() {
+        runComposeUiTest {
+            val s = state()
+            var view by mutableStateOf(GraphLayoutViewState(zoom = 1f, offset = Offset(300f, 40f)))
+            var layoutKey by mutableStateOf(0)
+            var focusId by mutableStateOf<String?>(null)
+            setContent {
+                Box(Modifier.testTag("root").size(800.dp, 600.dp).background(Color.White)) {
+                    CompoundGraphLayoutView(
+                        state = s, viewState = view, updateView = { o, z -> view = GraphLayoutViewState(z, o) },
+                        modifier = Modifier.fillMaxSize(), layoutKey = layoutKey, focusNodeId = focusId,
+                        relayoutAnimationMillis = 1000,
+                    )
+                }
+            }
+            waitForGraphLayout()
+            fun centreOf(id: String) = onNodeWithTag("node-$id", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.center
+            val before = centreOf("B")
+            mainClock.autoAdvance = false
+            runOnIdle {
+                expandB(s)
+                focusId = "B"
+                layoutKey++
+            }
+            // The layout runs in the background; step frames until C is drawn, then through the transition.
+            var frames = 0
+            while (onAllNodesWithTag("node-C", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() && frames < 2000) {
+                Thread.sleep(5); mainClock.advanceTimeByFrame(); frames++
+            }
+            assertTrue(frames < 2000, "C never appeared")
+            val samples = mutableListOf<Offset>()
+            repeat(80) {
+                mainClock.advanceTimeByFrame()
+                samples += centreOf("B")
+                Thread.sleep(2)
+            }
+            mainClock.autoAdvance = true
+            waitForGraphLayout()
+            samples += centreOf("B")
+            val worst = samples.maxOf { maxOf(abs(it.x - before.x), abs(it.y - before.y)) }
+            assertTrue(worst <= 1f, "B moved up to $worst px during the transition (before $before, samples ${samples.take(5)}...)")
+        }
     }
 
     @Test
