@@ -14,8 +14,16 @@ class test_ZoomLimits {
     }
 
     @Test
-    fun default_min_zoom_is_1_for_a_graph_that_fits() {
-        assertEquals(1f, effectiveMinZoom(null, 100f, 50f, 400f, 300f))
+    fun default_min_zoom_leaves_a_small_graph_room_to_zoom_out() {
+        assertEquals(0.5f, effectiveMinZoom(null, 100f, 50f, 400f, 300f))
+    }
+
+    @Test
+    fun default_min_zoom_for_a_medium_graph_is_where_it_fits() {
+        // 600 x 300 in a 400 x 300 view fits at 400 / 600, which is above 0.5, so 0.5 applies
+        assertEquals(0.5f, effectiveMinZoom(null, 600f, 300f, 400f, 300f))
+        // 1 000 x 300 fits at 0.4
+        assertEquals(0.4f, effectiveMinZoom(null, 1_000f, 300f, 400f, 300f), 1e-6f)
     }
 
     @Test

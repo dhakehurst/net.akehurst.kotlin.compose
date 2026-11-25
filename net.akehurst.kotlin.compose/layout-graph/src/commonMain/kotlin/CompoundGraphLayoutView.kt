@@ -222,7 +222,10 @@ private data class EdgeTextPlacement(
 )
 
 private const val boundaryEpsilon = 1e-6
-/** Minimum zoom used when neither a `minZoom` nor the sizes needed to fit the graph are known. */
+/**
+ * The smallest zoom a graph that fits the view can be zoomed out to, when no `minZoom` is given;
+ * also used when the sizes needed to fit the graph are not known yet.
+ */
 internal const val DEFAULT_MIN_ZOOM = 0.5f
 /** Default for the `maxZoom` of [CompoundGraphLayoutView] and the ladder view. */
 const val DEFAULT_MAX_ZOOM = 5f
@@ -230,12 +233,12 @@ const val DEFAULT_MAX_ZOOM = 5f
 /**
  * The smallest zoom the user can zoom out to: [minZoom] when given, otherwise the zoom at which a graph of
  * [graphWidth] x [graphHeight] just fits a view of [viewWidth] x [viewHeight] (all in pixels), but never more
- * than 1, so a graph that already fits at zoom 1 can still be shown at zoom 1.
+ * than [DEFAULT_MIN_ZOOM], so a small graph can still be zoomed out a little.
  */
 internal fun effectiveMinZoom(minZoom: Float?, graphWidth: Float, graphHeight: Float, viewWidth: Float, viewHeight: Float): Float {
     if (minZoom != null) return minZoom
     if (graphWidth <= 0f || graphHeight <= 0f || viewWidth <= 0f || viewHeight <= 0f) return DEFAULT_MIN_ZOOM
-    return min(min(viewWidth / graphWidth, viewHeight / graphHeight), 1f)
+    return min(min(viewWidth / graphWidth, viewHeight / graphHeight), DEFAULT_MIN_ZOOM)
 }
 private const val scrollZoomSensitivity = 0.06f
 
@@ -1061,7 +1064,7 @@ fun CompoundGraphLayoutView(
     /**
      * The smallest zoom the user can zoom out to (pinch or scroll wheel), and the furthest
      * [InitialViewPlacement.FIT_AND_CENTRE] zooms out. Null (the default) is the zoom at which the whole graph
-     * just fits the view, or 1 when the graph already fits at zoom 1.
+     * just fits the view, but at least down to 0.5 for a graph that is smaller than that.
      */
     minZoom: Float? = null,
     /** The largest zoom the user can zoom in to (pinch or scroll wheel). */

@@ -109,7 +109,7 @@ fun LadderLayoutView(
     /**
      * The smallest zoom the user can zoom out to (pinch or scroll wheel), and the furthest
      * [InitialViewPlacement.FIT_AND_CENTRE] zooms out. Null (the default) is the zoom at which the whole diagram
-     * just fits the view, or 1 when the diagram already fits at zoom 1.
+     * just fits the view, but at least down to 0.5 for a diagram that is smaller than that.
      */
     minZoom: Float? = null,
     /** The largest zoom the user can zoom in to (pinch or scroll wheel). */
