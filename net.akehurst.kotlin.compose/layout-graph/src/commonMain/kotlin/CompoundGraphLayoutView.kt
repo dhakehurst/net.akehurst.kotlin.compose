@@ -119,14 +119,16 @@ enum class InitialViewPlacement {
 internal fun initialViewState(
     placement: InitialViewPlacement,
     graphWidth: Float, graphHeight: Float,
-    viewWidth: Float, viewHeight: Float
+    viewWidth: Float, viewHeight: Float,
+    /** FIT_AND_CENTRE zooms out no further than this. */
+    minZoom: Float = DEFAULT_MIN_ZOOM,
 ): GraphLayoutViewState? {
     val zoom = when (placement) {
         InitialViewPlacement.AS_GIVEN -> return null
         InitialViewPlacement.CENTRE -> 1f
         InitialViewPlacement.FIT_AND_CENTRE -> {
             val fit = min(viewWidth / graphWidth.coerceAtLeast(1f), viewHeight / graphHeight.coerceAtLeast(1f))
-            fit.coerceIn(minViewZoom, 1f)
+            fit.coerceIn(minOf(minZoom, 1f), 1f)
         }
     }
     return GraphLayoutViewState(
@@ -220,8 +222,21 @@ private data class EdgeTextPlacement(
 )
 
 private const val boundaryEpsilon = 1e-6
-private const val minViewZoom = 0.5f
-private const val maxViewZoom = 5f
+/** Minimum zoom used when neither a `minZoom` nor the sizes needed to fit the graph are known. */
+internal const val DEFAULT_MIN_ZOOM = 0.5f
+/** Default for the `maxZoom` of [CompoundGraphLayoutView] and the ladder view. */
+const val DEFAULT_MAX_ZOOM = 5f
+
+/**
+ * The smallest zoom the user can zoom out to: [minZoom] when given, otherwise the zoom at which a graph of
+ * [graphWidth] x [graphHeight] just fits a view of [viewWidth] x [viewHeight] (all in pixels), but never more
+ * than 1, so a graph that already fits at zoom 1 can still be shown at zoom 1.
+ */
+internal fun effectiveMinZoom(minZoom: Float?, graphWidth: Float, graphHeight: Float, viewWidth: Float, viewHeight: Float): Float {
+    if (minZoom != null) return minZoom
+    if (graphWidth <= 0f || graphHeight <= 0f || viewWidth <= 0f || viewHeight <= 0f) return DEFAULT_MIN_ZOOM
+    return min(min(viewWidth / graphWidth, viewHeight / graphHeight), 1f)
+}
 private const val scrollZoomSensitivity = 0.06f
 
 private fun clipRayToRectBoundary(from: Offset, to: Offset, rect: Rect): Offset {
@@ -841,9 +856,11 @@ internal fun requiredChildHostHeight(
 internal fun zoomAboutPointer(
     state: GraphLayoutViewState,
     pointer: Offset,
-    targetZoom: Float
+    targetZoom: Float,
+    minZoom: Float = DEFAULT_MIN_ZOOM,
+    maxZoom: Float = DEFAULT_MAX_ZOOM,
 ): GraphLayoutViewState {
-    val clampedZoom = targetZoom.coerceIn(minViewZoom, maxViewZoom)
+    val clampedZoom = targetZoom.coerceIn(minZoom, maxZoom)
     if (clampedZoom == state.zoom) return state
 
     val zoomFactor = clampedZoom / state.zoom
@@ -855,9 +872,11 @@ internal fun applyPanAndZoomGesture(
     state: GraphLayoutViewState,
     centroid: Offset,
     pan: Offset,
-    zoomChange: Float
+    zoomChange: Float,
+    minZoom: Float = DEFAULT_MIN_ZOOM,
+    maxZoom: Float = DEFAULT_MAX_ZOOM,
 ): GraphLayoutViewState {
-    val zoomed = zoomAboutPointer(state, centroid, state.zoom * zoomChange)
+    val zoomed = zoomAboutPointer(state, centroid, state.zoom * zoomChange, minZoom, maxZoom)
     return zoomed.copy(offset = zoomed.offset + pan)
 }
 
@@ -1039,9 +1058,17 @@ fun CompoundGraphLayoutView(
     layoutErrorContent: @Composable (Throwable) -> Unit = { DefaultLayoutErrorContent(it) },
     /** Called with the exception each time a layout fails, for example to log it; [layoutErrorContent] is shown as well. */
     onLayoutError: (Throwable) -> Unit = {},
+    /**
+     * The smallest zoom the user can zoom out to (pinch or scroll wheel), and the furthest
+     * [InitialViewPlacement.FIT_AND_CENTRE] zooms out. Null (the default) is the zoom at which the whole graph
+     * just fits the view, or 1 when the graph already fits at zoom 1.
+     */
+    minZoom: Float? = null,
+    /** The largest zoom the user can zoom in to (pinch or scroll wheel). */
+    maxZoom: Float = DEFAULT_MAX_ZOOM,
 ) {
     CompositionLocalProvider(LocalCompoundGraphLayoutColors provides colors) {
-        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis, stableRelayout, layoutErrorContent, onLayoutError)
+        CompoundGraphLayoutViewContent(state, viewState, updateView, modifier, layoutKey, colors, initialView, avoidLabelOverlap, directEdgeEndGap, layingOutPlaceholder, focusNodeId, relayoutAnimationMillis, stableRelayout, layoutErrorContent, onLayoutError, minZoom, maxZoom)
     }
 }
 
@@ -1063,6 +1090,8 @@ private fun CompoundGraphLayoutViewContent(
     stableRelayout: Boolean,
     layoutErrorContent: @Composable (Throwable) -> Unit,
     onLayoutError: (Throwable) -> Unit,
+    minZoom: Float?,
+    maxZoom: Float,
 ) {
     var measuredContainerMetrics by remember(state.id, layoutKey) {
         mutableStateOf<Map<String, ContainerChildHostMetrics>>(emptyMap())
@@ -1298,13 +1327,17 @@ private fun CompoundGraphLayoutViewContent(
         ).maxOrNull() ?: 100.0
         (tMaxX - tMinX).toFloat() to (tMaxY - tMinY).toFloat()
     }
+    val zoomLimits by rememberUpdatedState(
+        effectiveMinZoom(minZoom, graphWidth, graphHeight, viewportSize.width.toFloat(), viewportSize.height.toFloat()) to maxZoom
+    )
     LaunchedEffect(state.id, initialView, targetLayout, viewportSize, userMovedView) {
         // The focus node decides where this layout goes.
         if (focusPlacement != null) return@LaunchedEffect
         if (userMovedView || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
         val placed = initialViewState(
             initialView, graphWidth, graphHeight,
-            viewportSize.width.toFloat(), viewportSize.height.toFloat()
+            viewportSize.width.toFloat(), viewportSize.height.toFloat(),
+            minZoom = zoomLimits.first,
         ) ?: return@LaunchedEffect
         if (placed != stateForGestures) currentUpdateView(placed.offset, placed.zoom)
     }
@@ -1333,7 +1366,9 @@ private fun CompoundGraphLayoutViewContent(
                         state = sg,
                         centroid = centroid,
                         pan = pan,
-                        zoomChange = zoom
+                        zoomChange = zoom,
+                        minZoom = zoomLimits.first,
+                        maxZoom = zoomLimits.second,
                     )
                     if (next != sg) {
                         movedStateId = currentStateId
@@ -1357,7 +1392,9 @@ private fun CompoundGraphLayoutViewContent(
                             val next = zoomAboutPointer(
                                 state = stateForGestures,
                                 pointer = change.position,
-                                targetZoom = stateForGestures.zoom * scale
+                                targetZoom = stateForGestures.zoom * scale,
+                                minZoom = zoomLimits.first,
+                                maxZoom = zoomLimits.second,
                             )
                             if (next != stateForGestures) {
                                 movedStateId = currentStateId

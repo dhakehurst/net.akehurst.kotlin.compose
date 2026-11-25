@@ -49,6 +49,8 @@ import net.akehurst.kotlin.compose.layout.graph.drawEdgeSymbol
 import net.akehurst.kotlin.compose.layout.graph.initialViewState
 import net.akehurst.kotlin.compose.layout.graph.routeAnchor
 import net.akehurst.kotlin.compose.layout.graph.zoomAboutPointer
+import net.akehurst.kotlin.compose.layout.graph.effectiveMinZoom
+import net.akehurst.kotlin.compose.layout.graph.DEFAULT_MAX_ZOOM
 import net.akehurst.kotlin.compose.layout.graph.zoomFactorFromScrollDelta
 import kotlin.math.roundToInt
 
@@ -104,6 +106,14 @@ fun LadderLayoutView(
      * until the user pans or zooms. It is done again for a new [state] id.
      */
     initialView: InitialViewPlacement = InitialViewPlacement.AS_GIVEN,
+    /**
+     * The smallest zoom the user can zoom out to (pinch or scroll wheel), and the furthest
+     * [InitialViewPlacement.FIT_AND_CENTRE] zooms out. Null (the default) is the zoom at which the whole diagram
+     * just fits the view, or 1 when the diagram already fits at zoom 1.
+     */
+    minZoom: Float? = null,
+    /** The largest zoom the user can zoom in to (pinch or scroll wheel). */
+    maxZoom: Float = DEFAULT_MAX_ZOOM,
 ) {
     val density = LocalDensity.current.density
     val engine = remember(config) { LadderLayoutEngine(config) }
@@ -118,11 +128,15 @@ fun LadderLayoutView(
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val diagramWidth = layoutPx?.width?.toFloat() ?: 0f
     val diagramHeight = layoutPx?.height?.toFloat() ?: 0f
+    val zoomLimits by rememberUpdatedState(
+        effectiveMinZoom(minZoom, diagramWidth, diagramHeight, viewportSize.width.toFloat(), viewportSize.height.toFloat()) to maxZoom
+    )
     LaunchedEffect(state.id, initialView, diagramWidth, diagramHeight, viewportSize, userMovedView) {
         if (userMovedView || layoutPx == null || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
         val placed = initialViewState(
             initialView, diagramWidth, diagramHeight,
-            viewportSize.width.toFloat(), viewportSize.height.toFloat()
+            viewportSize.width.toFloat(), viewportSize.height.toFloat(),
+            minZoom = zoomLimits.first,
         ) ?: return@LaunchedEffect
         if (placed != stateForGestures) currentUpdateView(placed.offset, placed.zoom)
     }
@@ -152,7 +166,7 @@ fun LadderLayoutView(
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val sg = stateForGestures
-                    val next = applyPanAndZoomGesture(state = sg, centroid = centroid, pan = pan, zoomChange = zoom)
+                    val next = applyPanAndZoomGesture(state = sg, centroid = centroid, pan = pan, zoomChange = zoom, minZoom = zoomLimits.first, maxZoom = zoomLimits.second)
                     if (next != sg) {
                         movedStateId = currentStateId
                         currentUpdateView(next.offset, next.zoom)
@@ -165,8 +179,14 @@ fun LadderLayoutView(
                         val event = awaitPointerEvent()
                         if (event.type == PointerEventType.Scroll) {
                             val change = event.changes.firstOrNull() ?: continue
-                            val scale = zoomFactorFromScrollDelta(deltaY = change.scrollDelta.y, density = density)
-                            val next = zoomAboutPointer(state = stateForGestures, pointer = change.position, targetZoom = stateForGestures.zoom * scale)
+                            // The scroll zooms this view, so a scrolling parent must not scroll as well.
+                            event.changes.forEach { it.consume() }
+                            // this pointer input's density, which follows the current one
+                            val scale = zoomFactorFromScrollDelta(deltaY = change.scrollDelta.y, density = this.density)
+                            val next = zoomAboutPointer(
+                                state = stateForGestures, pointer = change.position, targetZoom = stateForGestures.zoom * scale,
+                                minZoom = zoomLimits.first, maxZoom = zoomLimits.second,
+                            )
                             if (next != stateForGestures) {
                                 movedStateId = currentStateId
                                 currentUpdateView(next.offset, next.zoom)

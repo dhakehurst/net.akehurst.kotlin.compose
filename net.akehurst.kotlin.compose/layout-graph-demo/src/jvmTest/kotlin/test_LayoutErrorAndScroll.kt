@@ -106,7 +106,7 @@ class test_LayoutErrorAndScroll {
             }
         }
         waitForGraphLayout()
-        onNodeWithTag("graph").performMouseInput { scroll(3f, ScrollWheel.Vertical) }
+        onNodeWithTag("graph").performMouseInput { scroll(-3f, ScrollWheel.Vertical) } // zoom in: the small graph already fits, so it cannot zoom out below 1
         waitForIdle()
         assertNotEquals(1f, view.zoom, "scrolling over the graph should zoom it")
         assertEquals(0, parentScroll.value, "the parent should not scroll as well")
