@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package net.akehurst.kotlin.compose.layout.graph
 
 import kotlin.test.Test

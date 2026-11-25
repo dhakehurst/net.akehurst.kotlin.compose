@@ -233,6 +233,8 @@ data class CompoundGraphValidationResult(
 /**
  * Step 1 adapter: keeps current flat callers working while routing through the new compound model.
  */
+@Suppress("DEPRECATION")
+@Deprecated("The flat graph model is deprecated; build a GraphLayoutCompoundGraphState directly. Deprecated in 2.4.10, to be removed in the release after it.")
 fun GraphLayoutGraphState.toCompoundGraphState(rootId: String = "root"): GraphLayoutCompoundGraphState {
     val root = GraphLayoutCompoundGraph(id = rootId)
     nodesById.values.forEach { node ->

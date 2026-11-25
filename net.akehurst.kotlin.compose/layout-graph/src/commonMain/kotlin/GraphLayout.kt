@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package net.akehurst.kotlin.compose.layout.graph
 
 import androidx.compose.foundation.Canvas
@@ -35,6 +37,7 @@ import kotlin.math.roundToInt
 /**
  * change the id if you want the graph to update
  */
+@Deprecated("The flat graph view is replaced by CompoundGraphLayoutView with GraphLayoutCompoundGraphState. Deprecated in 2.4.10, to be removed in the release after it.")
 data class GraphLayoutGraphState(
     /** identifies the graph, change it to indicate a state change */
     val id: String,
@@ -54,6 +57,7 @@ data class GraphLayoutGraphState(
     }
 }
 
+@Deprecated("The flat graph view is replaced by CompoundGraphLayoutView with GraphLayoutCompoundGraphState. Deprecated in 2.4.10, to be removed in the release after it.")
 data class GraphLayoutNode(val id: String) {
     constructor(id: String, content: @Composable () -> Unit) : this(id) {
         this.content = content
@@ -62,6 +66,7 @@ data class GraphLayoutNode(val id: String) {
     var content: @Composable () -> Unit = {}; private set
 }
 
+@Deprecated("The flat graph view is replaced by CompoundGraphLayoutView with GraphLayoutCompoundGraphState. Deprecated in 2.4.10, to be removed in the release after it.")
 data class GraphLayoutEdge(
     val id: String,
     val sourceId: String,
@@ -78,11 +83,7 @@ data class GraphLayoutEdge(
     var content: List<@Composable () -> Unit> = emptyList(); private set
 }
 
-data class GraphLayoutViewState(
-    val zoom: Float = 1f,
-    val offset: Offset = Offset.Zero
-)
-
+@Deprecated("The flat graph view is replaced by CompoundGraphLayoutView with GraphLayoutCompoundGraphState. Deprecated in 2.4.10, to be removed in the release after it.")
 object GraphLayoutIcons {
 
     private var _Rectilinear: ImageVector? = null
@@ -207,6 +208,7 @@ object GraphLayoutIcons {
         }
 }
 
+@Deprecated("The flat graph view is replaced by CompoundGraphLayoutView with GraphLayoutCompoundGraphState. Deprecated in 2.4.10, to be removed in the release after it.")
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GraphLayoutView(
@@ -355,6 +357,7 @@ fun GraphLayoutView(
 
 }
 
+@Deprecated("Part of the flat graph view; not used by CompoundGraphLayoutView. Deprecated in 2.4.10, to be removed in the release after it.")
 @Composable
 fun ScalableBox(
     scale: Float = 1f,
