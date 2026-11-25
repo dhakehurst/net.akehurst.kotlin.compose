@@ -155,10 +155,10 @@ class test_CompoundCollapseExpand {
         assertTrue(onBoundary, "Last route point $last must lie on container boundary")
     }
 
-    // ── Layout engine: collapse policy ──────────────────────────────────────
+    // ── Layout engine: collapsed on the first layout ────────────────────────
 
     @Test
-    fun collapse_policy_default_collapsed_hides_children_on_first_layout() {
+    fun collapsed_container_hides_children_on_first_layout() {
         val root = GraphLayoutCompoundGraph(id = "root")
         root.nodes["Container"] = GraphLayoutCompoundNode(
             id = "Container", widthHint = 200.0, heightHint = 120.0
@@ -166,7 +166,6 @@ class test_CompoundCollapseExpand {
 
         val child = GraphLayoutCompoundGraph(
             id = "Container",
-            collapsePolicy = CollapsePolicy.COLLAPSED_BY_DEFAULT,
             isCollapsed = true
         )
         child.nodes["Inner"] = GraphLayoutCompoundNode(id = "Inner", widthHint = 80.0, heightHint = 40.0)
@@ -175,7 +174,7 @@ class test_CompoundCollapseExpand {
         val result = CompoundLayoutEngine().layout(GraphLayoutCompoundGraphState(id = "test", root = root))
 
         assertNull(result.nodeLayoutsById["Inner"],
-            "Node inside COLLAPSED_BY_DEFAULT container must be hidden on first layout")
+            "Node inside a collapsed container must be hidden on first layout")
     }
 
     // ── Layout engine: determinism ───────────────────────────────────────────

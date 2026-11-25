@@ -15,15 +15,9 @@ fun DemoScenario.toCompoundGraphState(): GraphLayoutCompoundGraphState {
             val containerNode = nodesById[containerId]
             val collapsed = containerNode?.defaultCollapsed == true
             val childLayout = containerNode?.childLayout
-            val isRegionContainer = containerNode
-                ?.containerId
-                ?.let { parentId -> nodesById[parentId]?.childLayout == TessellateChildLayout }
-                ?: false
             graphById[containerId] = GraphLayoutCompoundGraph(
                 id = containerId,
                 childLayout = childLayout,
-                routeBoundary = !isRegionContainer,
-                collapsePolicy = if (collapsed) CollapsePolicy.COLLAPSED_BY_DEFAULT else CollapsePolicy.EXPANDED_BY_DEFAULT,
                 isCollapsed = collapsed
             )
         }

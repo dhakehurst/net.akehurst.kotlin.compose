@@ -9,7 +9,7 @@ class test_ContainerContentSize {
 
     private fun state(collapsed: Boolean, widthHint: Double? = null, heightHint: Double? = null): GraphLayoutCompoundGraphState {
         val root = GraphLayoutCompoundGraph(id = "root")
-        root.nodes["c"] = GraphLayoutCompoundNode(id = "c", kind = NodeKind.CONTAINER, widthHint = widthHint, heightHint = heightHint)
+        root.nodes["c"] = GraphLayoutCompoundNode(id = "c", widthHint = widthHint, heightHint = heightHint)
         root.children["c"] = GraphLayoutCompoundGraph(id = "c", isCollapsed = collapsed).also { g ->
             g.nodes["k"] = GraphLayoutCompoundNode(id = "k", widthHint = 20.0, heightHint = 20.0)
         }

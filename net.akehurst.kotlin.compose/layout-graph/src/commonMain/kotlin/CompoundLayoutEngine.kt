@@ -65,7 +65,6 @@ data class CompoundGraphLayout(
     val globalOffsetY: Double,
     val contentWidth: Double,
     val contentHeight: Double,
-    val routeBoundary: Boolean,
     val childLayout: ChildLayoutAlgorithm,
     /**
      * How far the children are shifted right inside the container's child area, to centre them
@@ -120,7 +119,6 @@ private data class RectBounds(
 private data class PlannedGraphLayout(
     val graphId: String,
     val childLayout: ChildLayoutAlgorithm,
-    val routeBoundary: Boolean,
     val childOriginByContainerNodeId: Map<String, Pair<Double, Double>>,
     val childTrailingXByContainerNodeId: Map<String, Double>,
     val nodeOrder: List<GraphLayoutCompoundNode>,
@@ -534,7 +532,6 @@ class CompoundLayoutEngine(
         return PlannedGraphLayout(
             graphId = graph.id,
             childLayout = effectiveChildLayout,
-            routeBoundary = graph.routeBoundary,
             childOriginByContainerNodeId = childOriginByContainerNodeId,
             childTrailingXByContainerNodeId = childTrailingXByContainerNodeId,
             nodeOrder = nodes,
@@ -575,7 +572,6 @@ class CompoundLayoutEngine(
             globalOffsetY = globalOffset.second,
             contentWidth = plan.contentWidth,
             contentHeight = plan.contentHeight,
-            routeBoundary = plan.routeBoundary,
             childLayout = plan.childLayout,
             centringX = centring,
             shiftY = shiftY

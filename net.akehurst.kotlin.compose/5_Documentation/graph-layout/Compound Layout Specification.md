@@ -143,18 +143,15 @@ data class GraphLayoutCompoundGraphState(
 
 data class GraphLayoutCompoundGraph(
     val id: String,
-    val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
     val childLayout: ChildLayoutAlgorithm? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
-    val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false
 )
 
 data class GraphLayoutCompoundNode(
     val id: String,
-    val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
     val heightHint: Double? = null,
     val metadata: Map<String, String> = emptyMap()
@@ -175,39 +172,16 @@ data class GraphLayoutCompoundNode(
 data class GraphLayoutCompoundEdge(
     val id: String,
     val sourceId: String,
-    val targetId: String,
-    val kind: EdgeKind = EdgeKind.ADJACENCY
+    val targetId: String
 )
 ```
 
 ### 5.5 Proposed enums
 
-```kotlin
-enum class CompoundGraphKind {
-    GENERIC,
-    TREE_LIKE,
-    SERIES_PARALLEL
-}
-
-enum class NodeKind {
-    NORMAL,
-    CONTAINER,
-    PORTAL,
-    DUMMY
-}
-
-enum class EdgeKind {
-    ADJACENCY,
-    HIERARCHY,
-    SELF_LOOP,
-    CROSS_BOUNDARY
-}
-
-enum class CollapsePolicy {
-    EXPANDED_BY_DEFAULT,
-    COLLAPSED_BY_DEFAULT
-}
-```
+The enums proposed here (`CompoundGraphKind`, `NodeKind`, `EdgeKind`, `CollapsePolicy`) and the `kind`, `collapsePolicy`
+and `routeBoundary` fields were removed in 2.4.10: the engine never read them (`routeBoundary` stopped having an effect
+when boundary-point routing was removed). A node is a container when a child graph has its id; a self-loop is an edge
+whose source and target are the same; the collapsed state is `isCollapsed`.
 
 ### 5.5.1 Child layout algorithm
 
@@ -411,8 +385,7 @@ Containers must support two states:
 - collapsed: container is represented as a single summary node
 
 Rules:
-- initial state is determined by `collapsePolicy`
-- runtime state is held in `isCollapsed`
+- the state, initial and at runtime, is held in `isCollapsed`
 - collapsed containers do not render internal nodes/edges
 - collapsed containers still participate in parent layout as atomic nodes
 - edges from/to hidden descendants are rerouted to the collapsed container boundary
@@ -432,7 +405,7 @@ Containment must be explicit and acyclic.
 - Child graphs may contain nodes and subgraphs recursively.
 - Inclusion relationships define structure, not ordinary graph connectivity.
 - Layout must never infer containment from adjacency edges alone.
-- Containment is represented by parent-child ownership, not by `EdgeKind`.
+- Containment is represented by parent-child ownership, not by edges.
 
 ## 7. Routing and ports
 
@@ -465,8 +438,7 @@ Endpoint boundary attachment contract:
 - endpoint anchor selection should prefer distinct boundary positions for parallel/near-parallel routes to improve readability
 
 Region routing refinement:
-- region containers inside a larger state container may disable boundary-routing participation (`routeBoundary = false`) so sibling-region transitions do not produce redundant boundary hops.
-- this avoids zig-zag/clipped routes caused by repeatedly intersecting intermediate region boxes when source/target are already resolved at the enclosing level.
+- (historical) region containers used to opt out of boundary routing with `routeBoundary = false`. Boundary points are no longer added (§13, Q2), so the option was removed in 2.4.10.
 
 ### Edge handling rules
 - self-loops should be local and readable
@@ -582,7 +554,7 @@ When collapse state changes, the layout should preserve:
 
 1. Build a compound graph from the semantic model.
 2. Validate the inclusion tree.
-3. Resolve effective collapse state for each container (`collapsePolicy` + runtime override).
+3. Resolve the collapse state of each container (`isCollapsed`).
 4. Resolve the effective `childLayout` for each container by inheriting from the parent when unspecified.
 5. Identify visible leaf graphs under the current collapse configuration.
 6. Layout visible leaves by calling the effective `childLayout` algorithm.
@@ -627,7 +599,7 @@ When collapse state changes, the layout should preserve:
 - layout output is deterministic for identical input
 - layout output is identical across supported targets (JVM/JS/Wasm) for identical input
 - collapsed container hides all descendants from rendering output
-- collapsed/expanded default state follows `collapsePolicy`
+- collapsed/expanded state follows `isCollapsed`
 - expanding then collapsing preserves deterministic external edge routing
 - edge routes are keyed by stable edge IDs (`edgeRoutesByEdgeId`)
 

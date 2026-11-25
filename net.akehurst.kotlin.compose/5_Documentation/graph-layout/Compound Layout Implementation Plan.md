@@ -198,7 +198,7 @@ Live demo update:
 Acceptance:
 - Collapsed containers hide internal nodes/edges in the live demo.
 - Expand/collapse cycles remain deterministic for unaffected regions.
-- Default collapsed/expanded state follows `collapsePolicy`.
+- Collapsed/expanded state follows `isCollapsed` (`collapsePolicy` was removed in 2.4.10).
 
 ### Step 6: Refinement + profile tuning
 Goal: improve readability/compactness trade-offs and validate profile behavior on representative diagrams.
@@ -211,7 +211,7 @@ Deliverables:
   - normalize region child bounds to tile bounds (author hints are advisory)
   - render shared region seams as single divider lines
 - Routing refinement discovered during live review:
-  - for nested region containers, disable intermediate boundary participation where appropriate (`routeBoundary = false`) to prevent redundant boundary intersections and zig-zag routes.
+  - for nested region containers, disable intermediate boundary participation where appropriate (`routeBoundary = false`) to prevent redundant boundary intersections and zig-zag routes. (Removed in 2.4.10: boundary points are no longer added.)
 - Review notes documenting where readability intentionally wins over compactness.
 
 Live demo update:

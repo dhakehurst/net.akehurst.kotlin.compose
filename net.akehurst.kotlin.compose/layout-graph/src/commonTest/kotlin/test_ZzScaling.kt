@@ -10,7 +10,7 @@ class test_ZzScaling {
         val root = GraphLayoutCompoundGraph("root")
         val pkgOf = mutableMapOf<String, String>()
         (0 until packages).forEach { p ->
-            root.nodes["P$p"] = GraphLayoutCompoundNode("P$p", kind = NodeKind.CONTAINER)
+            root.nodes["P$p"] = GraphLayoutCompoundNode("P$p")
             root.children["P$p"] = GraphLayoutCompoundGraph("P$p")
         }
         (0 until classes).forEach { c ->

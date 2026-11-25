@@ -29,7 +29,7 @@ data class DemoNode(
     val heightHint: Float? = null,
     val paddingHint: PaddingHint? = null,
     val containerId: String? = null,
-    /** If true, this container starts collapsed (policy: COLLAPSED_BY_DEFAULT). */
+    /** If true, this container starts collapsed. */
     val defaultCollapsed: Boolean = false,
     /** Optional layout strategy for this node's immediate children. */
     val childLayout: ChildLayoutAlgorithm? = null,

@@ -45,7 +45,7 @@ class test_ContainerContentSize {
         val root = GraphLayoutCompoundGraph("root")
         leaves.forEach { root.nodes[it] = GraphLayoutCompoundNode(it) }
         containers.forEach { id ->
-            root.nodes[id] = GraphLayoutCompoundNode(id, kind = NodeKind.CONTAINER)
+            root.nodes[id] = GraphLayoutCompoundNode(id)
             root.children[id] = GraphLayoutCompoundGraph(id, isCollapsed = collapsed).also { g ->
                 g.nodes["$id-k"] = GraphLayoutCompoundNode("$id-k")
             }

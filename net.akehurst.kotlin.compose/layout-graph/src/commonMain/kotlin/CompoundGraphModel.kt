@@ -118,14 +118,11 @@ data class GraphLayoutEdgeContent(
  */
 data class GraphLayoutCompoundGraph(
     val id: String,
-    val kind: CompoundGraphKind = CompoundGraphKind.GENERIC,
     /** Optional layout algorithm for this graph's immediate children. Null inherits from parent. */
     val childLayout: ChildLayoutAlgorithm? = null,
     val nodes: MutableMap<String, GraphLayoutCompoundNode> = mutableMapOf(),
     val edges: MutableMap<String, GraphLayoutCompoundEdge> = mutableMapOf(),
     val children: MutableMap<String, GraphLayoutCompoundGraph> = mutableMapOf(),
-    val routeBoundary: Boolean = true,
-    val collapsePolicy: CollapsePolicy = CollapsePolicy.EXPANDED_BY_DEFAULT,
     var isCollapsed: Boolean = false
 )
 
@@ -139,7 +136,6 @@ data class PaddingHint(
 
 data class GraphLayoutCompoundNode(
     val id: String,
-    val kind: NodeKind = NodeKind.NORMAL,
     val widthHint: Double? = null,
     val heightHint: Double? = null,
     val containerPaddingHint: PaddingHint? = null,
@@ -189,7 +185,6 @@ data class GraphLayoutCompoundEdge(
     val id: String,
     val sourceId: String,
     val targetId: String,
-    val kind: EdgeKind = EdgeKind.ADJACENCY,
     /**
      * For [EdgeRouting.BUS]: only edges with the same bus group share a bus, for example to keep
      * generalisations and associations apart. Null is a group of its own (edges with null share with each other).
@@ -197,31 +192,6 @@ data class GraphLayoutCompoundEdge(
     val busGroup: String? = null
 ) {
     val metadata: MutableMap<String, String> = mutableMapOf()
-}
-
-enum class CompoundGraphKind {
-    GENERIC,
-    TREE_LIKE,
-    SERIES_PARALLEL
-}
-
-enum class NodeKind {
-    NORMAL,
-    CONTAINER,
-    PORTAL,
-    DUMMY
-}
-
-enum class EdgeKind {
-    ADJACENCY,
-    HIERARCHY,
-    SELF_LOOP,
-    CROSS_BOUNDARY
-}
-
-enum class CollapsePolicy {
-    EXPANDED_BY_DEFAULT,
-    COLLAPSED_BY_DEFAULT
 }
 
 data class CompoundGraphValidationResult(
@@ -244,8 +214,7 @@ fun GraphLayoutGraphState.toCompoundGraphState(rootId: String = "root"): GraphLa
         root.edges[edge.id] = GraphLayoutCompoundEdge(
             id = edge.id,
             sourceId = edge.sourceId,
-            targetId = edge.targetId,
-            kind = if (edge.sourceId == edge.targetId) EdgeKind.SELF_LOOP else EdgeKind.ADJACENCY
+            targetId = edge.targetId
         )
     }
     return GraphLayoutCompoundGraphState(id = id, routing = routing, root = root).also { compoundState ->

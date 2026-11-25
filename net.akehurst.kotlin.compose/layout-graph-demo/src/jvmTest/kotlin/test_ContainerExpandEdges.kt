@@ -46,7 +46,7 @@ class test_ContainerExpandEdges {
 
     private fun state(collapsed: Boolean): GraphLayoutCompoundGraphState {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["c"] = GraphLayoutCompoundNode("c", kind = NodeKind.CONTAINER)
+        root.nodes["c"] = GraphLayoutCompoundNode("c")
         root.children["c"] = GraphLayoutCompoundGraph("c", isCollapsed = collapsed).also { g ->
             listOf("a", "b", "c2").forEach { g.nodes[it] = GraphLayoutCompoundNode(it) }
             g.edges["a-b"] = GraphLayoutCompoundEdge("a-b", "a", "b")

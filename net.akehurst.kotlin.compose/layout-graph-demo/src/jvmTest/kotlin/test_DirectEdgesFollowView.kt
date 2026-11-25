@@ -46,13 +46,13 @@ class test_DirectEdgesFollowView {
 
     private fun state(routing: EdgeRouting): GraphLayoutCompoundGraphState {
         val root = GraphLayoutCompoundGraph("root")
-        root.nodes["c"] = GraphLayoutCompoundNode("c", kind = NodeKind.CONTAINER)
+        root.nodes["c"] = GraphLayoutCompoundNode("c")
         root.nodes["x"] = GraphLayoutCompoundNode("x")
         root.children["c"] = GraphLayoutCompoundGraph("c").also { g ->
             g.nodes["c_a"] = GraphLayoutCompoundNode("c_a"); g.nodes["c_b"] = GraphLayoutCompoundNode("c_b")
             g.edges["a-b"] = GraphLayoutCompoundEdge("a-b", "c_a", "c_b")
         }
-        root.nodes["d"] = GraphLayoutCompoundNode("d", kind = NodeKind.CONTAINER)
+        root.nodes["d"] = GraphLayoutCompoundNode("d")
         root.children["d"] = GraphLayoutCompoundGraph("d", isCollapsed = true).also { g ->
             g.nodes["p"] = GraphLayoutCompoundNode("p"); g.nodes["q"] = GraphLayoutCompoundNode("q")
             g.edges["p-q"] = GraphLayoutCompoundEdge("p-q", "p", "q")
